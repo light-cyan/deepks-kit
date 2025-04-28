@@ -24,7 +24,7 @@ class PenaltyMixin(object):
 
     def get_fock(self, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, 
                  diis=None, diis_start_cycle=None, 
-                 level_shift_factor=None, damp_factor=None):
+                 level_shift_factor=None, damp_factor=None, **kwargs):
         """modified get_fock method to apply penalty terms onto vhf"""
         if dm is None:
             dm = self.make_rdm1()
@@ -35,9 +35,10 @@ class PenaltyMixin(object):
         vp = sum(pnt.fock_hook(self, dm=dm, h1e=h1e, vhf=vhf, cycle=cycle) 
                     for pnt in self.penalties)
         vhf = vhf + vp
-        return super().get_fock(h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle, 
-                        diis=diis, diis_start_cycle=diis_start_cycle, 
-                        level_shift_factor=level_shift_factor, damp_factor=damp_factor)
+        return super().get_fock(
+            h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle, 
+            diis=diis, diis_start_cycle=diis_start_cycle, 
+            level_shift_factor=level_shift_factor, damp_factor=damp_factor, **kwargs)
 
 
 class AbstructPenalty(object):
