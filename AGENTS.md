@@ -1,5 +1,9 @@
 # Repository guide
 
+## Current objective
+
+- This `light-cyan/deepks-kit` fork is dedicated to completing upstream [`deepmodeling/deepks-kit` Issue #93](https://github.com/deepmodeling/deepks-kit/issues/93): exact analytic DeePHF nuclear forces and force-aware training.
+
 ## Environment
 
 - This is a Python 3.10+ project. Python 3.11 is the standard development and test version.
@@ -14,6 +18,7 @@
 - `deepks/iterate/` and `deepks/task/`: iterative workflows and task execution.
 - `examples/`: runnable configurations and sample data.
 - `tests/baseline/`: smoke checks for currently supported core functionality.
+- `docs/issue-93/`: Issue #93 assessments and the phased implementation plan.
 
 ## Creating tests
 
