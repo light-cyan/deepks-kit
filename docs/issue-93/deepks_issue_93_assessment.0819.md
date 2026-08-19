@@ -58,9 +58,13 @@ The current field layer already exposes projected density and explicit projected
 
 These primitives reduce the RHF direct scope. They should receive characterization tests before extraction or refactoring rather than being rewritten from scratch.
 
+The current package layout should not become the target architecture. [`deepks/scf/scf.py`](../../deepks/scf/scf.py) mixes method-independent descriptor operations with self-consistent DeePKS classes, [`deepks/scf/grad.py`](../../deepks/scf/grad.py) mixes local descriptor derivatives with DeePKS variational gradients, and [`deepks/scf/fields.py`](../../deepks/scf/fields.py) couples method results to data and training concerns. This structure creates semantic ambiguity that cannot be solved by renaming individual variables in place.
+
+The implementation should extract a method-independent descriptor package and place self-consistent DeePKS and perturbative DeePHF in separate sibling method packages. The method packages should depend on the shared descriptor and model contracts but never on one another; data, training, CLI, and workflows should depend on stable method outputs rather than method internals. Because this fork has no compatibility requirement, the refactor should preserve validated numerical behavior instead of old import paths, field names, aliases, or configuration forms.
+
 ## 5. Numerical feasibility evidence
 
-The following checks were run in memory against `b1a5428` with Python 3.11.15, PySCF 2.14.0, Torch 2.13.0, NumPy 2.4.6, double precision, converged RHF references, and central finite differences.
+The response-theory feasibility checks were run in memory against `b1a5428` with Python 3.11.15, PySCF 2.14.0, Torch 2.13.0, NumPy 2.4.6, double precision, converged references, and central finite differences. The current branch also carries deterministic characterization tests for the existing DeePKS and example paths.
 
 | Check | Observation |
 |---|---|
@@ -69,11 +73,12 @@ The following checks were run in memory against `b1a5428` with Python 3.11.15, P
 | RHF direct relaxed Jacobian built from PySCF `make_h1`, full `mo1`, complete `P^R`, and existing `q_P` | Maximum error versus displaced-SCF descriptor finite difference: `3.30e-9` |
 | Total gradient of `E_ref + E_corr` using the RHF direct relaxed Jacobian | Maximum error versus total-energy finite difference: `1.42e-9 Eh/Bohr` |
 | Existing nonzero, smooth, penalty-free self-consistent DeePKS gradient | Agreement with total-energy finite difference at approximately `1e-9` to `1e-8 Eh/Bohr` |
-| Current complete test suite | `5 passed` |
+| Existing RKS and UKS DeePKS gradients on a deterministic unpruned grid | Enabling PySCF grid response gives agreement with total-energy finite differences within approximately `1.6e-8 Eh/Bohr`; the default disabled grid response misses terms of approximately `1.2e-2` to `1.5e-2 Eh/Bohr` on the fixture |
+| Current complete test suite | `42 passed`, including descriptor Jacobians, nonzero RHF/UHF/RKS/UKS DeePKS gradients, scanner behavior, example assets and configuration, force-data contraction, training, checkpoint reload, and model-driven SCF |
 
-These checks prove that the RHF direct architecture has a working implementation path in the current dependency environment. They do not validate a production response residual, Z-vector transpose action, UHF, RKS, UKS, scanner behavior, broad PySCF compatibility, or production data storage.
+These checks prove that the RHF direct architecture has a working implementation path in the current dependency environment and establish a refactor baseline for accepted existing paths. They do not validate a production response residual, Z-vector transpose action, DeePHF response for UHF, RKS, or UKS, broad PySCF compatibility, or production response-data storage.
 
-The current baseline gradient test uses a zero correction and checks only convergence, shape, and finite values in [`tests/baseline/test_scf_grad.py`](../../tests/baseline/test_scf_grad.py#L10-L36). It cannot validate nonzero DeePKS or DeePHF analytic forces.
+The original zero-correction smoke test remains in [`tests/baseline/test_scf_grad.py`](../../tests/baseline/test_scf_grad.py#L10-L36), while the new characterization suite covers nonzero existing DeePKS behavior and finite-difference agreement. These tests protect the refactor but do not validate the missing perturbative DeePHF response.
 
 ## 6. Reliability of Issue #93
 
@@ -87,7 +92,7 @@ The current baseline gradient test uses a zero correction and checks only conver
 
 - A dedicated non-self-consistent method object should compose around a native converged PySCF reference instead of reusing `DSCF` or `UDSCF`.
 
-- Legacy `grad_vx` data must not be silently reinterpreted as a relaxed DeePHF Jacobian.
+- Existing fixed-density Jacobian data cannot supply the missing response term and must be rejected or regenerated when the force-data schema is revised.
 
 - Explicit calculation modes, force evaluation, tests, provenance, scanner support, and documentation are needed.
 
@@ -177,9 +182,9 @@ The implementation must use a canonical ghost predicate based on nuclear charge 
 
 ## 10. Data and training requirements
 
-The legacy `grad_vx` field must retain its explicit fixed-density meaning.
+The current `grad_vx` name does not need to be preserved. P0 should select canonical derivative terminology, and the implementation should update calculation APIs, stored fields, readers, and training consistently.
 
-The new schema should provide unambiguous fields such as `dq_dR_explicit`, optional `dq_dR_response`, and required `dq_dR_relaxed`, or versioned compatibility names with identical semantics.
+The public force-data schema must identify the complete relaxed descriptor Jacobian unambiguously. Explicit and response components are useful internal diagnostics, but they do not need to become separate persisted public fields unless the schema design establishes a concrete use for them.
 
 Every response dataset must record schema version, signs, units, reference class, exchange-correlation functional, basis and ECP information, charge, spin, occupations, projector content or hash, descriptor spin semantics, geometry and atom ordering, ghost policy, software versions, SCF controls, response controls and residual, grid settings, backend identity, and differentiability diagnostics.
 
@@ -206,37 +211,38 @@ PySCF private or semi-private Hessian helpers must be isolated behind a compatib
 The implementation should follow this dependency graph:
 
 ```text
-P0 Contracts, characterization tests, and finite-difference infrastructure
+P0 Scientific contract, architecture, and naming
  |
  v
-P1 Shared descriptor context, minimal non-self-consistent DeePHF energy method, and energy finite-difference oracle
+P1 Shared descriptor core and method separation
  |
  v
-P2 RHF direct response and relaxed-Jacobian scientific oracle
+P2 RHF DeePHF direct oracle
  |-------------------------|-------------------------|-------------------------|
  v                         v                         v                         v
-P3A RHF force training     P3B RHF Z-vector         P3C UHF direct           P3D RKS direct
-                                                     then UHF Z               then RKS Z
-                                                       |                         |
-                                                       |-----------|-------------|
-                                                                   v
-                                                            P4 UKS direct
-                                                            then UKS Z
-                                                                   |
-                                                                   v
-                                             P5 Scanner, full workflow, storage, performance,
-                                                compatibility matrix, and documentation
+P3A Force data/training    P3B RHF Z/inference      P4A UHF direct           P4B RKS direct
+                              |                         |                         |
+                              |-------------------------|--> UHF Z                |
+                              |---------------------------------------------------> RKS Z
+                                                        \                         /
+                                                         \                       /
+                                                          ---> UKS direct ----> UKS Z
+                                                                    |
+                                                                    v
+                                                     P5 Integration and hardening
 ```
 
-The RHF direct backend is the scientific oracle and the first major stage gate.
+P1 is a separate gate so structural movement and naming changes are validated before response-theory code is added. Its contract is numerical equivalence for accepted DeePKS behavior and one-way package dependencies, not compatibility with old interfaces.
 
-RHF force-aware data, training, validation, and saved-data testing depend on RHF direct response but do not depend on Z-vector.
+The RHF direct backend in P2 is the scientific oracle and the first response-theory stage gate.
 
-Scanner lifecycle work depends on the method and descriptor cache design, not on Z-vector. Scanner groundwork can begin after P1, a direct scanner can be validated after P2, and all-backend integration can complete in P5.
+RHF force-aware data and training do not depend on Z-vector. RHF Z-vector inference and RHF scanner validation form parallel P3 tracks after the direct oracle exists.
 
-UHF direct and RKS direct depend on the common restricted-response abstractions but not on each other, so they may proceed in parallel. UKS depends on both the unrestricted spin conventions and the KS grid conventions.
+UHF direct and RKS direct may also start after the RHF direct interfaces stabilize. Each corresponding Z-vector backend additionally depends on the shared adjoint conventions established by the RHF Z-vector track.
 
-Each reference class must have a validated direct backend before its corresponding Z-vector backend is accepted.
+UKS direct depends on stable unrestricted-spin and KS grid/XC conventions. UKS Z-vector follows its direct oracle and the accepted unrestricted and KS adjoint conventions.
+
+Project-wide scanner, workflow, storage, compatibility, and documentation work is consolidated in P5 after the scientific tracks pass their gates.
 
 The detailed task outline and stage gates are recorded in [`issue_93_phase_plan.md`](./issue_93_phase_plan.md).
 
