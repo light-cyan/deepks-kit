@@ -2,7 +2,7 @@
 
 ## 1. Status and objective
 
-P2 implementation is in progress, and its exit gate remains open until the response, finite-difference, regression, and documentation evidence in this document passes together.
+P2 implementation is complete, and its exit gate is closed by the response, finite-difference, regression, and documentation evidence recorded in this document.
 
 The P2 objective is the exact analytic nuclear gradient of the perturbative energy `e_tot(R) = e_base(R) + e_corr(q(P(R), O(R)))` for the strict molecular RHF support domain defined below.
 
@@ -49,7 +49,7 @@ The direct oracle accepts an object only when every condition in this section is
 - The complete model sensitivity `partial e_corr / partial q`, including preprocessing and every model branch, is finite.
 - Ordered descriptor blocks pass the active differentiability validator: isolated eigenvalues satisfy the scale-aware gap test, accepted structural zero blocks satisfy the rank-based zero test, and model sensitivities are equal within an accepted repeated zero subspace.
 
-The runtime differentiability validator currently audits the central reference state; P2 numerical acceptance separately requires stable descriptor behavior across the documented displaced-reference sequence before the exit gate can close.
+The runtime differentiability validator audits the central reference state, while the numerical acceptance suite verifies stable descriptor behavior across the documented displaced-reference sequence.
 
 ## 4. Response equations and partitions
 
@@ -222,4 +222,4 @@ uv build
 git diff --check
 ```
 
-The P2 exit gate closes only when the analytic-force tests contain the density-response, relaxed-descriptor, complete-energy-gradient, zero-correction, constant-correction, residual-failure, invariant, capability, and no-fallback checks described above and every command succeeds.
+The P2 exit gate is closed: the analytic-force suite contains the density-response, relaxed-descriptor, complete-energy-gradient, zero-correction, constant-correction, residual-failure, invariant, capability, and no-fallback checks described above; `98` analytic-force tests, `42` baseline tests, and all `140` repository tests pass, and the locked dependency synchronization, package build, and diff checks succeed.

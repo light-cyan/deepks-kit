@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0 and P1 are complete on the main development branch, and P2 RHF DeePHF direct-oracle implementation is in progress against the accepted scientific and package contracts.
+**Current position:** P0, P1, and P2 are complete; the validated RHF DeePHF direct oracle is the accepted reference for subsequent force-data, Z-vector, and support-domain work.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
