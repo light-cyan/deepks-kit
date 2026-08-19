@@ -3,7 +3,7 @@ from dataclasses import fields, replace
 import numpy as np
 import pytest
 import torch
-from pyscf import gto, scf
+from pyscf import ao2mo, gto, scf
 
 import deepks.deephf.pyscf_rhf as pyscf_rhf
 from deepks.deephf import (
@@ -116,6 +116,41 @@ def test_reference_rejects_non_float64_orbital_state():
     with pytest.raises(
         DeePHFCapabilityError,
         match="orbital state must use numpy.float64",
+    ):
+        DeePHF(reference, None, projector_basis=SMALL_PROJECTOR_BASIS)
+
+
+def test_reference_rejects_object_orbital_state_with_capability_error():
+    reference = _small_reference()
+    reference.mo_coeff = np.asarray(reference.mo_coeff, dtype=object)
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="orbital state must use numpy.float64",
+    ):
+        DeePHF(reference, None, projector_basis=SMALL_PROJECTOR_BASIS)
+
+
+def test_reference_rejects_a_nonphysical_two_electron_integral_cache():
+    molecule = gto.M(
+        atom="H 0 0 0; H 0 0 1.4",
+        basis="sto-3g",
+        unit="Bohr",
+        verbose=0,
+    )
+    reference = scf.RHF(molecule)
+    reference._eri = ao2mo.restore(
+        8,
+        0.5 * molecule.intor("int2e"),
+        molecule.nao,
+    )
+    reference.conv_tol = 1.0e-13
+    reference.kernel()
+    assert reference.converged
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="two-electron interaction does not match the native molecular integrals",
     ):
         DeePHF(reference, None, projector_basis=SMALL_PROJECTOR_BASIS)
 
@@ -328,6 +363,32 @@ def test_mutable_response_array_is_rejected(rhf_oracle_case):
         rhf_oracle_case.method.first_order_density(response=mutable_response)
 
 
+def test_non_float64_response_array_raises_typed_response_error(
+    rhf_oracle_case,
+):
+    invalid_density = np.full(
+        rhf_oracle_case.response.density_response.shape,
+        "0",
+        dtype="U1",
+    )
+    invalid_density.flags.writeable = False
+    forged = replace(
+        rhf_oracle_case.response,
+        density_response=invalid_density,
+        integrity_fingerprint="",
+    )
+    forged = replace(
+        forged,
+        integrity_fingerprint=pyscf_rhf.response_integrity_fingerprint(forged),
+    )
+
+    with pytest.raises(
+        RHFResponseError,
+        match="density_response must use numpy.float64",
+    ):
+        rhf_oracle_case.method.first_order_density(response=forged)
+
+
 @pytest.mark.parametrize(
     "consumer_name",
     ["first_order_density", "dq_dR_response", "dq_dR_relaxed"],
@@ -436,6 +497,59 @@ def test_coordinated_zero_response_fails_independent_equation_audit(
         match="orbital residual is not independently reproducible",
     ):
         rhf_oracle_case.method.first_order_density(response=forged)
+
+
+def test_same_trusted_response_cannot_be_resealed_after_coordinated_mutation():
+    method = DeePHF(
+        _small_reference(),
+        None,
+        projector_basis=SMALL_PROJECTOR_BASIS,
+    )
+    response = method.response()
+
+    def immutable_zeros(value):
+        result = np.zeros_like(value)
+        result.flags.writeable = False
+        return result
+
+    for name in (
+        "mo_response",
+        "mo_response_occupied_virtual",
+        "mo_response_metric",
+        "coefficient_response",
+        "coefficient_response_occupied_virtual",
+        "coefficient_response_metric",
+        "density_response",
+        "density_response_occupied_virtual",
+        "density_response_metric",
+        "orbital_response_residual",
+    ):
+        object.__setattr__(response, name, immutable_zeros(getattr(response, name)))
+    object.__setattr__(
+        response,
+        "diagnostics",
+        replace(
+            response.diagnostics,
+            maximum_residual=0.0,
+            residual_rms=0.0,
+            metric_residual=0.0,
+            idempotency_residual=0.0,
+            particle_number_residual=0.0,
+            refinement_cycles=0,
+            residual_history=(0.0,),
+        ),
+    )
+    object.__setattr__(
+        response,
+        "integrity_fingerprint",
+        pyscf_rhf.response_integrity_fingerprint(response),
+    )
+
+    with pytest.raises(
+        RHFResponseError,
+        match="metric_residual diagnostic is inconsistent",
+    ):
+        method.first_order_density(response=response)
 
 
 def test_relabelled_response_partitions_fail_subspace_audit(rhf_oracle_case):

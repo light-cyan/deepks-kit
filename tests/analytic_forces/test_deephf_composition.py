@@ -200,3 +200,14 @@ def test_deephf_validates_model_sensitivity_in_a_structural_zero_space():
         match="structural zero block sensitivity spread",
     ):
         incompatible.validate_force_compatibility()
+
+    response = DeePHF(
+        reference,
+        None,
+        projector_basis=PROJECTOR_BASIS,
+    ).response()
+    with pytest.raises(
+        DescriptorDifferentiabilityError,
+        match="structural zero block sensitivity spread",
+    ):
+        incompatible.dq_dR_relaxed(response=response)

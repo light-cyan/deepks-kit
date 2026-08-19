@@ -7,7 +7,7 @@ import operator
 import numpy as np
 import pyscf
 from pyscf.hessian import rhf as rhf_hessian
-from pyscf.scf import cphf
+from pyscf.scf import cphf, hf as scf_hf
 
 from .capabilities import DeePHFCapabilityError, validate_reference
 
@@ -347,7 +347,7 @@ class RHFResponseAdapter:
             self.molecule.nao,
         )
         try:
-            coulomb, exchange = self.reference.get_jk(
+            coulomb, exchange = scf_hf.get_jk(
                 self.molecule,
                 flat_density,
                 hermi=1,

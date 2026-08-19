@@ -34,6 +34,7 @@ The direct oracle accepts an object only when every condition in this section is
 - Orbital coefficients, orbital energies, occupations, AO overlap, core Hamiltonian, effective potential, and AO density are real, finite, and shape-compatible with the molecular AO dimension.
 - The MO coefficient matrix is complete and square with `n_mo = n_ao`; occupations are exactly two for the lowest `N/2` orbitals and zero otherwise, their sum equals the molecular electron count, and both occupied and virtual spaces exist.
 - The orbitals satisfy `C^T S C = I` within `1e-8`, the AO overlap minimum eigenvalue exceeds `1e-10`, `Tr(P S)` agrees with the molecular electron count within `1e-8`, and the canonical residual `F C - S C epsilon` does not exceed `1e-7`.
+- The reference effective potential agrees within `1e-10 Eh` with `J[P] - 0.5 K[P]` recomputed directly from the native molecular integrals, so a replaced or corrupted in-core two-electron integral cache is rejected.
 - The stored RHF total energy agrees within `1e-8 Eh` with the value recomputed from the accepted AO density, core Hamiltonian, Fock matrix, and nuclear repulsion.
 - The minimum occupied-virtual orbital-energy gap is finite and exceeds the configured `orbital_gap_tolerance`, whose default is `1e-7 Eh`.
 - The complete unshifted singlet occupied-virtual response operator is explicitly constructed inside the configured dimension limit, is symmetric within the configured tolerance, has a strictly positive minimum eigenvalue, and satisfies the configured condition-number bound.
@@ -93,7 +94,7 @@ All direct-oracle use of the low-level `pyscf.scf.cphf.solve` interface and the 
 
 The adapter checks the PySCF major-minor series before solving, converts PySCF-specific return shapes into the stable `RHFResponse` dataclass, makes every array immutable, and adds state and response-integrity fingerprints before exposing the result to the method and gradient layers.
 
-The adapter constructs `S^A` in the numerical AO basis, obtains the complete first-order RHF Hamiltonian through `pyscf.hessian.rhf.Hessian(reference).make_h1`, and evaluates the induced RHF potential as `J[P^A] - 0.5 K[P^A]`.
+The adapter constructs `S^A` in the numerical AO basis, obtains the complete first-order RHF Hamiltonian through `pyscf.hessian.rhf.Hessian(reference).make_h1`, and evaluates every induced RHF potential as `J[P^A] - 0.5 K[P^A]` through the module-level molecular direct-J/K path rather than a reference integral cache.
 
 No PySCF response helper is imported into `deepks.descriptor`, and method-neutral descriptor code does not own reference-response semantics.
 
@@ -179,6 +180,7 @@ P2 acceptance requires deterministic, real, double-precision, low-cost molecular
 - A zero correction and a nonzero constant correction must both reduce the analytic gradient to the native RHF gradient within the declared tolerance.
 - Deliberately insufficient response convergence, excessive independently recomputed residual, nonfinite response data, invalid model output, incompatible projector metadata, and descriptor nondifferentiability must each produce their documented exception without a fixed-density fallback.
 - A reference with a finite HOMO-LUMO gap but a singular complete occupied-virtual response operator must fail the stability gate before a density response or gradient is returned.
+- A native RHF object converged with a replaced two-electron integral cache must fail the independent molecular-integral consistency gate before response or gradient evaluation.
 - Response and gradient evaluation must leave the converged native RHF energy, density, orbitals, occupations, Fock matrix, and convergence state unchanged.
 
 ### 10.1 Direct-oracle fixture and tolerances

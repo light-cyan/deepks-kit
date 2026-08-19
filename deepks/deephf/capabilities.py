@@ -107,11 +107,6 @@ def validate_reference(reference):
         for value in (mo_coeff, mo_energy, occupations)
     ):
         raise DeePHFCapabilityError("the RHF orbitals must be real")
-    if not all(
-        np.isfinite(value).all()
-        for value in (mo_coeff, mo_energy, occupations)
-    ):
-        raise DeePHFCapabilityError("the RHF orbital state must be finite")
     if any(
         value.dtype != np.dtype(np.float64)
         for value in (mo_coeff, mo_energy, occupations)
@@ -119,6 +114,11 @@ def validate_reference(reference):
         raise DeePHFCapabilityError(
             "the RHF orbital state must use numpy.float64"
         )
+    if not all(
+        np.isfinite(value).all()
+        for value in (mo_coeff, mo_energy, occupations)
+    ):
+        raise DeePHFCapabilityError("the RHF orbital state must be finite")
     if mo_coeff.shape != (mol.nao, mol.nao):
         raise DeePHFCapabilityError(
             "the RHF response requires a complete square MO coefficient matrix"
@@ -150,31 +150,72 @@ def validate_reference(reference):
         hcore = np.asarray(reference.get_hcore())
         density = np.asarray(reference.make_rdm1())
         effective_potential = np.asarray(reference.get_veff(mol, density))
+        direct_coulomb, direct_exchange = scf.hf.get_jk(
+            mol,
+            density,
+            hermi=1,
+        )
+        direct_effective_potential = np.asarray(
+            direct_coulomb - 0.5 * direct_exchange
+        )
     except Exception as error:
         raise DeePHFCapabilityError(
             f"the RHF reference matrices could not be evaluated: {error}"
         ) from error
     if any(
         np.iscomplexobj(value)
-        for value in (overlap, hcore, density, effective_potential)
+        for value in (
+            overlap,
+            hcore,
+            density,
+            effective_potential,
+            direct_effective_potential,
+        )
     ):
         raise DeePHFCapabilityError("the RHF AO matrices must be real")
-    if not all(
-        np.isfinite(value).all()
-        for value in (overlap, hcore, density, effective_potential)
-    ):
-        raise DeePHFCapabilityError("the RHF AO matrices must be finite")
     if any(
         value.dtype != np.dtype(np.float64)
-        for value in (overlap, hcore, density, effective_potential)
+        for value in (
+            overlap,
+            hcore,
+            density,
+            effective_potential,
+            direct_effective_potential,
+        )
     ):
         raise DeePHFCapabilityError("the RHF AO matrices must use numpy.float64")
+    if not all(
+        np.isfinite(value).all()
+        for value in (
+            overlap,
+            hcore,
+            density,
+            effective_potential,
+            direct_effective_potential,
+        )
+    ):
+        raise DeePHFCapabilityError("the RHF AO matrices must be finite")
     expected_ao_shape = (mol.nao, mol.nao)
     if any(
         value.shape != expected_ao_shape
-        for value in (overlap, hcore, density, effective_potential)
+        for value in (
+            overlap,
+            hcore,
+            density,
+            effective_potential,
+            direct_effective_potential,
+        )
     ):
         raise DeePHFCapabilityError("the RHF AO matrix shape is invalid")
+    interaction_error = np.max(
+        np.abs(effective_potential - direct_effective_potential),
+        initial=0.0,
+    )
+    if interaction_error > 1.0e-10:
+        raise DeePHFCapabilityError(
+            "the RHF two-electron interaction does not match the native "
+            f"molecular integrals: residual {interaction_error:.3e}"
+        )
     overlap_eigenvalues = np.linalg.eigvalsh(overlap)
     if overlap_eigenvalues[0] <= 1.0e-10:
         raise DeePHFCapabilityError(
@@ -194,7 +235,7 @@ def validate_reference(reference):
             "the RHF AO density has an inconsistent electron count: "
             f"{electron_count:.12g}"
         )
-    fock = hcore + effective_potential
+    fock = hcore + direct_effective_potential
     canonical_residual = fock @ mo_coeff - overlap @ (
         mo_coeff * mo_energy
     )
