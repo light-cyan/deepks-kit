@@ -52,7 +52,7 @@ def train_cli(args=None):
                         help='paths to the folders of testing data')
     parser.add_argument('-o', '--ckpt-file',
                         help='file to save the model parameters, default: model.pth')
-    parser.add_argument("-P", "--proj_basis",
+    parser.add_argument("-P", "--projector-basis",
                         help="basis set used to project density matrix")   
     parser.add_argument('-S', '--seed', type=int,
                         help='use specified seed in initialization and training')
@@ -84,9 +84,9 @@ def test_cli(args=None):
                         help="the dumped model file to test")
     parser.add_argument("-o", "--output-prefix", type=str,
                         help=r"the prefix of output file, would wite into file %%prefix.%%sysidx.out")
-    parser.add_argument("-E", "--e-name", type=str,
+    parser.add_argument("-E", "--energy-name", type=str,
                         help="the name of energy file to be read (no .npy extension)")
-    parser.add_argument("-D", "--d-name", type=str, nargs="+",
+    parser.add_argument("-D", "--descriptor-name", type=str, nargs="+",
                         help="the name of descriptor file(s) to be read (no .npy extension)")
     parser.add_argument("-G", "--group", action='store_true',
                         help="group test results for all systems")
@@ -98,10 +98,10 @@ def test_cli(args=None):
         argdict = {}
         if "ckpt_file" in rawdict["train_args"]:
             argdict["model_file"] = rawdict["train_args"]["ckpt_file"]
-        if "e_name" in rawdict["data_args"]:
-            argdict["e_name"] = rawdict["data_args"]["e_name"]
-        if "d_name" in rawdict["data_args"]:
-            argdict["d_name"] = rawdict["data_args"]["d_name"]
+        if "energy_name" in rawdict["data_args"]:
+            argdict["energy_name"] = rawdict["data_args"]["energy_name"]
+        if "descriptor_name" in rawdict["data_args"]:
+            argdict["descriptor_name"] = rawdict["data_args"]["descriptor_name"]
         if "test_paths" in rawdict:
             argdict["data_paths"] = rawdict["test_paths"]
         argdict.update(vars(args))
@@ -131,7 +131,7 @@ def scf_cli(args=None):
                         help="fields to be dumped into the folder") 
     parser.add_argument("-B", "--basis",
                         help="basis set used to solve the model") 
-    parser.add_argument("-P", "--proj_basis",
+    parser.add_argument("-P", "--projector-basis",
                         help="basis set used to project dm, must match with model")   
     parser.add_argument("-D", "--device",
                         help="device name used in nn model inference")               
@@ -170,7 +170,7 @@ def scf_cli(args=None):
         argdict = vars(args)
         argdict["scf_args"] = scf_args
 
-    from deepks.scf.run import main
+    from deepks.deepks.run import main
     main(**argdict)
 
 
@@ -197,9 +197,9 @@ def stats_cli(args=None):
                         help="do not print energy results")
     parser.add_argument("-NF", action="store_false", dest="with_f",
                         help="do not print force results")
-    parser.add_argument("--e-name",
+    parser.add_argument("--energy-name",
                         help="name of the energy file (no extension)")
-    parser.add_argument("--f-name",
+    parser.add_argument("--force-name",
                         help="name of the force file (no extension)")
     args = parser.parse_args(args)
 
@@ -213,7 +213,7 @@ def stats_cli(args=None):
     else:
         argdict = vars(args)
 
-    from deepks.scf.stats import print_stats
+    from deepks.data.stats import print_stats
     print_stats(**argdict)
 
 

@@ -22,9 +22,9 @@ init_scf: # parameters for SCF calculation
   # this is for pure energy training
   dump_fields: 
     - e_base # Hartree Fock energy
-    - dm_eig # Descriptors
-    - conv # whether converged or not
-    - l_e_delta # delta energy betweem e_base and reference, label
+    - descriptor # descriptors
+    - converged # whether the calculation converged
+    - e_corr_target # supervised correction-energy label relative to e_base
   verbose: 1
   mol_args: # args to be passed to pyscf.gto.Mole.build
     incore_anyway: True
@@ -41,6 +41,9 @@ init_train: # parameters for nn training
   data_args: 
     batch_size: 16
     group_batch: 1 # can collect multiple system in one batch
+    energy_name: e_corr_target
+    descriptor_name: descriptor
+    converged_name: converged
   preprocess_args:
     preshift: true # shift the descriptor by its mean
     prescale: false # scale the descriptor by its variance (can cause convergence problem)

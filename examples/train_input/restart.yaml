@@ -6,8 +6,9 @@ model_args:
 data_args: 
   batch_size: 1
   group_batch: 16
-  e_name: l_e_delta
-  d_name: [dm_eig]
+  energy_name: e_corr_target
+  descriptor_name: [descriptor]
+  converged_name: converged
 preprocess_args:
   preshift: false
   prescale: false

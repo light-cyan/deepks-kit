@@ -3,7 +3,7 @@ import torch
 from pyscf import gto
 
 from deepks.model.model import CorrNet
-from deepks.scf.scf import DSCF
+from deepks.deepks import RDeePKS
 from deepks.utils import DEFAULT_BASIS, get_shell_sec
 
 
@@ -25,7 +25,7 @@ def test_restricted_scf_and_analytic_gradient_smoke():
         for parameter in model.densenet.parameters():
             parameter.zero_()
 
-    mf = DSCF(mol, model)
+    mf = RDeePKS(mol, model)
     mf.conv_tol = 1e-10
     energy = mf.kernel()
     gradient = mf.nuc_grad_method().kernel()

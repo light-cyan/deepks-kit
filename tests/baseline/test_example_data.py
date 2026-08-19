@@ -2,8 +2,9 @@ from pathlib import Path
 
 import numpy as np
 
-from deepks.scf.fields import select_fields
-from deepks.scf.run import build_mol, solve_mol, system_iter
+from deepks.data.fields import select_fields
+from deepks.data.io import build_molecule, iter_system
+from deepks.deepks.run import solve_molecule
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -37,7 +38,7 @@ def test_example_system_assets_have_consistent_frames_and_labels():
             label_names.add("dm")
 
         frame_count = 0
-        for atoms, attributes, labels in system_iter(str(system_path), label_names):
+        for atoms, attributes, labels in iter_system(str(system_path), label_names):
             frame_count += 1
             coordinates = np.asarray([atom[1] for atom in atoms], dtype=float)
             assert coordinates.shape == (expected_atoms, 3)
@@ -62,24 +63,24 @@ def test_example_system_assets_have_consistent_frames_and_labels():
 def test_water_example_first_frame_scf_and_force_snapshot():
     system_path = EXAMPLE_ROOT / "water_cluster" / "systems" / "train.n1"
     atoms, attributes, labels = next(
-        system_iter(str(system_path), {"energy", "force"})
+        iter_system(str(system_path), {"energy", "force"})
     )
-    molecule = build_mol(atoms, basis="ccpvdz", verbose=0, **attributes)
+    molecule = build_molecule(atoms, basis="ccpvdz", verbose=0, **attributes)
     fields = select_fields(
         [
             "e_base",
             "e_tot",
-            "dm_eig",
-            "conv",
-            "f_base",
+            "descriptor",
+            "converged",
+            "f_reference_variational",
             "f_tot",
-            "grad_vx",
-            "l_e_delta",
-            "l_f_delta",
+            "dq_dR_explicit",
+            "e_corr_target",
+            "f_corr_explicit_target",
         ]
     )
 
-    metadata, result = solve_mol(
+    metadata, result = solve_molecule(
         molecule,
         None,
         fields,
@@ -89,14 +90,14 @@ def test_water_example_first_frame_scf_and_force_snapshot():
     )
 
     np.testing.assert_array_equal(metadata, np.array([3, 3, 24, 108]))
-    assert result["conv"]
+    assert result["converged"]
     np.testing.assert_allclose(result["e_base"], -76.02290493759624, rtol=0.0, atol=2.0e-10)
     np.testing.assert_allclose(result["e_tot"], result["e_base"], rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(result["f_base"], EXPECTED_WATER_FORCE, rtol=0.0, atol=3.0e-9)
-    np.testing.assert_allclose(result["f_tot"], result["f_base"], rtol=0.0, atol=0.0)
-    assert result["dm_eig"].shape == (3, 108)
-    assert result["grad_vx"].shape == (3, 3, 3, 108)
-    np.testing.assert_allclose(np.linalg.norm(result["dm_eig"]), 3.1483482127496454, rtol=0.0, atol=2.0e-10)
-    np.testing.assert_allclose(np.linalg.norm(result["grad_vx"]), 4.283780712012324, rtol=0.0, atol=3.0e-9)
-    np.testing.assert_allclose(result["f_base"].sum(axis=0), np.zeros(3), rtol=0.0, atol=3.0e-12)
-    np.testing.assert_allclose(result["grad_vx"].sum(axis=0), np.zeros_like(result["grad_vx"][0]), rtol=0.0, atol=3.0e-12)
+    np.testing.assert_allclose(result["f_reference_variational"], EXPECTED_WATER_FORCE, rtol=0.0, atol=3.0e-9)
+    np.testing.assert_allclose(result["f_tot"], result["f_reference_variational"], rtol=0.0, atol=0.0)
+    assert result["descriptor"].shape == (3, 108)
+    assert result["dq_dR_explicit"].shape == (3, 3, 3, 108)
+    np.testing.assert_allclose(np.linalg.norm(result["descriptor"]), 3.1483482127496454, rtol=0.0, atol=2.0e-10)
+    np.testing.assert_allclose(np.linalg.norm(result["dq_dR_explicit"]), 4.283780712012324, rtol=0.0, atol=3.0e-9)
+    np.testing.assert_allclose(result["f_reference_variational"].sum(axis=0), np.zeros(3), rtol=0.0, atol=3.0e-12)
+    np.testing.assert_allclose(result["dq_dR_explicit"].sum(axis=0), np.zeros_like(result["dq_dR_explicit"][0]), rtol=0.0, atol=3.0e-12)

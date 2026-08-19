@@ -17,53 +17,64 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def test(model, g_reader, dump_prefix="test", group=False):
     model.eval()
-    loss_fn=nn.MSELoss()
-    label_list = []
-    pred_list = []
+    loss_fn = nn.MSELoss()
+    energy_list = []
+    predicted_energy_list = []
 
     for i in range(g_reader.nsystems):
         sample = g_reader.sample_all(i)
-        nframes = sample["lb_e"].shape[0]
+        nframes = sample["energy"].shape[0]
         sample = {k: v.to(DEVICE, non_blocking=True) for k, v in sample.items()}
-        label, data = sample["lb_e"], sample["eig"]
-        pred = model(data)
-        error = torch.sqrt(loss_fn(pred, label))
+        energy = sample["energy"]
+        descriptor = sample["descriptor"]
+        predicted_energy = model(descriptor)
+        error = torch.sqrt(loss_fn(predicted_energy, energy))
 
         error_np = error.item()
-        label_np = label.cpu().numpy().reshape(nframes, -1).sum(axis=1)
-        pred_np = pred.detach().cpu().numpy().reshape(nframes, -1).sum(axis=1)
-        error_l1 = np.mean(np.abs(label_np - pred_np))
-        label_list.append(label_np)
-        pred_list.append(pred_np)
+        energy_np = energy.cpu().numpy().reshape(nframes, -1).sum(axis=1)
+        predicted_energy_np = (
+            predicted_energy.detach().cpu().numpy().reshape(nframes, -1).sum(axis=1)
+        )
+        error_l1 = np.mean(np.abs(energy_np - predicted_energy_np))
+        energy_list.append(energy_np)
+        predicted_energy_list.append(predicted_energy_np)
 
         if not group and dump_prefix is not None:
             nd = max(len(str(g_reader.nsystems)), 2)
-            dump_res = np.stack([label_np, pred_np], axis=1)
-            header = f"{g_reader.path_list[i]}\nmean l1 error: {error_l1}\nmean l2 error: {error_np}\nreal_ene  pred_ene"
+            dump_res = np.stack([energy_np, predicted_energy_np], axis=1)
+            header = f"{g_reader.path_list[i]}\nmean l1 error: {error_l1}\nmean l2 error: {error_np}\nenergy  predicted_energy"
             filename = f"{dump_prefix}.{i:0{nd}}.out"
             np.savetxt(filename, dump_res, header=header)
             # print(f"system {i} finished")
 
-    all_label = np.concatenate(label_list, axis=0)
-    all_pred = np.concatenate(pred_list, axis=0)
-    all_err_l1 = np.mean(np.abs(all_label - all_pred))
-    all_err_l2 = np.sqrt(np.mean((all_label - all_pred) ** 2))
+    all_energy = np.concatenate(energy_list, axis=0)
+    all_predicted_energy = np.concatenate(predicted_energy_list, axis=0)
+    all_err_l1 = np.mean(np.abs(all_energy - all_predicted_energy))
+    all_err_l2 = np.sqrt(np.mean((all_energy - all_predicted_energy) ** 2))
     info = f"all systems mean l1 error: {all_err_l1}\nall systems mean l2 error: {all_err_l2}"
     print(info)
     if dump_prefix is not None and group:
-        np.savetxt(f"{dump_prefix}.out", np.stack([all_label, all_pred], axis=1), 
-                   header=info + "\nreal_ene  pred_ene")
+        np.savetxt(
+            f"{dump_prefix}.out",
+            np.stack([all_energy, all_predicted_energy], axis=1),
+            header=info + "\nenergy  predicted_energy",
+        )
     return all_err_l1, all_err_l2
 
 
 def main(data_paths, model_file="model.pth", 
          output_prefix='test', group=False,
-         e_name='l_e_delta', d_name=['dm_eig']):
+         energy_name='e_corr_target', descriptor_name=('descriptor',)):
     data_paths = load_dirs(data_paths)
-    if len(d_name) == 1:
-        d_name = d_name[0]
-    g_reader = GroupReader(data_paths, e_name=e_name, d_name=d_name, 
-                           conv_filter=False, extra_label=True)
+    if isinstance(descriptor_name, (list, tuple)) and len(descriptor_name) == 1:
+        descriptor_name = descriptor_name[0]
+    g_reader = GroupReader(
+        data_paths,
+        energy_name=energy_name,
+        descriptor_name=descriptor_name,
+        converged_filter=False,
+        extra_label=True,
+    )
     model_file = check_list(model_file)
     for f in model_file:
         print(f)
@@ -74,9 +85,9 @@ def main(data_paths, model_file="model.pth",
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
         if model.elem_table is not None:
-            elist, econst = model.elem_table
-            g_reader.collect_elems(elist)
-            g_reader.subtract_elem_const(econst)
+            element_list, element_constants = model.elem_table
+            g_reader.collect_elems(element_list)
+            g_reader.subtract_elem_const(element_constants)
         test(model, g_reader, dump_prefix=dump, group=group)
         g_reader.revert_elem_const()
 

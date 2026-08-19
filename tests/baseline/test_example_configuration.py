@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from deepks.utils import deep_update, load_yaml, save_yaml
-from deepks.scf.fields import select_fields
+from deepks.data.fields import select_fields
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]

@@ -13,7 +13,7 @@ from deepks.utils import QCDIR
 
 SCF_CMD = " ".join([
     "{python} -u",
-    "-m deepks.scf.run"
+    "-m deepks.deepks.run"
     # os.path.join(QCDIR, "scf/run.py") # this is the backup choice
 ])
 
@@ -68,7 +68,7 @@ def make_cleanup(pattern="slurm-*.out", workdir=".", **task_args):
 def make_scf_task(*, workdir=".",
                   arg_file="scf_input.yaml", source_arg=None,
                   model_file="model.pth", source_model=None,
-                  proj_basis=None, source_pbasis=None,
+                  projector_basis=None, source_pbasis=None,
                   systems="systems.raw", link_systems=True, 
                   dump_dir="results", share_folder="share", 
                   outlog="log.scf", group_data=None,
@@ -94,11 +94,11 @@ def make_scf_task(*, workdir=".",
             if source_model is not None:
                 link_prev.append((source_model, model_file))
             forward_files.append(model_file)
-    if proj_basis:
-        command += f" -P {proj_basis}"
+    if projector_basis:
+        command += f" --projector-basis {projector_basis}"
         if source_pbasis is not None:
-            link_share.append((source_pbasis, proj_basis))
-        forward_files.append(proj_basis)
+            link_share.append((source_pbasis, projector_basis))
+        forward_files.append(projector_basis)
     if systems:
         # check system paths and make forward files
         sys_paths = [os.path.abspath(s) for s in load_sys_paths(systems)]
@@ -167,7 +167,7 @@ def make_run_scf(systems_train, systems_test=None, *,
     test_sets = [systems_test[i::ntask_tst] for i in range(ntask_tst)]
     # make subtasks
     model_file = "../model.pth" if not no_model else "NONE"
-    proj_basis = "../proj_basis.npz" if source_pbasis else None
+    projector_basis = "../proj_basis.npz" if source_pbasis else None
     nd = max(len(str(ntask_trn+ntask_tst)), 2)
     if sub_res is None:
         sub_res = {}
@@ -176,7 +176,7 @@ def make_run_scf(systems_train, systems_test=None, *,
         make_scf_task(systems=sset, workdir=f"task.trn.{i:0{nd}}", 
                       arg_file="../scf_input.yaml", source_arg=None,
                       model_file=model_file, source_model=None,
-                      proj_basis=proj_basis, source_pbasis=None,
+                      projector_basis=projector_basis, source_pbasis=None,
                       dump_dir=f"../{train_dump}", group_data=group_data,
                       link_systems=True, resources=sub_res, python=python)
         for i, sset in enumerate(train_sets)
@@ -185,7 +185,7 @@ def make_run_scf(systems_train, systems_test=None, *,
         make_scf_task(systems=sset, workdir=f"task.tst.{i:0{nd}}", 
                       arg_file="../scf_input.yaml", source_arg=None,
                       model_file=model_file, source_model=None,
-                      proj_basis=proj_basis, source_pbasis=None,
+                      projector_basis=projector_basis, source_pbasis=None,
                       dump_dir=f"../{test_dump}", group_data=group_data, 
                       link_systems=True, resources=sub_res, python=python)
         for i, sset in enumerate(test_sets)
@@ -228,7 +228,7 @@ def make_stat_scf(systems_train, systems_test=None, *,
         # if len(systems_train) > 1:
         #     del systems_train[-1]
     # load stats function
-    from deepks.scf.stats import print_stats
+    from deepks.data.stats import print_stats
     stat_args.update(
         systems=systems_train,
         test_sys=systems_test,
@@ -285,7 +285,7 @@ def make_scf(systems_train, systems_test=None, *,
 def make_train_task(*, workdir=".",
                     arg_file="train_input.yaml", source_arg=None,
                     restart_model=None, source_model=None, 
-                    proj_basis=None, source_pbasis=None,
+                    projector_basis=None, source_pbasis=None,
                     save_model="model.pth", group_data=False,
                     data_train="data_train", source_train=None,
                     data_test="data_test", source_test=None,
@@ -309,11 +309,11 @@ def make_train_task(*, workdir=".",
         if source_model is not None:
             link_prev.append((source_model, restart_model))
         forward_files.append(restart_model)
-    if proj_basis:
-        command += f" -P {proj_basis}"
+    if projector_basis:
+        command += f" --projector-basis {projector_basis}"
         if source_pbasis is not None:
-            link_share.append((source_pbasis, proj_basis))
-        forward_files.append(proj_basis)
+            link_share.append((source_pbasis, projector_basis))
+        forward_files.append(projector_basis)
     if data_train:
         command += f" -d {data_train}" + ("" if group_data else "/*")
         if source_train is not None:
@@ -356,12 +356,12 @@ def make_run_train(source_train="data_train", source_test="data_test", *,
     # just add some presetted arguments of make_train_task
     # have not implement parrallel training for multiple models
     restart_model = "old_model.pth" if restart else None
-    proj_basis = "proj_basis.npz" if source_pbasis else None
+    projector_basis = "proj_basis.npz" if source_pbasis else None
     return make_train_task(
         workdir=workdir, 
         arg_file="train_input.yaml", source_arg=source_arg,
         restart_model=restart_model, source_model=source_model, 
-        proj_basis=proj_basis, source_pbasis=source_pbasis,
+        projector_basis=projector_basis, source_pbasis=source_pbasis,
         save_model=save_model, group_data=False,
         data_train="data_train", source_train=source_train,
         data_test="data_test", source_test=source_test,
