@@ -19,7 +19,7 @@ scf_input: # can also be specified by a separete file
   # this is for force training
   # the following properties will be dumped in data folder
   # please refer to https://arxiv.org/abs/2012.14615 for detailed explaination of each fields
-  dump_fields: [atom, e_base, e_tot, dm_eig, conv, f_base, f_tot, grad_vx, l_f_delta, l_e_delta]
+  dump_fields: [atom, e_base, e_tot, descriptor, converged, f_reference_variational, f_tot, dq_dR_explicit, f_corr_explicit_target, e_corr_target]
   verbose: 1
   # parameters that will be passed directly to pyscf Mol class
   mol_args:
@@ -81,12 +81,16 @@ train_input:
     # final batch size would be group_bath * batch_size
     # only needed when a lot of systems have only one datapoint hence the batch size can only be 1
     group_batch: 1
+    energy_name: e_corr_target
+    descriptor_name: descriptor
+    force_name: f_corr_explicit_target
+    jacobian_name: dq_dR_explicit
     # if set to true, will try to find force labels and use them in training
     extra_label: true
-    # if set to true, will read the convergence data from conv_name 
+    # if set to true, will read the convergence data from converged_name
     # and only use converged datapoints to train
-    conv_filter: true
-    conv_name: conv
+    converged_filter: true
+    converged_name: converged
   # to speed up training, deepks support first normalize the data (preshift and prescale)
   # and do a linear regression on the whole training set as prefitting
   preprocess_args:
@@ -131,7 +135,7 @@ init_model: false # do not use existing model in share_folder/init/model.pth
 # possible settings are same as scf_input
 init_scf: 
   basis: ccpvdz
-  dump_fields: [atom, e_base, e_tot, dm_eig, conv, f_base, f_tot, grad_vx, l_f_delta, l_e_delta]
+  dump_fields: [atom, e_base, e_tot, descriptor, converged, f_reference_variational, f_tot, dq_dR_explicit, f_corr_explicit_target, e_corr_target]
   verbose: 1
   mol_args:
     incore_anyway: True
@@ -173,6 +177,9 @@ init_train:
   data_args: 
     batch_size: 16
     group_batch: 1
+    energy_name: e_corr_target
+    descriptor_name: descriptor
+    converged_name: converged
   preprocess_args:
     preshift: true # init model will shift the input descriptors to mean zero
     prescale: false

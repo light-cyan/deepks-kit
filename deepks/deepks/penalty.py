@@ -41,9 +41,9 @@ class PenaltyMixin(object):
             level_shift_factor=level_shift_factor, damp_factor=damp_factor, **kwargs)
 
 
-class AbstructPenalty(object):
+class Penalty(object):
     """
-    Abstruct class for penalty term in scf hamiltonian.
+    Base class for a penalty potential in the SCF Hamiltonian.
     To implement a penalty one needs to implement 
     fock_hook and (optional) init_hook methods.
     """
@@ -64,12 +64,12 @@ class AbstructPenalty(object):
         raise NotImplementedError("fock_hook method is not implemented")
 
 
-class DummyPenalty(AbstructPenalty):
+class NoOpPenalty(Penalty):
     def fock_hook(self, mf, dm=None, h1e=None, vhf=None, cycle=-1, **envs):
         return 0
 
 
-class DensityPenalty(AbstructPenalty):
+class DensityPenalty(Penalty):
     r"""
     penalty on the difference w.r.t target density
     E_p = \lambda / 2 * \int dx (\rho(x) - \rho_target(x))^2
@@ -114,7 +114,7 @@ class DensityPenalty(AbstructPenalty):
         return self.strength * v_p
 
 
-class CoulombPenalty(AbstructPenalty):
+class CoulombPenalty(Penalty):
     r"""
     penalty given by the coulomb energy of density difference
 

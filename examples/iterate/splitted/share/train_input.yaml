@@ -6,10 +6,13 @@ model_args:
 data_args: 
   batch_size: 16
   group_batch: 1
-  e_name: l_e_delta
-  f_name: l_f_delta
+  energy_name: e_corr_target
+  descriptor_name: descriptor
+  force_name: f_corr_explicit_target
+  jacobian_name: dq_dR_explicit
+  converged_name: converged
   extra_label: true
-  conv_filter: true
+  converged_filter: true
 preprocess_args:
   preshift: false 
   prescale: false

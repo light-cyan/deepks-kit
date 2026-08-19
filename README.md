@@ -27,6 +27,8 @@ An relatively detailed decrisption of the `deepks-kit` library can be found in [
 
 Please see [`examples`](./examples) folder for the usage of `deepks-kit` library. A detailed example with executable data for single water molecules can be found [here](./examples/water_single). A more complicated one for training water clusters can be found [here](./examples/water_cluster).
 
+The model computes `e_corr` and `f_corr_explicit`, while supervised datasets store the corresponding labels as `e_corr_target` and `f_corr_explicit_target`. Force datasets also distinguish `f_reference_variational`, the variational reference partition of the total force, and provide `dq_dR_explicit` for the model force contraction.
+
 Check [this input file](./examples/water_cluster/args.yaml) for detailed explanation for possible input parameters, and also [this one](./examples/water_cluster/shell.yaml) if you would like to run on local machine instead of using Slurm scheduler.
 
 ## References

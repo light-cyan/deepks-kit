@@ -35,14 +35,16 @@ def preprocess(model, g_reader,
                 prefit=True, prefit_ridge=10, prefit_trainable=False):
     shift = model.input_shift.cpu().detach().numpy()
     scale = model.input_scale.cpu().detach().numpy()
-    symm_sec = model.shell_sec # will be None if no embedding
-    prefit_trainable = prefit_trainable and symm_sec is None # no embedding
+    symmetry_sections = model.shell_sec # will be None if no embedding
+    prefit_trainable = prefit_trainable and symmetry_sections is None # no embedding
     if preshift or prescale:
-        davg, dstd = g_reader.compute_data_stat(symm_sec)
-        if preshift: 
-            shift = davg
-        if prescale: 
-            scale = dstd
+        descriptor_average, descriptor_std = g_reader.compute_data_stat(
+            symmetry_sections
+        )
+        if preshift:
+            shift = descriptor_average
+        if prescale:
+            scale = descriptor_std
             if prescale_sqrt: 
                 scale = np.sqrt(scale)
             if prescale_clip: 
@@ -51,7 +53,7 @@ def preprocess(model, g_reader,
     if prefit:
         weight, bias = g_reader.compute_prefitting(
             shift=shift, scale=scale, 
-            ridge_alpha=prefit_ridge, symm_sections=symm_sec)
+            ridge_alpha=prefit_ridge, symm_sections=symmetry_sections)
         model.set_prefitting(weight, bias, trainable=prefit_trainable)
 
 
@@ -90,52 +92,95 @@ class Evaluator:
             energy_lossfn = {}
         if isinstance(energy_lossfn, dict):
             energy_lossfn = make_loss(**energy_lossfn)
-        self.e_factor = energy_factor
-        self.e_lossfn = energy_lossfn
+        self.energy_factor = energy_factor
+        self.energy_lossfn = energy_lossfn
         # force term
         if force_lossfn is None:
             force_lossfn = {}
         if isinstance(force_lossfn, dict):
             force_lossfn = make_loss(**force_lossfn)
-        self.f_factor = force_factor
-        self.f_lossfn = force_lossfn
-        # coulomb term of dm; requires head gradient
-        self.d_factor = density_factor
+        self.force_factor = force_factor
+        self.force_lossfn = force_lossfn
+        # Coulomb-loss term; requires the energy gradient with respect to descriptors.
+        self.density_factor = density_factor
         # gradient penalty, not very useful
-        self.g_penalty = grad_penalty
+        self.gradient_penalty = grad_penalty
 
     def __call__(self, model, sample):
-        _dref = next(model.parameters())
-        tot_loss = 0.
-        sample = {k: v.to(_dref, non_blocking=True) for k, v in sample.items()}
-        e_label, eig = sample["lb_e"], sample["eig"]
-        nframe = e_label.shape[0]
-        requires_grad =  ( (self.f_factor > 0 and "lb_f" in sample) 
-                        or (self.d_factor > 0 and "gldv" in sample)
-                        or self.g_penalty > 0)
-        eig.requires_grad_(requires_grad)
+        parameter_reference = next(model.parameters())
+        total_loss = 0.
+        sample = {
+            key: value.to(parameter_reference, non_blocking=True)
+            for key, value in sample.items()
+        }
+        energy = sample["energy"]
+        descriptor = sample["descriptor"]
+        requires_grad = (
+            (self.force_factor > 0 and "force" in sample)
+            or (
+                self.density_factor > 0
+                and "coulomb_loss_descriptor_gradient" in sample
+            )
+            or self.gradient_penalty > 0
+        )
+        descriptor.requires_grad_(requires_grad)
         # begin the calculation
-        e_pred = model(eig)
-        tot_loss = tot_loss + self.e_factor * self.e_lossfn(e_pred, e_label)
+        predicted_energy = model(descriptor)
+        total_loss = total_loss + self.energy_factor * self.energy_lossfn(
+            predicted_energy, energy
+        )
         if requires_grad:
-            [gev] = torch.autograd.grad(e_pred, eig, 
-                        grad_outputs=torch.ones_like(e_pred),
-                        retain_graph=True, create_graph=True, only_inputs=True)
+            [energy_descriptor_gradient] = torch.autograd.grad(
+                predicted_energy,
+                descriptor,
+                grad_outputs=torch.ones_like(predicted_energy),
+                retain_graph=True,
+                create_graph=True,
+                only_inputs=True,
+            )
             # for now always use pure l2 loss for gradient penalty
-            if self.g_penalty > 0 and "eg0" in sample:
-                eg_base, gveg = sample["eg0"], sample["gveg"]
-                eg_tot = torch.einsum('...apg,...ap->...g', gveg, gev) + eg_base
-                tot_loss = tot_loss + self.g_penalty * eg_tot.pow(2).mean(0).sum()
+            if (
+                self.gradient_penalty > 0
+                and "reference_orbital_gradient" in sample
+            ):
+                reference_orbital_gradient = sample[
+                    "reference_orbital_gradient"
+                ]
+                descriptor_orbital_gradient_jacobian = sample[
+                    "descriptor_orbital_gradient_jacobian"
+                ]
+                total_orbital_gradient = torch.einsum(
+                    '...apg,...ap->...g',
+                    descriptor_orbital_gradient_jacobian,
+                    energy_descriptor_gradient,
+                ) + reference_orbital_gradient
+                total_loss = total_loss + self.gradient_penalty * (
+                    total_orbital_gradient.pow(2).mean(0).sum()
+                )
             # optional force calculation
-            if self.f_factor > 0 and "lb_f" in sample:
-                f_label, gvx = sample["lb_f"], sample["gvx"]
-                f_pred = - torch.einsum("...bxap,...ap->...bx", gvx, gev)
-                tot_loss = tot_loss + self.f_factor * self.f_lossfn(f_pred, f_label)
+            if self.force_factor > 0 and "force" in sample:
+                force = sample["force"]
+                dq_dR_explicit = sample["dq_dR_explicit"]
+                predicted_force = -torch.einsum(
+                    "...bxap,...ap->...bx",
+                    dq_dR_explicit,
+                    energy_descriptor_gradient,
+                )
+                total_loss = total_loss + self.force_factor * self.force_lossfn(
+                    predicted_force, force
+                )
             # density loss with fix head grad
-            if self.d_factor > 0 and "gldv" in sample:
-                gldv = sample["gldv"]
-                tot_loss = tot_loss + self.d_factor * (gldv * gev).mean(0).sum()
-        return tot_loss
+            if (
+                self.density_factor > 0
+                and "coulomb_loss_descriptor_gradient" in sample
+            ):
+                coulomb_loss_descriptor_gradient = sample[
+                    "coulomb_loss_descriptor_gradient"
+                ]
+                total_loss = total_loss + self.density_factor * (
+                    coulomb_loss_descriptor_gradient * energy_descriptor_gradient
+                ).mean(0).sum()
+        return total_loss
 
 
 def train(model, g_reader, n_epoch=1000, test_reader=None, *,
@@ -211,7 +256,7 @@ def main(train_paths, test_paths=None,
          restart=None, ckpt_file=None, 
          model_args=None, data_args=None, 
          preprocess_args=None, train_args=None, 
-         proj_basis=None, fit_elem=False, 
+         projector_basis=None, fit_elem=False,
          seed=None, device=None):
    
     if seed is None: 
@@ -224,8 +269,8 @@ def main(train_paths, test_paths=None,
     if data_args is None: data_args = {}
     if preprocess_args is None: preprocess_args = {}
     if train_args is None: train_args = {}
-    if proj_basis is not None:
-        model_args["proj_basis"] = proj_basis
+    if projector_basis is not None:
+        model_args["proj_basis"] = projector_basis
     if ckpt_file is not None:
         train_args["ckpt_file"] = ckpt_file
     if device is not None:
@@ -247,7 +292,7 @@ def main(train_paths, test_paths=None,
         if model.elem_table is not None:
             fit_elem_const(g_reader, test_reader, model.elem_table)
     else:
-        input_dim = g_reader.ndesc
+        input_dim = g_reader.descriptor_size
         if model_args.get("input_dim", input_dim) != input_dim:
             print(f"# `input_dim` in `model_args` does not match data",
                   f"({input_dim}).", "Use the one in data.", file=sys.stderr)

@@ -27,8 +27,8 @@ def concat_data(systems=None, sys_dir=".", dump_dir=".", pattern="*"):
 
 def print_stats(systems=None, test_sys=None, 
                dump_dir=None, test_dump=None, group=False,
-               with_conv=True, with_e=True, e_name="e_tot", 
-               with_f=True, f_name="f_tot"):
+               with_conv=True, with_e=True, energy_name="e_tot",
+               with_f=True, force_name="f_tot"):
     load_func = load_stat if not group else load_stat_grouped
     if dump_dir is None:
         dump_dir = "."
@@ -37,7 +37,7 @@ def print_stats(systems=None, test_sys=None,
     shift = None
     if systems is not None:
         tr_c, tr_e, tr_f = load_func(systems, dump_dir, with_conv, 
-                                     with_e, e_name, with_f, f_name)
+                                     with_e, energy_name, with_f, force_name)
         print("Training:")
         if tr_c is not None:
             print_stats_conv(tr_c, indent=2)
@@ -48,7 +48,7 @@ def print_stats(systems=None, test_sys=None,
             print_stats_f(tr_f, indent=2)
     if test_sys is not None:
         ts_c, ts_e, ts_f = load_func(test_sys, test_dump, with_conv, 
-                                     with_e, e_name, with_f, f_name)
+                                     with_e, energy_name, with_f, force_name)
         print("Testing:")
         if ts_c is not None:
             print_stats_conv(ts_c, indent=2)
@@ -81,8 +81,8 @@ def print_stats_f(f_err, indent=0):
 
 
 def load_stat(systems, dump_dir,
-              with_conv=True, with_e=True, e_name="e_tot", 
-              with_f=True, f_name="f_tot"):
+              with_conv=True, with_e=True, energy_name="e_tot",
+              with_f=True, force_name="f_tot"):
     systems = check_list(systems)
     c_res = []
     e_err = []
@@ -92,19 +92,19 @@ def load_stat(systems, dump_dir,
         rbase = os.path.join(dump_dir, os.path.basename(lbase))
         if with_conv:
             try:
-                c_res.append(load_array(get_with_prefix("conv", rbase, ".npy")))
+                c_res.append(load_array(get_with_prefix("converged", rbase, ".npy")))
             except FileNotFoundError as e:
-                print("Warning! conv.npy not found:", e, file=sys.stderr)
+                print("Warning! converged.npy not found:", e, file=sys.stderr)
         if with_e:
             try:
-                re = load_array(get_with_prefix(e_name, rbase, ".npy")).reshape(-1,1)
+                re = load_array(get_with_prefix(energy_name, rbase, ".npy")).reshape(-1,1)
                 le = load_array(get_with_prefix("energy", lbase, ".npy")).reshape(-1,1)
                 e_err.append(le - re)
             except FileNotFoundError as e:
                 print("Warning! energy file not found:", e, file=sys.stderr)
         if with_f:
             try:
-                rf = load_array(get_with_prefix(f_name, rbase, ".npy"))
+                rf = load_array(get_with_prefix(force_name, rbase, ".npy"))
                 lf = load_array(get_with_prefix("force", lbase, ".npy")).reshape(rf.shape)
                 f_err.append(np.abs(lf - rf).mean((-1,-2)))
             except FileNotFoundError as e:
@@ -115,21 +115,21 @@ def load_stat(systems, dump_dir,
 
 
 def load_stat_grouped(systems, dump_dir=".",
-                      with_conv=True, with_e=True, e_name="e_tot", 
-                      with_f=True, f_name="f_tot"):
+                      with_conv=True, with_e=True, energy_name="e_tot",
+                      with_f=True, force_name="f_tot"):
     systems = check_list(systems)
     lbases = [get_sys_name(fl) for fl in systems]
     c_res = e_err = f_err = None
     if with_conv:
-        c_res = load_array(get_with_prefix("conv", dump_dir, ".npy"))
+        c_res = load_array(get_with_prefix("converged", dump_dir, ".npy"))
     if with_e:
-        e_res = load_array(get_with_prefix(e_name, dump_dir, ".npy"))
+        e_res = load_array(get_with_prefix(energy_name, dump_dir, ".npy"))
         e_lbl = np.concatenate([
             load_array(get_with_prefix("energy", lb, ".npy")) for lb in lbases
         ], 0).reshape(-1,1)
         e_err = e_lbl - e_res
     if with_f:
-        f_res = load_array(get_with_prefix(f_name, dump_dir, ".npy"))
+        f_res = load_array(get_with_prefix(force_name, dump_dir, ".npy"))
         f_lbl = np.concatenate([
             load_array(get_with_prefix("force", lb, ".npy")) for lb in lbases
         ], 0).reshape(f_res.shape)
@@ -137,7 +137,7 @@ def load_stat_grouped(systems, dump_dir=".",
     return c_res, e_err, f_err
 
 
-# Below are legacy tools, kept for old examples
+# Dataset collection utilities
 
 def print_stats_per_sys(err, conv=None, train_idx=None, test_idx=None):
     err = np.array(err).reshape(-1)
@@ -160,16 +160,16 @@ def print_stats_per_sys(err, conv=None, train_idx=None, test_idx=None):
 def make_label(sys_dir, eref, fref=None):
     eref = eref.reshape(-1,1)
     nmol = eref.shape[0]
-    ehf = np.load(f'{sys_dir}/e_base.npy')
-    assert ehf.shape[0] == nmol
-    ecc = eref - ehf
-    np.save(f'{sys_dir}/l_e_delta.npy', ecc)
+    base_energy = np.load(f'{sys_dir}/e_base.npy')
+    assert base_energy.shape[0] == nmol
+    correction_energy = eref - base_energy
+    np.save(f'{sys_dir}/e_corr_target.npy', correction_energy)
     if fref is not None:
         fref = fref.reshape(nmol, -1, 3)
-        fhf = np.load(f'{sys_dir}/f_base.npy')
-        assert fhf.shape == fref.shape
-        fcc = fref - fhf
-        np.save(f'{sys_dir}/l_f_delta.npy', fcc)
+        reference_force = np.load(f'{sys_dir}/f_reference_variational.npy')
+        assert reference_force.shape == fref.shape
+        correction_force = fref - reference_force
+        np.save(f'{sys_dir}/f_corr_explicit_target.npy', correction_force)
 
 
 def collect_data(train_idx, test_idx=None, 
@@ -188,8 +188,8 @@ def collect_data(train_idx, test_idx=None,
     for sys_i, ec_i in zip(systems, erefs):
         e0_i = np.load(os.path.join(sys_i, "e_base.npy"))
         ecc_i = ec_i - e0_i
-        np.save(os.path.join(sys_i, "l_e_delta.npy"), ecc_i)
-        convs.append(np.load(os.path.join(sys_i, "conv.npy")))
+        np.save(os.path.join(sys_i, "e_corr_target.npy"), ecc_i)
+        convs.append(np.load(os.path.join(sys_i, "converged.npy")))
         ecfs.append(np.load(os.path.join(sys_i, "e_tot.npy")))
     convs = np.array(convs).reshape(-1)
     ecfs = np.array(ecfs).reshape(-1)
@@ -217,11 +217,8 @@ def collect_data_grouped(train_idx, test_idx=None,
     ecf = np.load(f'{sys_dir}/e_tot.npy').reshape(-1, 1)
     assert ecf.shape[0] == nmol, f"{ene_ref} ref size: {nmol}, {sys_dir} data size: {ecf.shape[0]}"
     make_label(sys_dir, eref, fref)
-    # ehf = np.load(f'{sys_dir}/e_base.npy')
-    # np.save(f'{sys_dir}/l_e_delta.npy', eref - ehf)
-
     err = eref - ecf
-    conv = np.load(f'{sys_dir}/conv.npy').reshape(-1)
+    conv = np.load(f'{sys_dir}/converged.npy').reshape(-1)
     if test_idx is None:
         test_idx = np.setdiff1d(np.arange(nmol), train_idx, assume_unique=True)
     if verbose:

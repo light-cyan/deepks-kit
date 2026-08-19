@@ -22,7 +22,7 @@ share_folder: "share" # folder that stores all other settings
 scf_input: # can also be specified by a separete file
   basis: ccpvdz
   # this is for force training
-  dump_fields: [e_base, e_tot, dm_eig, conv, f_base, f_tot, grad_vx, l_f_delta, l_e_delta]
+  dump_fields: [e_base, e_tot, descriptor, converged, f_reference_variational, f_tot, dq_dR_explicit, f_corr_explicit_target, e_corr_target]
   verbose: 1
   mol_args:
     incore_anyway: True
@@ -58,9 +58,13 @@ train_input:
   data_args: 
     batch_size: 16
     group_batch: 1
+    energy_name: e_corr_target
+    descriptor_name: descriptor
+    force_name: f_corr_explicit_target
+    jacobian_name: dq_dR_explicit
     extra_label: true
-    conv_filter: true
-    conv_name: conv
+    converged_filter: true
+    converged_name: converged
   preprocess_args:
     preshift: false # restarting model already shifted. Will not recompute shift value
     prescale: false # same as above
@@ -92,7 +96,7 @@ init_model: false # do not use existing model in share_folder/init/model.pth
 init_scf: 
   basis: ccpvdz
   # this is for pure energy training
-  dump_fields: [e_base, e_tot, dm_eig, conv, l_e_delta]
+  dump_fields: [e_base, e_tot, descriptor, converged, e_corr_target]
   verbose: 1
   mol_args:
     incore_anyway: True
@@ -109,6 +113,9 @@ init_train:
   data_args: 
     batch_size: 16
     group_batch: 1
+    energy_name: e_corr_target
+    descriptor_name: descriptor
+    converged_name: converged
   preprocess_args:
     preshift: true
     prescale: false

@@ -3,8 +3,8 @@ import torch
 from pyscf import gto
 
 from deepks.model.model import CorrNet
-from deepks.scf.penalty import CoulombPenalty
-from deepks.scf.scf import DSCF, UDSCF
+from deepks.deepks import RDeePKS, UDeePKS
+from deepks.deepks.penalty import CoulombPenalty
 from deepks.utils import get_shell_sec, load_basis
 
 
@@ -120,7 +120,7 @@ def make_unrestricted_model():
 
 
 def run_deepks(coordinates, model):
-    method = DSCF(make_molecule(coordinates), model)
+    method = RDeePKS(make_molecule(coordinates), model)
     method.conv_tol = 1e-12
     method.conv_tol_grad = 1e-11
     method.max_cycle = 100
@@ -130,7 +130,7 @@ def run_deepks(coordinates, model):
 
 
 def run_unrestricted_deepks(coordinates, model):
-    method = UDSCF(make_unrestricted_molecule(coordinates), model)
+    method = UDeePKS(make_unrestricted_molecule(coordinates), model)
     method.conv_tol = 1e-12
     method.conv_tol_grad = 1e-11
     method.max_cycle = 100
@@ -146,7 +146,7 @@ def configure_dft_grid(method):
 
 
 def run_rks_deepks(coordinates, model):
-    method = DSCF(make_molecule(coordinates), model, xc=DFT_XC)
+    method = RDeePKS(make_molecule(coordinates), model, xc=DFT_XC)
     configure_dft_grid(method)
     method.conv_tol = 1e-12
     method.conv_tol_grad = 1e-11
@@ -157,7 +157,7 @@ def run_rks_deepks(coordinates, model):
 
 
 def run_uks_deepks(coordinates, model):
-    method = UDSCF(make_unrestricted_molecule(coordinates), model, xc=DFT_XC)
+    method = UDeePKS(make_unrestricted_molecule(coordinates), model, xc=DFT_XC)
     configure_dft_grid(method)
     method.conv_tol = 1e-12
     method.conv_tol_grad = 1e-11
@@ -186,7 +186,7 @@ def test_nonzero_self_consistent_deepks_energy_and_gradient_baseline():
     model = make_deterministic_model()
     method, total_energy = run_deepks(MOLECULE_COORDINATES, model)
     density = method.make_rdm1()
-    correction_energy, correction_potential = method.get_corr(density)
+    correction_energy, correction_potential = method.correction(density)
 
     np.testing.assert_allclose(
         total_energy,
@@ -201,7 +201,7 @@ def test_nonzero_self_consistent_deepks_energy_and_gradient_baseline():
         atol=2e-11,
     )
     np.testing.assert_allclose(
-        method.make_eig(density),
+        method.descriptor(density),
         EXPECTED_DESCRIPTOR_VALUES,
         rtol=2e-11,
         atol=2e-11,
@@ -217,18 +217,18 @@ def test_nonzero_self_consistent_deepks_energy_and_gradient_baseline():
         atol=2e-11,
     )
     np.testing.assert_allclose(
-        gradient_method.dec,
+        gradient_method.explicit_correction_gradient,
         EXPECTED_EXPLICIT_CORRECTION_GRADIENT,
         rtol=2e-11,
         atol=2e-11,
     )
     np.testing.assert_allclose(
-        analytic_gradient - gradient_method.get_base(),
-        gradient_method.dec,
+        analytic_gradient - gradient_method.reference_gradient(),
+        gradient_method.explicit_correction_gradient,
         rtol=2e-12,
         atol=2e-12,
     )
-    assert np.linalg.norm(gradient_method.dec) > 1e-3
+    assert np.linalg.norm(gradient_method.explicit_correction_gradient) > 1e-3
 
     step = 1e-4
     finite_difference = np.empty(3)
@@ -271,7 +271,7 @@ def test_unrestricted_deepks_spin_summed_descriptor_and_gradient_baseline():
         atol=3e-10,
     )
     np.testing.assert_allclose(
-        method.make_eig(spin_density),
+        method.descriptor(spin_density),
         EXPECTED_UNRESTRICTED_DESCRIPTOR_VALUES,
         rtol=0.0,
         atol=3e-10,
@@ -314,7 +314,7 @@ def test_rks_deepks_energy_descriptor_and_gradient_baseline():
     model = make_deterministic_model()
     method, total_energy = run_rks_deepks(MOLECULE_COORDINATES, model)
     density = method.make_rdm1()
-    descriptor_values = method.make_eig(density)
+    descriptor_values = method.descriptor(density)
     gradient_method = method.nuc_grad_method()
     gradient_method.grid_response = True
     analytic_gradient = gradient_method.kernel()
@@ -367,7 +367,7 @@ def test_uks_deepks_energy_descriptor_and_gradient_baseline():
     model = make_unrestricted_model()
     method, total_energy = run_uks_deepks(MOLECULE_COORDINATES, model)
     spin_density = method.make_rdm1()
-    descriptor_values = method.make_eig(spin_density)
+    descriptor_values = method.descriptor(spin_density)
     gradient_method = method.nuc_grad_method()
     gradient_method.grid_response = True
     analytic_gradient = gradient_method.kernel()
@@ -440,10 +440,10 @@ def test_restricted_deepks_gradient_scanner_matches_fresh_methods():
 def test_coulomb_penalty_scf_state_baseline():
     molecule = make_molecule(MOLECULE_COORDINATES)
     target_density = np.zeros((molecule.nao, molecule.nao))
-    method = DSCF(
+    method = RDeePKS(
         molecule,
         None,
-        proj_basis=PROJECTOR_BASIS,
+        projector_basis=PROJECTOR_BASIS,
         penalties=[CoulombPenalty(target_density, strength=0.1)],
     )
     method.conv_tol = 1e-12

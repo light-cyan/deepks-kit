@@ -1,6 +1,6 @@
 basis: ccpvdz
 model_file: null
-dump_fields: [e_base, e_tot, dm_eig, conv, l_e_delta]
+dump_fields: [e_base, e_tot, descriptor, converged, e_corr_target]
 verbose: 1
 mol_args:
   incore_anyway: True

@@ -2,7 +2,8 @@ import numpy as np
 import torch
 from pyscf import gto, scf
 
-from deepks.scf.scf import DSCF, t_make_eig, t_make_grad_eig_dm, t_make_pdm
+from deepks.deepks import RDeePKS
+from deepks.descriptor import descriptor, dq_dP, projected_density
 
 
 SYNTHETIC_DENSITY = torch.tensor(
@@ -61,15 +62,15 @@ def make_molecule(coordinates):
 
 
 def test_projected_density_and_descriptor_values_are_characterized():
-    projected_density = t_make_pdm(
+    projected_density_values = projected_density(
         SYNTHETIC_DENSITY, (SYNTHETIC_PROJECTION,)
     )[0]
-    descriptor_values = t_make_eig(
+    descriptor_values = descriptor(
         SYNTHETIC_DENSITY, (SYNTHETIC_PROJECTION,)
     )
 
     torch.testing.assert_close(
-        projected_density,
+        projected_density_values,
         EXPECTED_PROJECTED_DENSITY,
         rtol=1e-13,
         atol=1e-13,
@@ -82,20 +83,20 @@ def test_projected_density_and_descriptor_values_are_characterized():
     )
     torch.testing.assert_close(
         descriptor_values,
-        torch.linalg.eigvalsh(projected_density),
+        torch.linalg.eigvalsh(projected_density_values),
         rtol=1e-13,
         atol=1e-13,
     )
     torch.testing.assert_close(
         descriptor_values.sum(dim=-1),
-        projected_density.diagonal(dim1=-2, dim2=-1).sum(dim=-1),
+        projected_density_values.diagonal(dim1=-2, dim2=-1).sum(dim=-1),
         rtol=1e-13,
         atol=1e-13,
     )
 
 
 def test_descriptor_ao_density_jacobian_matches_directional_differences():
-    jacobian = t_make_grad_eig_dm(
+    jacobian = dq_dP(
         SYNTHETIC_DENSITY.clone(), (SYNTHETIC_PROJECTION,)
     )
     directions = (
@@ -119,11 +120,11 @@ def test_descriptor_ao_density_jacobian_matches_directional_differences():
 
     step = 1e-5
     for direction in directions:
-        forward = t_make_eig(
+        forward = descriptor(
             SYNTHETIC_DENSITY + step * direction,
             (SYNTHETIC_PROJECTION,),
         )
-        backward = t_make_eig(
+        backward = descriptor(
             SYNTHETIC_DENSITY - step * direction,
             (SYNTHETIC_PROJECTION,),
         )
@@ -157,8 +158,12 @@ def test_fixed_density_coordinate_jacobian_matches_central_difference():
     assert reference.converged
     fixed_ao_density = np.asarray(reference.make_rdm1())
 
-    method = DSCF(molecule, None, proj_basis=PROJECTOR_BASIS)
-    analytic = method.nuc_grad_method().make_grad_eig_x(fixed_ao_density)
+    method = RDeePKS(
+        molecule,
+        None,
+        projector_basis=PROJECTOR_BASIS,
+    )
+    analytic = method.nuc_grad_method().dq_dR_explicit(fixed_ao_density)
 
     np.testing.assert_allclose(
         analytic,
@@ -181,16 +186,16 @@ def test_fixed_density_coordinate_jacobian_matches_central_difference():
             backward_coordinates = MOLECULE_COORDINATES.copy()
             forward_coordinates[atom_index, coordinate_index] += step
             backward_coordinates[atom_index, coordinate_index] -= step
-            forward = DSCF(
+            forward = RDeePKS(
                 make_molecule(forward_coordinates),
                 None,
-                proj_basis=PROJECTOR_BASIS,
-            ).make_eig(fixed_ao_density)
-            backward = DSCF(
+                projector_basis=PROJECTOR_BASIS,
+            ).descriptor(fixed_ao_density)
+            backward = RDeePKS(
                 make_molecule(backward_coordinates),
                 None,
-                proj_basis=PROJECTOR_BASIS,
-            ).make_eig(fixed_ao_density)
+                projector_basis=PROJECTOR_BASIS,
+            ).descriptor(fixed_ao_density)
             finite_difference[atom_index, coordinate_index] = (
                 forward - backward
             ) / (2 * step)

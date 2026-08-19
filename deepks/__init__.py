@@ -6,9 +6,12 @@ except ImportError:
     __version__ = 'unkown'
 
 __all__ = [
+    "data",
+    "deephf",
+    "deepks",
+    "descriptor",
     "iterate",
     "model",
-    "scf",
     "task",
     # "tools" # collection of command line scripts, should not be imported by user
 ]

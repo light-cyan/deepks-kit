@@ -22,23 +22,31 @@ def split_batch(tdict, size, dim=0):
 
 
 class Reader(object):
-    def __init__(self, data_path, batch_size, 
-                 e_name="l_e_delta", d_name="dm_eig", 
-                 f_name="l_f_delta", gvx_name="grad_vx", 
-                 eg_name="eg_base", gveg_name="grad_veg", 
-                 gldv_name="grad_ldv", conv_name="conv", 
-                 atom_name="atom", **kwargs):
+    def __init__(self, data_path, batch_size,
+                 energy_name="e_corr_target", descriptor_name="descriptor",
+                 force_name="f_corr_explicit_target",
+                 jacobian_name="dq_dR_explicit",
+                 reference_orbital_gradient_name="reference_orbital_gradient",
+                 descriptor_orbital_gradient_jacobian_name="descriptor_orbital_gradient_jacobian",
+                 coulomb_loss_descriptor_gradient_name="coulomb_loss_descriptor_gradient",
+                 converged_name="converged", atom_name="atom", **kwargs):
         self.data_path = data_path
         self.batch_size = batch_size
-        self.e_path = self.check_exist(e_name+".npy")
-        self.f_path = self.check_exist(f_name+".npy")
-        self.d_path = self.check_exist(d_name+".npy")
-        self.gvx_path = self.check_exist(gvx_name+".npy")
-        self.eg_path = self.check_exist(eg_name+".npy")
-        self.gveg_path = self.check_exist(gveg_name+".npy")
-        self.gldv_path = self.check_exist(gldv_name+".npy")
-        self.c_path = self.check_exist(conv_name+".npy")
-        self.a_path = self.check_exist(atom_name+".npy")
+        self.energy_path = self.check_exist(energy_name + ".npy")
+        self.force_path = self.check_exist(force_name + ".npy")
+        self.descriptor_path = self.check_exist(descriptor_name + ".npy")
+        self.jacobian_path = self.check_exist(jacobian_name + ".npy")
+        self.reference_orbital_gradient_path = self.check_exist(
+            reference_orbital_gradient_name + ".npy"
+        )
+        self.descriptor_orbital_gradient_jacobian_path = self.check_exist(
+            descriptor_orbital_gradient_jacobian_name + ".npy"
+        )
+        self.coulomb_loss_descriptor_gradient_path = self.check_exist(
+            coulomb_loss_descriptor_gradient_name + ".npy"
+        )
+        self.converged_path = self.check_exist(converged_name + ".npy")
+        self.atom_path = self.check_exist(atom_name + ".npy")
         # load data
         self.load_meta()
         self.prepare()
@@ -59,58 +67,74 @@ class Reader(object):
             self.nproj = sys_meta[-1]
         except:
             print('#', self.data_path, f"no system.raw, infer meta from data", file=sys.stderr)
-            sys_shape = np.load(self.d_path).shape
+            sys_shape = np.load(self.descriptor_path).shape
             assert len(sys_shape) == 3, \
                 f"descriptor has to be an order-3 array with shape [nframes, natom, nproj]"
             self.natm = sys_shape[1]
             self.nproj = sys_shape[2]
-        self.ndesc = self.nproj
+        self.descriptor_size = self.nproj
 
     def prepare(self):
         # load energy and check nframes
-        data_ec = np.load(self.e_path).reshape(-1, 1)
-        raw_nframes = data_ec.shape[0]
-        data_dm = np.load(self.d_path).reshape(raw_nframes, self.natm, self.ndesc)
-        if self.c_path is not None:
-            conv = np.load(self.c_path).reshape(raw_nframes)
+        energy = np.load(self.energy_path).reshape(-1, 1)
+        raw_nframes = energy.shape[0]
+        descriptor = np.load(self.descriptor_path).reshape(
+            raw_nframes, self.natm, self.descriptor_size
+        )
+        if self.converged_path is not None:
+            converged = np.load(self.converged_path).reshape(raw_nframes)
         else:
-            conv = np.ones(raw_nframes, dtype=bool)
-        self.data_ec = data_ec[conv]
-        self.data_dm = data_dm[conv]
-        self.nframes = conv.sum()
+            converged = np.ones(raw_nframes, dtype=bool)
+        self.data_energy = energy[converged]
+        self.data_descriptor = descriptor[converged]
+        self.nframes = converged.sum()
         if self.nframes < self.batch_size:
             self.batch_size = self.nframes
             print('#', self.data_path, 
                  f"reset batch size to {self.batch_size}", file=sys.stderr)
         # handle atom and element data
         self.atom_info = {}
-        if self.a_path is not None:
-            atoms = np.load(self.a_path).reshape(raw_nframes, self.natm, 4)
-            self.atom_info["elems"] = atoms[:, :, 0][conv].round().astype(int)
-            self.atom_info["coords"] = atoms[:, :, 1:][conv]
+        if self.atom_path is not None:
+            atoms = np.load(self.atom_path).reshape(raw_nframes, self.natm, 4)
+            self.atom_info["elements"] = atoms[:, :, 0][converged].round().astype(int)
+            self.atom_info["coordinates"] = atoms[:, :, 1:][converged]
         # load data in torch
-        self.t_data = {}
-        self.t_data["lb_e"] = torch.tensor(self.data_ec)
-        self.t_data["eig"] = torch.tensor(self.data_dm)
-        if self.f_path is not None and self.gvx_path is not None:
-            self.t_data["lb_f"] = torch.tensor(
-                np.load(self.f_path)\
-                  .reshape(raw_nframes, -1, 3)[conv])
-            self.t_data["gvx"] = torch.tensor(
-                np.load(self.gvx_path)\
-                  .reshape(raw_nframes, -1, 3, self.natm, self.ndesc)[conv])
-        if self.eg_path is not None and self.gveg_path is not None:
-            self.t_data['eg0'] = torch.tensor(
-                np.load(self.eg_path)\
-                  .reshape(raw_nframes, -1)[conv])
-            self.t_data["gveg"] = torch.tensor(
-                np.load(self.gveg_path)\
-                  .reshape(raw_nframes, self.natm, self.ndesc, -1)[conv])
-            self.neg = self.t_data['eg0'].shape[-1]
-        if self.gldv_path is not None:
-            self.t_data["gldv"] = torch.tensor(
-                np.load(self.gldv_path)\
-                  .reshape(raw_nframes, self.natm, self.ndesc)[conv])
+        self.tensor_data = {
+            "energy": torch.tensor(self.data_energy),
+            "descriptor": torch.tensor(self.data_descriptor),
+        }
+        if self.force_path is not None and self.jacobian_path is not None:
+            self.tensor_data["force"] = torch.tensor(
+                np.load(self.force_path).reshape(raw_nframes, -1, 3)[converged]
+            )
+            self.tensor_data["dq_dR_explicit"] = torch.tensor(
+                np.load(self.jacobian_path).reshape(
+                    raw_nframes, -1, 3, self.natm, self.descriptor_size
+                )[converged]
+            )
+        if (
+            self.reference_orbital_gradient_path is not None
+            and self.descriptor_orbital_gradient_jacobian_path is not None
+        ):
+            self.tensor_data["reference_orbital_gradient"] = torch.tensor(
+                np.load(self.reference_orbital_gradient_path).reshape(
+                    raw_nframes, -1
+                )[converged]
+            )
+            self.tensor_data["descriptor_orbital_gradient_jacobian"] = torch.tensor(
+                np.load(self.descriptor_orbital_gradient_jacobian_path).reshape(
+                    raw_nframes, self.natm, self.descriptor_size, -1
+                )[converged]
+            )
+            self.orbital_gradient_size = self.tensor_data[
+                "reference_orbital_gradient"
+            ].shape[-1]
+        if self.coulomb_loss_descriptor_gradient_path is not None:
+            self.tensor_data["coulomb_loss_descriptor_gradient"] = torch.tensor(
+                np.load(self.coulomb_loss_descriptor_gradient_path).reshape(
+                    raw_nframes, self.natm, self.descriptor_size
+                )[converged]
+            )
 
     def sample_train(self):
         if self.batch_size == self.nframes == 1:
@@ -119,10 +143,10 @@ class Reader(object):
             self.idx_queue = np.random.choice(self.nframes, self.nframes, replace=False)
         sample_idx = self.idx_queue[:self.batch_size]
         self.idx_queue = self.idx_queue[self.batch_size:]
-        return {k: v[sample_idx] for k, v in self.t_data.items()}
+        return {k: v[sample_idx] for k, v in self.tensor_data.items()}
 
     def sample_all(self):
-        return self.t_data
+        return self.tensor_data
 
     def get_train_size(self):
         return self.nframes
@@ -140,7 +164,7 @@ class Reader(object):
         elem_to_idx = np.zeros(200, dtype=int) + 200
         for ii, ee in enumerate(elem_list):
             elem_to_idx[ee] = ii
-        idxs = elem_to_idx[self.atom_info["elems"]]
+        idxs = elem_to_idx[self.atom_info["elements"]]
         nelem = np.zeros((self.nframes, len(elem_list)), int)
         np.add.at(nelem, (np.arange(nelem.shape[0]).reshape(-1,1), idxs), 1)
         self.atom_info["nelem"] = nelem
@@ -151,8 +175,8 @@ class Reader(object):
         # assert "elem_const" not in self.atom_info, \
         #     "subtract_elem_const has been done. The method should not be executed twice."
         econst = (self.atom_info["nelem"] @ elem_const).reshape(self.nframes, 1)
-        self.data_ec -= econst
-        self.t_data["lb_e"] -= econst
+        self.data_energy -= econst
+        self.tensor_data["energy"] -= econst
         self.atom_info["elem_const"] = elem_const
     
     def revert_elem_const(self):
@@ -162,8 +186,8 @@ class Reader(object):
             return
         elem_const = self.atom_info.pop("elem_const")
         econst = (self.atom_info["nelem"] @ elem_const).reshape(self.nframes, 1)
-        self.data_ec += econst
-        self.t_data["lb_e"] += econst
+        self.data_energy += econst
+        self.tensor_data["energy"] += econst
         
 
 class GroupReader(object) :
@@ -173,8 +197,8 @@ class GroupReader(object) :
         self.path_list = path_list
         self.batch_size = batch_size
         # init system readers
-        Reader_class = (Reader if extra_label 
-            and isinstance(kwargs.get('d_name', "dm_eig"), str) 
+        Reader_class = (Reader if extra_label
+            and isinstance(kwargs.get('descriptor_name', "descriptor"), str)
             else SimpleReader)
         self.readers = []
         self.nframes = []
@@ -191,7 +215,7 @@ class GroupReader(object) :
         data_keys = self.readers[0].sample_all().keys()
         print(f"# load {self.nsystems} systems with fields {set(data_keys)}")
         # probability of each system
-        self.ndesc = self.readers[0].ndesc
+        self.descriptor_size = self.readers[0].descriptor_size
         self.sys_prob = [float(ii) for ii in self.nframes] / np.sum(self.nframes)
         
         self.group_batch = max(group_batch, 1)
@@ -199,7 +223,7 @@ class GroupReader(object) :
             self.group_dict = {}
             # self.group_index = {}
             for idx, r in enumerate(self.readers):
-                shape = (r.natm, getattr(r, "neg", None))
+                shape = (r.natm, getattr(r, "orbital_gradient_size", None))
                 if shape in self.group_dict:
                     self.group_dict[shape].append(r)
                     # self.group_index[shape].append(idx)
@@ -222,7 +246,7 @@ class GroupReader(object) :
             self._sample_used = 0
             raise StopIteration
         sample = self.sample_train() if self.group_batch == 1 else self.sample_train_group()
-        self._sample_used += sample["lb_e"].shape[0]
+        self._sample_used += sample["energy"].shape[0]
         return sample
 
     def sample_idx(self) :
@@ -264,14 +288,25 @@ class GroupReader(object) :
         return self.batch_size
 
     def compute_data_stat(self, symm_sections=None):
-        all_dm = np.concatenate([r.data_dm.reshape(-1,r.ndesc) for r in self.readers])
+        all_descriptors = np.concatenate([
+            reader.data_descriptor.reshape(-1, reader.descriptor_size)
+            for reader in self.readers
+        ])
         if symm_sections is None:
-            all_mean, all_std = all_dm.mean(0), all_dm.std(0)
+            all_mean, all_std = all_descriptors.mean(0), all_descriptors.std(0)
         else:
-            assert sum(symm_sections) == all_dm.shape[-1]
-            dm_shells = np.split(all_dm, np.cumsum(symm_sections)[:-1], axis=-1)
-            mean_shells = [d.mean().repeat(s) for d, s in zip(dm_shells, symm_sections)]
-            std_shells = [d.std().repeat(s) for d, s in zip(dm_shells, symm_sections)]
+            assert sum(symm_sections) == all_descriptors.shape[-1]
+            descriptor_shells = np.split(
+                all_descriptors, np.cumsum(symm_sections)[:-1], axis=-1
+            )
+            mean_shells = [
+                descriptor.mean().repeat(size)
+                for descriptor, size in zip(descriptor_shells, symm_sections)
+            ]
+            std_shells = [
+                descriptor.std().repeat(size)
+                for descriptor, size in zip(descriptor_shells, symm_sections)
+            ]
             all_mean = np.concatenate(mean_shells, axis=-1)
             all_std = np.concatenate(std_shells, axis=-1)
         return all_mean, all_std
@@ -283,15 +318,25 @@ class GroupReader(object) :
                 shift = all_mean
             if scale is None:
                 scale = all_std
-        all_sdm = np.concatenate([((r.data_dm - shift) / scale).sum(1) for r in self.readers])
-        all_natm = np.concatenate([[float(r.data_dm.shape[1])]*r.data_dm.shape[0] for r in self.readers])
+        all_scaled_descriptors = np.concatenate([
+            ((reader.data_descriptor - shift) / scale).sum(1)
+            for reader in self.readers
+        ])
+        all_natm = np.concatenate([
+            [float(reader.data_descriptor.shape[1])] * reader.data_descriptor.shape[0]
+            for reader in self.readers
+        ])
         if symm_sections is not None: # in this case ridge alpha cannot be 0
-            assert sum(symm_sections) == all_sdm.shape[-1]
-            sdm_shells = np.split(all_sdm, np.cumsum(symm_sections)[:-1], axis=-1)
-            all_sdm = np.stack([d.sum(-1) for d in sdm_shells], axis=-1)
+            assert sum(symm_sections) == all_scaled_descriptors.shape[-1]
+            descriptor_shells = np.split(
+                all_scaled_descriptors, np.cumsum(symm_sections)[:-1], axis=-1
+            )
+            all_scaled_descriptors = np.stack(
+                [descriptor.sum(-1) for descriptor in descriptor_shells], axis=-1
+            )
         # build feature matrix
-        X = np.concatenate([all_sdm, all_natm.reshape(-1,1)], -1)
-        y = np.concatenate([r.data_ec for r in self.readers])
+        X = np.concatenate([all_scaled_descriptors, all_natm.reshape(-1,1)], -1)
+        y = np.concatenate([reader.data_energy for reader in self.readers])
         I = np.identity(X.shape[1])
         I[-1,-1] = 0 # do not punish the bias term
         # solve ridge reg
@@ -304,7 +349,7 @@ class GroupReader(object) :
     def collect_elems(self, elem_list=None):
         if elem_list is None:
             elem_list = np.array(sorted(set.union(*[
-                set(r.atom_info["elems"].flatten()) for r in self.readers
+                set(r.atom_info["elements"].flatten()) for r in self.readers
             ])))
         for rd in self.readers:
             rd.collect_elems(elem_list)
@@ -313,22 +358,28 @@ class GroupReader(object) :
     def compute_elem_const(self, ridge_alpha=0.):
         elem_list = self.collect_elems()
         all_nelem = np.concatenate([r.atom_info["nelem"] for r in self.readers])
-        all_ec = np.concatenate([r.data_ec for r in self.readers])
+        all_energy = np.concatenate([reader.data_energy for reader in self.readers])
         # lex sort by nelem
         lexidx = np.lexsort(all_nelem.T)
         all_nelem = all_nelem[lexidx]
-        all_ec = all_ec[lexidx]
+        all_energy = all_energy[lexidx]
         # group by nelem
         _, sidx = np.unique(all_nelem, return_index=True, axis=0)
         sidx = np.sort(sidx)
         grp_nelem = all_nelem[sidx]
-        grp_ec = np.array(list(map(np.mean, np.split(all_ec, sidx[1:]))))
+        group_energy = np.array(
+            list(map(np.mean, np.split(all_energy, sidx[1:])))
+        )
         if ridge_alpha <= 0:
-            elem_const, _res, _rank, _sing = np.linalg.lstsq(grp_nelem, grp_ec, None)
+            elem_const, _res, _rank, _sing = np.linalg.lstsq(
+                grp_nelem, group_energy, None
+            )
         else:
             I = np.identity(grp_nelem.shape[1])
             elem_const = np.linalg.solve(
-                grp_nelem.T @ grp_nelem + ridge_alpha * I, grp_nelem.T @ grp_ec)
+                grp_nelem.T @ grp_nelem + ridge_alpha * I,
+                grp_nelem.T @ group_energy,
+            )
         return elem_list.reshape(-1), elem_const.reshape(-1)
     
     def subtract_elem_const(self, elem_const):
@@ -341,16 +392,20 @@ class GroupReader(object) :
 
 
 class SimpleReader(object):
-    def __init__(self, data_path, batch_size, 
-                 e_name="l_e_delta", d_name="dm_eig", 
-                 conv_filter=True, conv_name="conv", **kwargs):
+    def __init__(self, data_path, batch_size,
+                 energy_name="e_corr_target", descriptor_name="descriptor",
+                 converged_filter=True, converged_name="converged", **kwargs):
         # copy from config
         self.data_path = data_path
         self.batch_size = batch_size
-        self.e_name = e_name
-        self.d_name = d_name if isinstance(d_name, (list, tuple)) else [d_name]
-        self.c_filter = conv_filter
-        self.c_name = conv_name
+        self.energy_name = energy_name
+        self.descriptor_names = (
+            descriptor_name
+            if isinstance(descriptor_name, (list, tuple))
+            else [descriptor_name]
+        )
+        self.converged_filter = converged_filter
+        self.converged_name = converged_name
         self.load_meta()
         self.prepare()
 
@@ -361,29 +416,35 @@ class SimpleReader(object):
             self.nproj = sys_meta[-1]
         except:
             print('#', self.data_path, f"no system.raw, infer meta from data", file=sys.stderr)
-            sys_shape = np.load(os.path.join(self.data_path, f'{self.d_name[0]}.npy')).shape
+            sys_shape = np.load(
+                os.path.join(self.data_path, f'{self.descriptor_names[0]}.npy')
+            ).shape
             assert len(sys_shape) == 3, \
-                f"{self.d_name[0]} has to be an order-3 array with shape [nframes, natom, nproj]"
+                f"{self.descriptor_names[0]} has to be an order-3 array with shape [nframes, natom, nproj]"
             self.natm = sys_shape[1]
             self.nproj = sys_shape[2]
     
     def prepare(self):
-        self.index_count_all = 0
-        data_ec = np.load(os.path.join(self.data_path,f'{self.e_name}.npy')).reshape([-1, 1])
-        raw_nframes = data_ec.shape[0]
-        data_dm = np.concatenate(
-            [np.load(os.path.join(self.data_path,f'{dn}.npy'))\
+        self.sample_index_end = 0
+        energy = np.load(
+            os.path.join(self.data_path, f'{self.energy_name}.npy')
+        ).reshape([-1, 1])
+        raw_nframes = energy.shape[0]
+        descriptor = np.concatenate(
+            [np.load(os.path.join(self.data_path, f'{name}.npy'))
                .reshape([raw_nframes, self.natm, -1])
-            for dn in self.d_name], 
+            for name in self.descriptor_names],
             axis=-1)
-        if self.c_filter:
-            conv = np.load(os.path.join(self.data_path,f'{self.c_name}.npy')).reshape(raw_nframes)
+        if self.converged_filter:
+            converged = np.load(
+                os.path.join(self.data_path, f'{self.converged_name}.npy')
+            ).reshape(raw_nframes)
         else:
-            conv = np.ones(raw_nframes, dtype=bool)
-        self.data_ec = data_ec[conv]
-        self.data_dm = data_dm[conv]
-        self.nframes = conv.sum()
-        self.ndesc = self.data_dm.shape[-1]
+            converged = np.ones(raw_nframes, dtype=bool)
+        self.data_energy = energy[converged]
+        self.data_descriptor = descriptor[converged]
+        self.nframes = converged.sum()
+        self.descriptor_size = self.data_descriptor.shape[-1]
         # print(np.shape(self.inputs_train))
         if self.nframes < self.batch_size:
             self.batch_size = self.nframes
@@ -392,23 +453,23 @@ class SimpleReader(object):
     def sample_train(self):
         if self.nframes == self.batch_size == 1:
             return self.sample_all()
-        self.index_count_all += self.batch_size
-        if self.index_count_all > self.nframes:
+        self.sample_index_end += self.batch_size
+        if self.sample_index_end > self.nframes:
             # shuffle the data
-            self.index_count_all = self.batch_size
+            self.sample_index_end = self.batch_size
             ind = np.random.choice(self.nframes, self.nframes, replace=False)
-            self.data_ec = self.data_ec[ind]
-            self.data_dm = self.data_dm[ind]
-        ind = np.arange(self.index_count_all - self.batch_size, self.index_count_all)
+            self.data_energy = self.data_energy[ind]
+            self.data_descriptor = self.data_descriptor[ind]
+        ind = np.arange(self.sample_index_end - self.batch_size, self.sample_index_end)
         return {
-            "lb_e": torch.from_numpy(self.data_ec[ind]), 
-            "eig": torch.from_numpy(self.data_dm[ind])
+            "energy": torch.from_numpy(self.data_energy[ind]),
+            "descriptor": torch.from_numpy(self.data_descriptor[ind])
         }
 
     def sample_all(self) :
         return {
-            "lb_e": torch.from_numpy(self.data_ec), 
-            "eig": torch.from_numpy(self.data_dm)
+            "energy": torch.from_numpy(self.data_energy),
+            "descriptor": torch.from_numpy(self.data_descriptor)
         }
 
     def get_train_size(self) :

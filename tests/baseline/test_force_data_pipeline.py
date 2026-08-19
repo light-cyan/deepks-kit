@@ -5,8 +5,9 @@ from pyscf import gto
 from deepks.model.model import CorrNet
 from deepks.model.reader import Reader
 from deepks.model.train import Evaluator, main as train_model
-from deepks.scf.fields import select_fields
-from deepks.scf.run import collect_fields, dump_data, dump_meta, solve_mol
+from deepks.data.fields import select_fields
+from deepks.data.io import collect_field_results, dump_data, dump_metadata
+from deepks.deepks.run import solve_molecule
 
 
 PROJECTOR_BASIS = [[0, [1.0, 1.0]]]
@@ -38,28 +39,44 @@ def _write_force_dataset(tmp_path):
         [
             "atom",
             "e_base",
+            "e_corr",
             "e_tot",
-            "dm_eig",
-            "conv",
-            "f_base",
+            "descriptor",
+            "converged",
+            "f_reference_variational",
+            "f_corr_explicit",
             "f_tot",
-            "grad_vx",
+            "dq_dR_explicit",
         ]
     )
 
-    metadata, result = solve_mol(
+    metadata, result = solve_molecule(
         molecule,
         model,
         selected,
         conv_tol=1.0e-10,
         max_cycle=50,
     )
-    exported = collect_fields(selected, metadata, result)
-    exported["l_e_delta"] = exported["e_tot"] - exported["e_base"]
-    exported["l_f_delta"] = exported["f_tot"] - exported["f_base"]
+    exported = collect_field_results(selected, metadata, result)
+    exported["e_corr_target"] = exported["e_tot"] - exported["e_base"]
+    exported["f_corr_explicit_target"] = (
+        exported["f_tot"] - exported["f_reference_variational"]
+    )
+    np.testing.assert_allclose(
+        exported["e_corr"],
+        exported["e_corr_target"],
+        rtol=0.0,
+        atol=1.0e-12,
+    )
+    np.testing.assert_allclose(
+        exported["f_corr_explicit"],
+        exported["f_corr_explicit_target"],
+        rtol=0.0,
+        atol=1.0e-12,
+    )
 
     data_directory = tmp_path / "h2"
-    dump_meta(data_directory, metadata)
+    dump_metadata(data_directory, metadata)
     dump_data(data_directory, **exported)
     return molecule, model, data_directory
 
@@ -69,15 +86,17 @@ def test_scf_export_reader_and_force_evaluator_pipeline(tmp_path):
 
     expected_files = {
         "atom.npy",
-        "conv.npy",
-        "dm_eig.npy",
+        "converged.npy",
+        "descriptor.npy",
         "e_base.npy",
+        "e_corr.npy",
         "e_tot.npy",
-        "f_base.npy",
+        "f_reference_variational.npy",
+        "f_corr_explicit.npy",
         "f_tot.npy",
-        "grad_vx.npy",
-        "l_e_delta.npy",
-        "l_f_delta.npy",
+        "dq_dR_explicit.npy",
+        "e_corr_target.npy",
+        "f_corr_explicit_target.npy",
         "system.raw",
     }
     assert {path.name for path in data_directory.iterdir()} == expected_files
@@ -89,13 +108,18 @@ def test_scf_export_reader_and_force_evaluator_pipeline(tmp_path):
     reader = Reader(data_directory, batch_size=1)
     sample = reader.sample_all()
 
-    assert set(sample) == {"eig", "gvx", "lb_e", "lb_f"}
-    assert sample["eig"].shape == (1, 2, 1)
-    assert sample["gvx"].shape == (1, 2, 3, 2, 1)
-    assert sample["lb_e"].shape == (1, 1)
-    assert sample["lb_f"].shape == (1, 2, 3)
+    assert set(sample) == {
+        "descriptor",
+        "dq_dR_explicit",
+        "energy",
+        "force",
+    }
+    assert sample["descriptor"].shape == (1, 2, 1)
+    assert sample["dq_dR_explicit"].shape == (1, 2, 3, 2, 1)
+    assert sample["energy"].shape == (1, 1)
+    assert sample["force"].shape == (1, 2, 3)
 
-    descriptors = sample["eig"].clone().requires_grad_(True)
+    descriptors = sample["descriptor"].clone().requires_grad_(True)
     predicted_energy = model(descriptors)
     (energy_descriptor_gradient,) = torch.autograd.grad(
         predicted_energy,
@@ -104,16 +128,16 @@ def test_scf_export_reader_and_force_evaluator_pipeline(tmp_path):
     )
     predicted_force = -torch.einsum(
         "...bxap,...ap->...bx",
-        sample["gvx"],
+        sample["dq_dR_explicit"],
         energy_descriptor_gradient,
     )
 
-    torch.testing.assert_close(predicted_energy, sample["lb_e"], atol=1.0e-10, rtol=0.0)
-    torch.testing.assert_close(predicted_force, sample["lb_f"], atol=1.0e-10, rtol=0.0)
+    torch.testing.assert_close(predicted_energy, sample["energy"], atol=1.0e-10, rtol=0.0)
+    torch.testing.assert_close(predicted_force, sample["force"], atol=1.0e-10, rtol=0.0)
 
     perturbed_sample = dict(sample)
-    perturbed_sample["lb_f"] = sample["lb_f"].clone()
-    perturbed_sample["lb_f"][0, 0, 2] += 1.0e-3
+    perturbed_sample["force"] = sample["force"].clone()
+    perturbed_sample["force"][0, 0, 2] += 1.0e-3
 
     evaluator = Evaluator(energy_factor=1.0, force_factor=1.0)
     loss = evaluator(model, perturbed_sample)
@@ -154,8 +178,8 @@ def test_force_training_checkpoint_can_be_reloaded_for_scf(tmp_path):
     )
 
     loaded = CorrNet.load(checkpoint).double().eval()
-    selected = select_fields(["e_tot", "dm_eig", "conv", "f_tot"])
-    _, result = solve_mol(
+    selected = select_fields(["e_tot", "descriptor", "converged", "f_tot"])
+    _, result = solve_molecule(
         molecule,
         loaded,
         selected,
@@ -163,7 +187,7 @@ def test_force_training_checkpoint_can_be_reloaded_for_scf(tmp_path):
         max_cycle=50,
     )
 
-    assert result["conv"]
+    assert result["converged"]
     assert np.isfinite(result["e_tot"])
-    assert np.isfinite(result["dm_eig"]).all()
+    assert np.isfinite(result["descriptor"]).all()
     assert np.isfinite(result["f_tot"]).all()

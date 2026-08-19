@@ -7,7 +7,7 @@
 import time
 import numpy as np
 from deepks.utils import load_yaml
-from deepks.scf.scf import DSCF
+from deepks.deepks import RDeePKS
 from pyscf import gto, lib
 try:
     from pyscf.geomopt.berny_solver import optimize
@@ -15,8 +15,12 @@ except ImportError:
     from pyscf.geomopt.geometric_solver import optimize
 
 
-def run_optim(mol, model=None, proj_basis=None, scf_args={}, conv_args={}):
-    cf = DSCF(mol, model, proj_basis=proj_basis).set(**scf_args)
+def run_optim(mol, model=None, projector_basis=None, scf_args={}, conv_args={}):
+    cf = RDeePKS(
+        mol,
+        model,
+        projector_basis=projector_basis,
+    ).set(**scf_args)
     mol_eq = optimize(cf, **conv_args)
     return mol_eq
 
@@ -37,7 +41,11 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model-file", help="file of the trained model")
     parser.add_argument("-d", "--dump-dir", help="dir of dumped files, default is same dir as xyz file")
     parser.add_argument("-B", "--basis", default="ccpvdz", type=str, help="basis used to do the calculation")
-    parser.add_argument("-P", "--proj_basis", help="basis set used to project dm, must match with model") 
+    parser.add_argument(
+        "-P",
+        "--projector-basis",
+        help="basis set used to project dm, must match with model",
+    )
     parser.add_argument("-C", "--charge", default=0, type=int, help="net charge of the molecule")
     parser.add_argument("-v", "--verbose", default=1, type=int, help="output calculation information")
     parser.add_argument("-S", "--suffix", help="suffix added to the saved xyz")
@@ -65,7 +73,13 @@ if __name__ == "__main__":
             else:
                 scf_args = argdict
         conv_args = load_yaml(args.conv_input) if args.conv_input is not None else {}
-        mol_eq = run_optim(mol, model, args.proj_basis, scf_args, conv_args)
+        mol_eq = run_optim(
+            mol,
+            model,
+            args.projector_basis,
+            scf_args,
+            conv_args,
+        )
         suffix = args.suffix
         if args.dump_dir is None:
             dump_dir = os.path.dirname(fn)

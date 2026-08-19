@@ -131,7 +131,7 @@ def collect_systems(systems, folder=None):
 
 
 def make_iterate(systems_train=None, systems_test=None, n_iter=0, 
-                 *, proj_basis=None, workdir=".", share_folder="share",
+                 *, projector_basis=None, workdir=".", share_folder="share",
                  scf_input=True, scf_machine=None,
                  train_input=True, train_machine=None,
                  init_model=False, init_scf=True, init_train=True,
@@ -158,7 +158,7 @@ def make_iterate(systems_train=None, systems_test=None, n_iter=0,
         system in the training set as testing system.
     n_iter: int, optional
         The number of iterations to do. Default is 0.
-    proj_basis: str, optional
+    projector_basis: str, optional
         The basis set used to project the density matrix onto. 
         Can be a `.npz` file specifying the coefficients in pyscf's format.
         If not given, use the default basis.
@@ -244,21 +244,24 @@ def make_iterate(systems_train=None, systems_test=None, n_iter=0,
     scf_machine = check_arg_dict(scf_machine, DEFAULT_SCF_MACHINE, strict)
     train_machine = check_arg_dict(train_machine, DEFAULT_TRN_MACHINE, strict)
     # handle projection basis
-    if proj_basis is not None:
-        save_basis(os.path.join(share_folder, PROJ_BASIS), load_basis(proj_basis))
-        proj_basis = PROJ_BASIS
+    if projector_basis is not None:
+        save_basis(
+            os.path.join(share_folder, PROJ_BASIS),
+            load_basis(projector_basis),
+        )
+        projector_basis = PROJ_BASIS
     # make tasks
     scf_step = make_scf(
         systems_train=systems_train, systems_test=systems_test,
         train_dump=DATA_TRAIN, test_dump=DATA_TEST, no_model=False,
         workdir=SCF_STEP_DIR, share_folder=share_folder,
         source_arg=scf_args_name, source_model=MODEL_FILE,
-        source_pbasis=proj_basis, cleanup=cleanup, **scf_machine
+        source_pbasis=projector_basis, cleanup=cleanup, **scf_machine
     )
     train_step = make_train(
         source_train=DATA_TRAIN, source_test=DATA_TEST,
         restart=True, source_model=MODEL_FILE, save_model=MODEL_FILE, 
-        source_pbasis=proj_basis, source_arg=train_args_name, 
+        source_pbasis=projector_basis, source_arg=train_args_name,
         workdir=TRN_STEP_DIR, share_folder=share_folder,
         cleanup=cleanup, **train_machine
     )
@@ -281,13 +284,13 @@ def make_iterate(systems_train=None, systems_test=None, n_iter=0,
         systems_train=systems_train, systems_test=systems_test,
         train_dump=DATA_TRAIN, test_dump=DATA_TEST, no_model=True,
         workdir=SCF_STEP_DIR, share_folder=share_folder,
-        source_arg=init_scf_name, source_model=None, source_pbasis=proj_basis,
+        source_arg=init_scf_name, source_model=None, source_pbasis=projector_basis,
         cleanup=cleanup, **scf_machine
         )
         train_init = make_train(
             source_train=DATA_TRAIN, source_test=DATA_TEST,
             restart=False, source_model=MODEL_FILE, save_model=MODEL_FILE, 
-            source_pbasis=proj_basis, source_arg=init_train_name, 
+            source_pbasis=projector_basis, source_arg=init_train_name,
             workdir=TRN_STEP_DIR, share_folder=share_folder,
             cleanup=cleanup, **train_machine
         )
