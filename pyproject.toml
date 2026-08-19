@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepks"
+dynamic = ["version"]
+description = "DeePKS-kit: generate accurate (self-consistent) energy functionals"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Yixiao Chen", email = "yixiaoc@princeton.edu" },
+]
+keywords = ["deepks", "DeePKS-kit"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = [
+  "numpy",
+  "paramiko",
+  "pyscf",
+  "ruamel.yaml",
+  "torch",
+]
+
+[project.scripts]
+deepks = "deepks.main:main_cli"
+dks = "deepks.main:main_cli"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+include = ["deepks", "deepks.*"]
+
+[tool.setuptools_scm]
+write_to = "deepks/_version.py"
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
