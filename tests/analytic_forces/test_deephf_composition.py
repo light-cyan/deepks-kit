@@ -78,8 +78,15 @@ def test_deephf_composes_energy_without_mutating_the_native_reference():
     np.testing.assert_array_equal(reference.mo_energy, mo_energy_before)
     np.testing.assert_array_equal(reference.mo_occ, mo_occ_before)
 
-    for analytic_gradient_name in ("nuc_grad_method", "gradient", "forces"):
-        assert not hasattr(method, analytic_gradient_name)
+    for response_or_gradient_name in (
+        "first_order_density",
+        "dq_dR_response",
+        "dq_dR_relaxed",
+        "nuc_grad_method",
+        "gradient",
+        "forces",
+    ):
+        assert callable(getattr(method, response_or_gradient_name))
 
 
 def test_deephf_rejects_an_unconverged_reference():

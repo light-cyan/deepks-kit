@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** Environment setup, dependency locking, and packaging migration are complete. P0 has started with deterministic characterization, example-asset, and end-to-end pipeline baselines.
+**Current position:** P0 and P1 are complete on the main development branch, and P2 RHF DeePHF direct-oracle implementation is in progress against the accepted scientific and package contracts.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 

@@ -30,8 +30,16 @@ def validate_differentiability(
     values = np.asarray(values, dtype=float)
     if values.ndim != 2 or values.shape[1] != sum(shell_sizes):
         raise ValueError("values must have shape (descriptor_atom, sum(shell_sizes))")
+    if not np.isfinite(values).all():
+        raise DescriptorDifferentiabilityError(
+            "descriptor values must be finite"
+        )
     if sensitivity is not None:
         sensitivity = np.asarray(sensitivity, dtype=float).reshape(values.shape)
+        if not np.isfinite(sensitivity).all():
+            raise DescriptorDifferentiabilityError(
+                "descriptor sensitivity must be finite"
+            )
     structural_zero_blocks = []
     minimum_scaled_gap = np.inf
     offset = 0

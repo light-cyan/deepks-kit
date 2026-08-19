@@ -62,6 +62,26 @@ def _dependency_violations(package_directory, forbidden_packages):
     return violations
 
 
+def _pyscf_response_imports(source_path):
+    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    imported = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.extend(
+                f"{node.module}.{alias.name}" for alias in node.names
+            )
+    return [
+        module_name
+        for module_name in imported
+        if module_name == "pyscf.scf.cphf"
+        or module_name.startswith("pyscf.scf.cphf.")
+        or module_name == "pyscf.hessian"
+        or module_name.startswith("pyscf.hessian.")
+    ]
+
+
 def test_package_dependency_directions_are_one_way():
     boundaries = {
         "descriptor": (
@@ -88,6 +108,24 @@ def test_package_dependency_directions_are_one_way():
 
 def test_legacy_scf_package_has_no_import_spec():
     assert importlib.util.find_spec("deepks.scf") is None
+
+
+def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
+    response_imports = []
+    for source_path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        relative_path = str(source_path.relative_to(REPOSITORY_ROOT))
+        response_imports.extend(
+            (relative_path, module_name)
+            for module_name in _pyscf_response_imports(source_path)
+        )
+
+    assert response_imports
+    assert {source_path for source_path, _ in response_imports} == {
+        "deepks/deephf/pyscf_rhf.py"
+    }
+    imported_modules = {module_name for _, module_name in response_imports}
+    assert "pyscf.scf.cphf" in imported_modules
+    assert "pyscf.hessian.rhf" in imported_modules
 
 
 def test_shared_descriptor_symbols_have_one_module_level_owner():

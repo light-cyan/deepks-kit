@@ -12,7 +12,10 @@ def model_reference(model):
     try:
         return next(model.parameters())
     except StopIteration:
-        return torch.empty((), dtype=torch.float64)
+        try:
+            return next(model.buffers())
+        except StopIteration:
+            return torch.empty((), dtype=torch.float64)
 
 
 def correction(
@@ -55,9 +58,12 @@ def descriptor_sensitivity(model, values: torch.Tensor) -> torch.Tensor:
     """Return dE_corr/dq for descriptor compatibility validation."""
     values = values.detach().clone().requires_grad_(True)
     energy = model(values.to(model_reference(model)))
+    if not energy.requires_grad:
+        return torch.zeros_like(values)
     (sensitivity,) = torch.autograd.grad(
         energy,
         values,
         torch.ones_like(energy),
+        allow_unused=True,
     )
-    return sensitivity
+    return torch.zeros_like(values) if sensitivity is None else sensitivity
