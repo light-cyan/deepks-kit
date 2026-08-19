@@ -143,8 +143,7 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
           energy_loss=None, force_loss=None, grad_penalty=0.,
           start_lr=0.001, decay_steps=100, decay_rate=0.96, stop_lr=None,
           weight_decay=0.,  fix_embedding=False,
-          display_epoch=100, ckpt_file="model.pth",
-          graph_file=None, device=DEVICE):
+          display_epoch=100, ckpt_file="model.pth", device=DEVICE):
     
     model = model.to(device)
     model.eval()
@@ -206,8 +205,6 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
 
     if ckpt_file:
         model.save(ckpt_file)
-    if graph_file:
-        model.compile_save(graph_file)
     
 
 def main(train_paths, test_paths=None,

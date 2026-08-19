@@ -1,12 +1,11 @@
 import math
 import inspect
-import warnings
 import numpy as np
 import torch
 import torch.nn as nn 
 from torch.nn import functional as F
 from deepks.utils import load_basis, get_shell_sec
-from deepks.utils import load_elem_table, save_elem_table
+from deepks.utils import load_elem_table
 
 SCALE_EPS = 1e-8
 CHECKPOINT_FORMAT_VERSION = 1
@@ -331,22 +330,6 @@ class CorrNet(nn.Module):
     def save(self, filename, **extra_info):
         torch.save(self.save_dict(**extra_info), filename)
 
-    def compile(self, set_eval=True, **kwargs):
-        old_mode = self.training
-        if set_eval:
-            self.eval()
-        smodel = torch.jit.trace(
-            self.forward, 
-            torch.empty((2, 2, self.input_dim)),
-            **kwargs)
-        self.train(old_mode)
-        return smodel
-
-    def compile_save(self, filename, **kwargs):
-        torch.jit.save(self.compile(**kwargs), filename)
-        if self.elem_table is not None:
-            save_elem_table(filename+".elemtab", self.elem_table)
-    
     @staticmethod
     def load_dict(checkpoint, strict=False):
         format_version = checkpoint.get("format_version")
@@ -365,21 +348,9 @@ class CorrNet(nn.Module):
 
     @staticmethod
     def load(filename, strict=False):
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="`torch.jit.load` is deprecated.*",
-                category=DeprecationWarning,
-            )
-            try:
-                return torch.jit.load(filename, map_location="cpu")
-            except RuntimeError:
-                pass
         checkpoint = torch.load(
             filename,
             map_location="cpu",
             weights_only=True,
         )
-        if isinstance(checkpoint, torch.jit.ScriptModule):
-            return checkpoint
         return CorrNet.load_dict(checkpoint, strict=strict)

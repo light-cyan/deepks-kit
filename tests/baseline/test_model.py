@@ -70,27 +70,6 @@ def test_corrnet_checkpoint_round_trip_preserves_predictions(tmp_path):
     assert loaded.elem_dict == {1: -0.25, 2: -0.5}
 
 
-def test_corrnet_compiled_checkpoint_remains_loadable(tmp_path):
-    torch.manual_seed(13)
-    model = CorrNet(input_dim=3, hidden_sizes=(4,)).double().eval()
-    descriptors = torch.tensor(
-        [[[0.2, -0.1, 0.4], [0.5, 0.3, -0.2]]],
-        dtype=torch.float64,
-    )
-    expected_energy = model(descriptors)
-
-    checkpoint = tmp_path / "compiled-model.pt"
-    model.compile_save(str(checkpoint))
-    loaded = CorrNet.load(checkpoint)
-
-    torch.testing.assert_close(
-        loaded(descriptors),
-        expected_energy,
-        rtol=0.0,
-        atol=0.0,
-    )
-
-
 def test_corrnet_rejects_unversioned_parameter_checkpoint(tmp_path):
     checkpoint = CorrNet(input_dim=2, hidden_sizes=(3,)).save_dict()
     del checkpoint["format_version"]
