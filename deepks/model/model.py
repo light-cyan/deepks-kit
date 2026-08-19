@@ -1,5 +1,6 @@
 import math
 import inspect
+import warnings
 import numpy as np
 import torch
 import torch.nn as nn 
@@ -8,6 +9,29 @@ from deepks.utils import load_basis, get_shell_sec
 from deepks.utils import load_elem_table, save_elem_table
 
 SCALE_EPS = 1e-8
+CHECKPOINT_FORMAT_VERSION = 1
+
+
+def _as_checkpoint_metadata(value):
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu()
+        return value.item() if value.ndim == 0 else value.tolist()
+    if isinstance(value, (list, tuple)):
+        return [_as_checkpoint_metadata(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            _as_checkpoint_metadata(key): _as_checkpoint_metadata(item)
+            for key, item in value.items()
+        }
+    raise TypeError(
+        f"checkpoint metadata does not support {type(value).__name__} values"
+    )
 
 
 def parse_actv_fn(code):
@@ -297,9 +321,10 @@ class CorrNet(nn.Module):
 
     def save_dict(self, **extra_info):
         dump_dict = {
+            "format_version": CHECKPOINT_FORMAT_VERSION,
             "state_dict": self.state_dict(),
-            "init_args": self._init_args,
-            "extra_info": extra_info
+            "init_args": _as_checkpoint_metadata(self._init_args),
+            "extra_info": _as_checkpoint_metadata(extra_info),
         }
         return dump_dict
 
@@ -324,7 +349,12 @@ class CorrNet(nn.Module):
     
     @staticmethod
     def load_dict(checkpoint, strict=False):
-        init_args = checkpoint["init_args"]
+        format_version = checkpoint.get("format_version")
+        if format_version != CHECKPOINT_FORMAT_VERSION:
+            raise ValueError(
+                f"unsupported CorrNet checkpoint format: {format_version!r}"
+            )
+        init_args = dict(checkpoint["init_args"])
         if "layer_sizes" in init_args:
             layers = init_args.pop("layer_sizes")
             init_args["input_dim"] = layers[0]
@@ -335,8 +365,21 @@ class CorrNet(nn.Module):
 
     @staticmethod
     def load(filename, strict=False):
-        try:
-            return torch.jit.load(filename)
-        except RuntimeError:
-            checkpoint = torch.load(filename, map_location="cpu")
-            return CorrNet.load_dict(checkpoint, strict=strict)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="`torch.jit.load` is deprecated.*",
+                category=DeprecationWarning,
+            )
+            try:
+                return torch.jit.load(filename, map_location="cpu")
+            except RuntimeError:
+                pass
+        checkpoint = torch.load(
+            filename,
+            map_location="cpu",
+            weights_only=True,
+        )
+        if isinstance(checkpoint, torch.jit.ScriptModule):
+            return checkpoint
+        return CorrNet.load_dict(checkpoint, strict=strict)
