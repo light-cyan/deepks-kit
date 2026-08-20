@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, P2, P3A, P3B, P4A, and P4B are complete; strict RHF relaxed-force training and scalar-adjoint inference remain based on the P2 RHF direct oracle, the accepted P4A UHF direct oracle provides complete coupled spin-resolved response, and the accepted P4B RKS direct oracle provides complete finite-grid closed-shell pure-LDA response and exact analytic perturbative gradients for its declared domain.
+**Current position:** P0, P1, P2, P3A, P3B, P4A, P4B, and P4C are complete; the finite-grid closed-shell pure-LDA RKS scalar-adjoint backend is accepted against the P4B direct oracle and deterministic finite differences.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -33,7 +33,7 @@ P2 RHF DeePHF direct oracle
 P3A Force data/training    P3B RHF Z/inference      P4A UHF direct [done]    P4B RKS direct [done]
                               |                         |                         |
                               |-------------------------|--> UHF Z                |
-                              |---------------------------------------------------> RKS Z
+                              |---------------------------------------------------> RKS Z [P4C]
                                                         \                         /
                                                          \                       /
                                                           ---> UKS direct ----> UKS Z
@@ -138,6 +138,14 @@ P3 contains two parallel tracks after P2.
 - Runtime responses retain fixed-grid XC AO motion, grid-coordinate response, grid-weight response, AO-metric response, occupied-virtual response, and complete relaxed descriptor and gradient values as auditable partitions, and each method can reuse up to eight responses that it produced and continues to revalidate.
 - Strict `H2` and `LiH` cross-molecule smoke checks exercise the characterized native functional and deterministic grid domain.
 - Architecture guards keep the RHF force-data, scalar-adjoint, and scanner implementations and the UHF direct implementation isolated from the RKS direct object graph.
+
+### P4C — RKS scalar-adjoint inference
+
+**Status:** Implemented and target-accepted. The correction-specific finite-grid RKS transpose solve, complete fixed-grid and moving-grid nuclear contractions, fail-closed inference driver, independent dense-grid oracle, and strict fault matrix are documented in [P4C RKS DeePHF Z-vector inference](./p4c_rks_zvector_inference.md).
+
+- Reuse the P3B reference-neutral transpose convention and the P4B physical Coulomb plus dense-LDA-`f_xc` operator without constructing a coordinate-wise density response.
+- Retain objective-metric, fixed-grid, grid-coordinate, grid-weight, adjoint-metric, occupied-virtual, response, correction, native-reference, and total gradient partitions.
+- Preserve the P4B direct oracle as the default backend and as the model-independent coordinate-wise response facility.
 
 ## 8. P5 — Integration and hardening
 

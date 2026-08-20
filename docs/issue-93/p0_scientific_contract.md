@@ -164,8 +164,8 @@ Runtime tensors omit a frame axis; serialized arrays prepend `n_frame` without c
 | RKS overlap derivative | `(n_raw_atom, 3, n_ao, n_ao)` | Diagnostic runtime only. | `Bohr^-1`. |
 | RKS fixed-grid, XC AO-motion, grid-coordinate, and grid-weight Hamiltonian derivatives | `(n_raw_atom, 3, n_ao, n_ao)` | Diagnostic runtime only. | `Eh/Bohr`. |
 | `W` | `(n_ao, n_ao)` | Direct- or scalar-inference runtime result. | `Eh`. |
-| `b` | `(n_virtual, n_occupied)` | RHF scalar-adjoint runtime result. | `Eh`. |
-| `z` | `(n_virtual, n_occupied)` | RHF scalar-adjoint runtime result. | Dimensionless. |
+| `b` | `(n_virtual, n_occupied)` | Closed-shell RHF or RKS scalar-adjoint runtime result. | `Eh`. |
+| `z` | `(n_virtual, n_occupied)` | Closed-shell RHF or RKS scalar-adjoint runtime result. | Dimensionless. |
 | `e_base`, `e_corr`, `e_tot`, `e_corr_target` | scalar | `(n_frame, 1)` | `Eh`. |
 | `f_reference_variational`, `f_corr_explicit`, `f_corr_explicit_target`, `f_tot` | `(n_raw_atom, 3)` | `(n_frame, n_raw_atom, 3)` | Runtime `Eh/Bohr`; serialized `Eh` per declared molecular length unit. |
 | UHF spin-resolved correction-gradient partitions | `(2, n_raw_atom, 3)` | Diagnostic runtime only. | `Eh/Bohr`. |
@@ -219,6 +219,16 @@ The complete density derivative is `P^R = P_metric^R + P_occupied_virtual^R`, th
 
 The native finite-grid gradient satisfies `g_RKS_native = g_without_grid_response + g_xc_grid_coordinate + g_xc_grid_weight`, and the complete accepted native term uses PySCF grid response.
 
+### 7.4 RKS scalar-adjoint identity
+
+For the accepted RKS objective, `b[a,i] = n_i (W_mo[a,i] + W_mo[i,a])`, and the scalar adjoint solves the same physical finite-grid operator equation `A.T z = b` once.
+
+With `D_z = C_v z (C_o diag(n_i)).T + C_o diag(n_i) z.T C_v.T`, `V_z = G_RKS[D_z]`, and `Wbar_oo = 0.5 (W_oo + W_oo.T)`, the exact metric terms are `g_metric^R = -2 S_oo^R : Wbar_oo` and `g_adjoint_metric^R = 0.5 S_oo^R : V_z,oo`.
+
+The complete finite-grid nuclear contraction is partitioned as `g_adjoint_fixed_grid^R = -z : (H_fixed_grid,vo^R - S_vo^R epsilon_o)`, `g_adjoint_grid_coordinate^R = -z : H_xc_grid_coordinate,vo^R`, and `g_adjoint_grid_weight^R = -z : H_xc_grid_weight,vo^R`.
+
+The exact identities are `g_adjoint_nuclear = g_adjoint_fixed_grid + g_adjoint_grid_coordinate + g_adjoint_grid_weight`, `g_occupied_virtual = g_adjoint_nuclear + g_adjoint_metric`, `g_response = g_metric + g_occupied_virtual`, `g_corr = g_explicit + g_response`, and `g_tot = g_RKS_native + g_corr`.
+
 ## 8. Descriptor degeneracy contract
 
 The ordered-eigenvalue descriptor is accepted only where its nuclear-coordinate derivative is well defined for the evaluated path and the correction model is compatible with every accepted repeated subspace.
@@ -253,6 +263,7 @@ The current strict DeePHF facilities are:
 | Native RHF | Relaxed-force data and training | `generate_rhf_force_frame`, `write_rhf_force_dataset`, and strict force-data consumers | Persisted model-independent RHF `dq_dR_relaxed` with force provenance. |
 | Native UHF | Coordinate-wise direct oracle | `UHFDeePHF.response()` and `UHFDeePHFGradients` | Complete alpha/beta and total `P^R`, additive spin descriptor partitions, and exact `e_base + e_corr` gradient. |
 | Native closed-shell RKS pure LDA | Coordinate-wise direct oracle | `RKSDeePHF.response()` and `RKSDeePHFGradients` | Complete finite-grid `P^R`, `dq_dR_relaxed`, native grid-response partitions, and exact `e_base + e_corr` gradient. |
+| Native closed-shell RKS pure LDA | Scalar-adjoint inference | `RKSDeePHF.adjoint()` and `RKSDeePHFZVectorGradients` | One correction-specific finite-grid transpose solve and exact scalar correction gradient. |
 
 Every strict force facility requires a fixed compatible projector, one real scalar correction, real double-precision finite model state, deterministic and finite complete model sensitivity, accepted ordered-spectrum differentiability, and an unchanged fingerprintable scientific state throughout the transaction; the RKS facility additionally binds the normalized LibXC functional and deterministic finite grid.
 
@@ -294,15 +305,15 @@ The RKS occupied-virtual operator independently passes its configured gap, dimen
 
 `UHFDeePHF` exposes the distinct `direct` backend through `UHFDeePHFGradients`, which constructs the complete coupled alpha/beta coordinate-wise response and retains its spin and motion partitions.
 
-`RKSDeePHF` exposes the distinct `direct` backend through `RKSDeePHFGradients`, which constructs the complete closed-shell finite-grid coordinate-wise response and retains its metric, occupied-virtual, fixed-grid, grid-coordinate, and grid-weight partitions.
+`RKSDeePHF` exposes distinct `direct` and `zvector` backends, with `direct` remaining the default. `RKSDeePHFGradients` constructs the complete closed-shell finite-grid coordinate-wise response, while `RKSDeePHFZVectorGradients` performs one model-specific scalar-adjoint solve without constructing the coordinate-wise density or relaxed descriptor response.
 
 One `RKSDeePHF` method retains and independently reaudits at most eight successful responses that it produced, so an earlier retained response remains reusable after a later solve while foreign, changed, or evicted responses fail explicitly.
 
-`DeePHF.response_options`, `UHFDeePHF.response_options`, and `RKSDeePHF.response_options` configure their separate direct adapters, while RHF `DeePHF.adjoint_options` independently configures the Z-vector backend; each option namespace is validated at its own method and driver boundary.
+`DeePHF.response_options`, `UHFDeePHF.response_options`, and `RKSDeePHF.response_options` configure their separate direct adapters, while RHF `DeePHF.adjoint_options` and RKS `RKSDeePHF.adjoint_options` independently configure their scalar-adjoint backends; each option namespace is validated at its own method and driver boundary.
 
 The reference-neutral `ScalarAdjointProblem` contract supplies `dimension`, `dense_operator`, `apply`, and `apply_transpose`; `solve_scalar_adjoint` performs one literal `A.T z = b` solve and retains literal, independent-transpose, and physical residual diagnostics, while reference-specific operator semantics remain inside the RHF and RKS compatibility adapters.
 
-The force-data producer selects the RHF direct backend because persistent `dq_dR_relaxed` is a model-independent coordinate-wise RHF descriptor Jacobian. A scalar `RHFAdjoint` is a model-specific inference result and has no relaxed-Jacobian semantics, and UHF and RKS direct runtime objects remain outside the RHF force-data contract.
+The force-data producer selects the RHF direct backend because persistent `dq_dR_relaxed` is a model-independent coordinate-wise RHF descriptor Jacobian. Scalar `RHFAdjoint` and `RKSAdjoint` results are model-specific inference state with no relaxed-Jacobian semantics, and UHF and RKS runtime objects remain outside the RHF force-data contract.
 
 ### 9.5 Strict RHF scanner lifecycle
 
@@ -326,7 +337,7 @@ The UHF direct response additionally requires independent alpha and beta occupie
 
 The RKS direct response additionally requires exact LibXC 7.0.0 and `NumInt` cutoff provenance, prebuilt-grid and canonical radii content, response-generator identity and host-block boundaries, independently finite-differenced translational `w1`, direct Coulomb plus dense `f_xc` operator reconstruction, fixed-grid XC AO-motion reconstruction, separate grid-coordinate and grid-weight response, native gradient grid-response reconstruction, and complete nonorthogonal first-order invariants.
 
-Scalar-adjoint acceptance requires the literal dense transpose residual and an independently applied transpose residual; the RHF symmetry gate additionally requires the independently applied physical residual. A failed adjoint never falls back to direct response or an explicit-only correction gradient.
+Scalar-adjoint acceptance requires the literal dense transpose residual, an independently applied transpose residual, and an independently applied physical residual after the reference-specific symmetry gate. An RHF or RKS adjoint failure never falls back to direct response or an explicit-only correction gradient.
 
 RHF scanner acceptance requires an exact hook-free Mole input or a valid coordinate array, static molecular identity, supported copied SCF controls, fresh SCF convergence, unchanged occupations, continuous occupied-subspace overlap, stable model state during a call, finite energy and gradient, and atomic result publication.
 
@@ -334,7 +345,7 @@ A zero correction must reproduce the native reference energy and gradient, while
 
 The UHF direct gradient driver clears all public response and gradient results at the start of a call and after any failure, so a failed transaction cannot publish stale state.
 
-The RKS direct gradient driver applies the same fail-closed result publication, accepts only the `direct` backend, and rejects adjoint, scanner, and RHF force-data use at their exact API boundaries.
+The RKS direct and scalar-adjoint gradient drivers apply the same fail-closed result publication under explicit backend selection; the scalar-adjoint path rejects scanner and RHF force-data use at their exact API boundaries.
 
 Every failure reports the violated contract category, the relevant reference or tensor identity, and the numerical diagnostic needed to reproduce the decision.
 
@@ -346,7 +357,7 @@ RHF first-order reference densities and UHF alpha, beta, and total first-order r
 
 Relaxed descriptor derivatives must agree with descriptors from independently converged displaced references over a documented step-size sequence.
 
-RHF, UHF, and strict pure-LDA RKS direct DeePHF total gradients must agree with central finite differences of the complete `e_base + e_corr` energy.
+RHF direct and scalar-adjoint, UHF direct, and strict pure-LDA RKS direct and scalar-adjoint DeePHF total gradients must agree with central finite differences of the complete `e_base + e_corr` energy.
 
 The UHF coupled occupied-virtual operator, per-spin AO metric response, and complete physical response residual must agree with independent AO-integral reconstructions, and omission of either spin, metric, or occupied-virtual contributions must be detectably inconsistent.
 
@@ -358,11 +369,11 @@ The RKS Coulomb and LibXC `f_xc` operator blocks, fixed-grid XC AO motion, separ
 
 Strict cross-molecule smoke checks validate both `H2/STO-3G` and `LiH/STO-3G` under the same native RKS functional and deterministic grid contract, and the independent grid audit detects response-generator replacement, host-block repartitioning, cached-weight corruption, and translation-preserving `w1` corruption before CPKS.
 
-RHF Z-vector correction partitions must agree with their P2 direct-oracle counterparts, and the complete Z-vector gradient must independently agree with central finite differences of `e_base + e_corr`.
+RHF and RKS Z-vector correction partitions must agree with their matching direct-oracle counterparts, and each complete Z-vector gradient must independently agree with central finite differences of `e_base + e_corr`.
 
 RHF scanner results across repeated and displaced geometry sequences must agree with independently constructed fresh methods, while injected SCF, root, model, response, or adjoint failures leave no publishable current result.
 
-Zero and constant corrections must reproduce the complete native RHF, UHF, or grid-response RKS gradient under the corresponding accepted direct contract.
+Zero and constant corrections must reproduce the complete native RHF, UHF, or grid-response RKS gradient under the corresponding accepted direct or scalar-adjoint contract.
 
 Accepted penalty-free DeePKS total gradients and descriptor values must remain numerically equivalent across the P1 structural refactor.
 
