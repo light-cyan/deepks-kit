@@ -1,0 +1,2343 @@
+{
+  "central": {
+    "descriptor_differentiability": {
+      "minimum_scaled_gap": 462935.47473317967,
+      "structural_zero_blocks": []
+    },
+    "direct_diagnostics": {
+      "cphf_tolerance": 1e-11,
+      "idempotency_residual": 2.9108659926890823e-15,
+      "invariant_tolerance": 1e-09,
+      "level_shift": 0.0,
+      "max_cycle": 100,
+      "max_refinement_cycles": 3,
+      "maximum_residual": 5.274822245660005e-11,
+      "metric_residual": 2.7755575615628914e-17,
+      "minimum_orbital_gap": 0.5593471085836759,
+      "operator_condition_number": 141.6614557694844,
+      "operator_condition_tolerance": 100000000.0,
+      "operator_dimension_limit": 512,
+      "operator_maximum_eigenvalue": 21.8245583138507,
+      "operator_minimum_eigenvalue": 0.15406137255404356,
+      "operator_stability_tolerance": 1e-06,
+      "operator_symmetry_residual": 5.090112359384946e-15,
+      "operator_symmetry_tolerance": 1e-10,
+      "orbital_gap_tolerance": 1e-07,
+      "particle_number_residual": 3.2751579226442118e-15,
+      "pyscf_version": "2.14.0",
+      "refinement_cycles": 1,
+      "residual_history": [
+        2.6094470392768138e-06,
+        5.274822245660005e-11
+      ],
+      "residual_rms": 5.668067288179445e-12,
+      "residual_tolerance": 1e-09,
+      "response_dimension": 112
+    },
+    "direct_vs_zvector_correction": {
+      "actual_at_worst": -0.002281913554747735,
+      "expected_at_worst": -0.0022819135547555436,
+      "max_abs": 7.808424046240603e-15,
+      "rms": 4.137566519507643e-15,
+      "signed_error_at_worst": 7.808424046240603e-15,
+      "worst_atom": 2,
+      "worst_coordinate": "z",
+      "worst_index": [
+        2,
+        2
+      ]
+    },
+    "direct_vs_zvector_response": {
+      "actual_at_worst": 0.0006816791511630991,
+      "expected_at_worst": 0.0006816791511552907,
+      "max_abs": 7.808424046240603e-15,
+      "rms": 4.137518953910074e-15,
+      "signed_error_at_worst": 7.808424046240603e-15,
+      "worst_atom": 2,
+      "worst_coordinate": "z",
+      "worst_index": [
+        2,
+        2
+      ]
+    },
+    "direct_vs_zvector_total": {
+      "actual_at_worst": -0.015638078662546424,
+      "expected_at_worst": -0.015638078662554233,
+      "max_abs": 7.809725088847586e-15,
+      "rms": 4.1380357438560275e-15,
+      "signed_error_at_worst": 7.809725088847586e-15,
+      "worst_atom": 2,
+      "worst_coordinate": "z",
+      "worst_index": [
+        2,
+        2
+      ]
+    },
+    "energy": {
+      "correction_eh": 0.1128773794206215,
+      "identity_error_eh": 0.0,
+      "reference_eh": -113.79462150856385,
+      "total_eh": -113.68174412914323
+    },
+    "force_is_exact_negative_gradient": true,
+    "passed": true,
+    "state": {
+      "ao_count": 22,
+      "charge": 0,
+      "converged": true,
+      "electron_counts": 16.0,
+      "minimum_orbital_gap": 0.5593471085836759,
+      "occupations": [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "response_dimensions": 112,
+      "spin": 0
+    },
+    "wall_time_seconds": {
+      "direct_gradient": 1.8813472390174866,
+      "native_reference": 0.17693053372204304,
+      "zvector_gradient": 1.0877519305795431
+    },
+    "zero_direct_vs_native": {
+      "actual_at_worst": -0.08662416233536341,
+      "expected_at_worst": -0.08662416233536341,
+      "max_abs": 0.0,
+      "rms": 0.0,
+      "signed_error_at_worst": 0.0,
+      "worst_atom": 0,
+      "worst_coordinate": "x",
+      "worst_index": [
+        0,
+        0
+      ]
+    },
+    "zero_zvector_vs_native": {
+      "actual_at_worst": -0.08662416233536341,
+      "expected_at_worst": -0.08662416233536341,
+      "max_abs": 0.0,
+      "rms": 0.0,
+      "signed_error_at_worst": 0.0,
+      "worst_atom": 0,
+      "worst_coordinate": "x",
+      "worst_index": [
+        0,
+        0
+      ]
+    },
+    "zvector_diagnostics": {
+      "adjoint_density_symmetry_residual": 0.0,
+      "adjoint_potential_symmetry_residual": 0.0,
+      "maximum_physical_residual": 1.4333152720258369e-16,
+      "maximum_solver_residual": 2.7755575615628914e-17,
+      "maximum_transpose_residual": 1.4333152720258369e-16,
+      "minimum_orbital_gap": 0.5593471085836759,
+      "objective_gradient_norm": 0.06945357168424993,
+      "objective_symmetry_residual": 3.469446951953614e-18,
+      "objective_symmetry_tolerance": 1e-10,
+      "operator_condition_number": 141.6614557694844,
+      "operator_condition_tolerance": 100000000.0,
+      "operator_dimension_limit": 512,
+      "operator_maximum_eigenvalue": 21.8245583138507,
+      "operator_minimum_eigenvalue": 0.15406137255404356,
+      "operator_stability_tolerance": 1e-06,
+      "operator_symmetry_residual": 5.090112359384946e-15,
+      "operator_symmetry_tolerance": 1e-10,
+      "orbital_gap_tolerance": 1e-07,
+      "physical_residual_rms": 2.7178918621116512e-17,
+      "pyscf_version": "2.14.0",
+      "residual_tolerance": 1e-09,
+      "response_dimension": 112,
+      "solution_norm": 0.1193374459777124,
+      "solve_count": 1,
+      "solver": "numpy.linalg.solve(A.T, b)",
+      "solver_residual_rms": 3.709132433917502e-18,
+      "transpose_residual_rms": 2.7178918621116512e-17
+    }
+  },
+  "configuration": {
+    "acceptance": {
+      "backend_max_abs": 1e-08,
+      "descriptor_fd_max_abs": 1e-05,
+      "explicit_error_ratio_min": 10.0,
+      "gradient_fd_max_abs": 1e-05,
+      "response_signal_min": 0.0001,
+      "rhf_force_sum_max_abs": 1e-08,
+      "rhf_rotation_max_abs": 1e-08,
+      "zero_native_max_abs": 1e-10
+    },
+    "basis": "6-31g",
+    "finite_difference_steps_bohr": [
+      0.001,
+      0.0003,
+      0.0001
+    ],
+    "lda": {
+      "alignment": 1,
+      "angular_grid": 50,
+      "cutoff": 1e-15,
+      "radial_grid": 20,
+      "small_rho_cutoff": 0.0,
+      "xc": "LDA_X + LDA_C_VWN"
+    },
+    "performance": {
+      "repetitions": 5,
+      "threads": 1,
+      "warmup": 1
+    },
+    "projector_basis": [
+      [
+        0,
+        [
+          0.8,
+          1.0
+        ]
+      ],
+      [
+        1,
+        [
+          0.3,
+          1.0
+        ]
+      ]
+    ],
+    "scf_controls": {
+      "conv_tol": 1e-13,
+      "conv_tol_cpscf": 1e-12,
+      "conv_tol_grad": 1e-10,
+      "max_cycle": 100
+    },
+    "seed": 20260820,
+    "training": {
+      "energy_factor": 1.0,
+      "force_factor": 10.0,
+      "mp2_epochs": 800,
+      "splits": {
+        "heldout": 2,
+        "train": 6,
+        "validation": 2
+      },
+      "start_lr": 0.005,
+      "teacher_epochs": 400
+    }
+  },
+  "environment": {
+    "configuration_sha256": "34afb33c7bf2ff8361e87020bba08d466df25f0127a191acd8ad96198b027858",
+    "cpu_model": "AMD EPYC 7K62 48-Core Processor",
+    "git_revision": "cbac4288b3fd0b6b2edba4331c2231071466cf55",
+    "libxc": "7.0.0",
+    "logical_cores": 48,
+    "memory_bytes": 270108176384,
+    "numpy": "2.4.6",
+    "operating_system": "Linux-6.8.0-110-generic-x86_64-with-glibc2.35",
+    "physical_cores": 48,
+    "pyscf": "2.14.0",
+    "python": "3.11.15",
+    "thread_environment": {
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "timestamp_utc": "2026-08-20T14:27:55.424735+00:00",
+    "torch": "2.13.0+cpu",
+    "torch_num_interop_threads": 1,
+    "torch_num_threads": 1
+  },
+  "family": "RHF",
+  "finite_difference": {
+    "anti_vacuity": {
+      "explicit_to_relaxed_gradient_error_ratio": 880604.992236119,
+      "required_error_ratio": 10.0,
+      "required_response_signal": 0.0001,
+      "response_correction_gradient_max_abs_eh_per_bohr": 0.003959154145687784,
+      "response_descriptor_max_abs_bohr_inverse": 0.370311972845221
+    },
+    "passed": true,
+    "state_continuity": [
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593837919999252,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999994506816892
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593101592295884,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999945067258228
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593854842224444,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999944973815942
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593084794867944,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999944973644123
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593170426106737,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999944130476015
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593768859264994,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999944130345042
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5592620510969835,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999898510312704
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5594320989667563,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999898512631324
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593312404117898,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999899881242688
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593629145927861,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999899881417029
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593567774090655,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999898155151262
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593373818876495,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999898155102145
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593691981644304,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999155417875
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.559324984870182,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999155396699
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593241160231648,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999908487462
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593700569940188,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999084685308
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593537761168168,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998917370507
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593404021122901,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998917233494
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593731995483953,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999125113886
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593209977948308,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999125162464
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593473924127583,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999083414408
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593467820208133,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999083572116
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593606257120118,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998899593715
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593335518361304,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998899853713
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593581415383411,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995056068955
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593360516969839,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995056044337
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593586478914041,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995047600468
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593355464642971,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995047595824
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593381190836098,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999994971701047
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593560721067947,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999994971697508
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593215983835527,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990865876882
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593726127440626,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990865939486
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593423546588094,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990989193253
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593518569157592,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990989197945
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593500153117403,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990833837634
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593441966517916,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990833836341
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593537390436392,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999923986932
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593404750553663,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999923986334
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.559340215451656,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999917632733
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593539977419171,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999917627603
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593491129318942,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999902559039
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593451007307355,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999902555305
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593549379548295,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999921261755
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593392774299006,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999921263059
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593471982238138,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999917512254
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593470151026705,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999917516504
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593511678852092,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999900971654
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593430457179325,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999900978633
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593507888955531,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999450673016
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593434256120979,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999450672152
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593509575570503,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999449732833
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593432570810886,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999944973266
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593441149694676,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999441299579
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593500993114386,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999441299511
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593386058546785,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998985098569
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593556106414728,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998985100865
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593455245666803,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998998798222
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593486919822599,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998998798395
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593480780707112,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998981536264
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593461385177343,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998981536209
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593493190779362,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999999155412
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593448977499151,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.99999999915541
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593448113144208,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999990847883
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593494054123007,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999990847727
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593477770890269,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999998917309
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593464396886656,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999989172944
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593497185723217,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999991251334
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593444983966716,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999991251374
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593471388910136,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999990834877
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593470778527285,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999990835015
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.559348462079712,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999988997099
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": 0.5593457546912917,
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999988997369
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      }
+    ],
+    "steps": {
+      "1.0e-03": {
+        "explicit_descriptor_jacobian": {
+          "actual_at_worst": -0.45813993272535,
+          "expected_at_worst": -0.08782777210947224,
+          "max_abs": 0.37031216061587774,
+          "rms": 0.08385910189692528,
+          "signed_error_at_worst": -0.37031216061587774,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0,
+            1,
+            1
+          ]
+        },
+        "explicit_only_total_gradient": {
+          "actual_at_worst": -0.07212269444139749,
+          "expected_at_worst": -0.07608182055918178,
+          "max_abs": 0.00395912611778429,
+          "rms": 0.0022441001168828786,
+          "signed_error_at_worst": 0.00395912611778429,
+          "worst_atom": 0,
+          "worst_coordinate": "y",
+          "worst_index": [
+            0,
+            1
+          ]
+        },
+        "relaxed_descriptor_jacobian": {
+          "actual_at_worst": 0.10181960582206051,
+          "expected_at_worst": 0.10181940673803513,
+          "max_abs": 1.9908402537627268e-07,
+          "rms": 4.2923054978665676e-08,
+          "signed_error_at_worst": 1.9908402537627268e-07,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0,
+            1,
+            3
+          ]
+        },
+        "step_bohr": 0.001,
+        "total_gradient": {
+          "actual_at_worst": 0.07047763874899887,
+          "expected_at_worst": 0.07047722445463478,
+          "max_abs": 4.142943640927932e-07,
+          "rms": 1.5787724173624544e-07,
+          "signed_error_at_worst": 4.142943640927932e-07,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      },
+      "1.0e-04": {
+        "explicit_descriptor_jacobian": {
+          "actual_at_worst": -0.45813993272535,
+          "expected_at_worst": -0.08782795839268331,
+          "max_abs": 0.37031197433266666,
+          "rms": 0.08385908550408734,
+          "signed_error_at_worst": -0.37031197433266666,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0,
+            1,
+            1
+          ]
+        },
+        "explicit_only_total_gradient": {
+          "actual_at_worst": -0.07212269444139749,
+          "expected_at_worst": -0.0760818475242786,
+          "max_abs": 0.003959153082881112,
+          "rms": 0.0022441959225544547,
+          "signed_error_at_worst": 0.003959153082881112,
+          "worst_atom": 0,
+          "worst_coordinate": "y",
+          "worst_index": [
+            0,
+            1
+          ]
+        },
+        "relaxed_descriptor_jacobian": {
+          "actual_at_worst": -0.016020631671310216,
+          "expected_at_worst": -0.01602054341576231,
+          "max_abs": 8.82555479045366e-08,
+          "rms": 1.070239204386477e-08,
+          "signed_error_at_worst": -8.82555479045366e-08,
+          "worst_atom": 1,
+          "worst_coordinate": "y",
+          "worst_index": [
+            1,
+            1,
+            0,
+            1
+          ]
+        },
+        "step_bohr": 0.0001,
+        "total_gradient": {
+          "actual_at_worst": 0.07047763874899887,
+          "expected_at_worst": 0.0704776342530522,
+          "max_abs": 4.495946670513007e-09,
+          "rms": 1.8776941265167788e-09,
+          "signed_error_at_worst": 4.495946670513007e-09,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      },
+      "3.0e-04": {
+        "explicit_descriptor_jacobian": {
+          "actual_at_worst": -0.45813993272535,
+          "expected_at_worst": -0.08782794306013328,
+          "max_abs": 0.3703119896652167,
+          "rms": 0.08385908712293402,
+          "signed_error_at_worst": -0.3703119896652167,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0,
+            1,
+            1
+          ]
+        },
+        "explicit_only_total_gradient": {
+          "actual_at_worst": -0.07212269444139749,
+          "expected_at_worst": -0.07608184596108458,
+          "max_abs": 0.003959151519687093,
+          "rms": 0.0022441885672512037,
+          "signed_error_at_worst": 0.003959151519687093,
+          "worst_atom": 0,
+          "worst_coordinate": "y",
+          "worst_index": [
+            0,
+            1
+          ]
+        },
+        "relaxed_descriptor_jacobian": {
+          "actual_at_worst": 0.10181960582206051,
+          "expected_at_worst": 0.10181958789508747,
+          "max_abs": 1.7926973044923855e-08,
+          "rms": 4.752151217524e-09,
+          "signed_error_at_worst": 1.7926973044923855e-08,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0,
+            1,
+            3
+          ]
+        },
+        "step_bohr": 0.0003,
+        "total_gradient": {
+          "actual_at_worst": 0.07047763874899887,
+          "expected_at_worst": 0.07047760114176072,
+          "max_abs": 3.7607238156933676e-08,
+          "rms": 1.4357028692427623e-08,
+          "signed_error_at_worst": 3.7607238156933676e-08,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      }
+    },
+    "wall_time_seconds": {
+      "maximum_per_displacement": 0.22226399183273315,
+      "median_per_displacement": 0.213702323846519,
+      "minimum_per_displacement": 0.21109056659042835,
+      "total": 15.453986091539264
+    }
+  },
+  "invariance": {
+    "force_sum_eh_per_bohr": [
+      -7.958911307781591e-15,
+      -2.9004576518332215e-15,
+      7.424616477180734e-16
+    ],
+    "force_sum_max_abs": 7.958911307781591e-15,
+    "hydrogen_permutation": {
+      "descriptor": {
+        "actual_at_worst": 0.9994486909681483,
+        "expected_at_worst": 0.9994486909588838,
+        "max_abs": 9.264478073589544e-12,
+        "rms": 2.8193993038118303e-12,
+        "signed_error_at_worst": 9.264478073589544e-12,
+        "worst_atom": 0,
+        "worst_coordinate": "y",
+        "worst_index": [
+          0,
+          1
+        ]
+      },
+      "energy_abs_error_eh": 3.552713678800501e-13,
+      "gradient": {
+        "actual_at_worst": 0.01834156880027457,
+        "expected_at_worst": 0.018341568797929052,
+        "max_abs": 2.345519611868241e-12,
+        "rms": 1.0121744085718124e-12,
+        "signed_error_at_worst": 2.345519611868241e-12,
+        "worst_atom": 2,
+        "worst_coordinate": "z",
+        "worst_index": [
+          2,
+          2
+        ]
+      },
+      "permutation": [
+        0,
+        1,
+        3,
+        2
+      ]
+    },
+    "passed": true,
+    "rotation": {
+      "descriptor": {
+        "actual_at_worst": 0.9994486909760311,
+        "expected_at_worst": 0.9994486909588838,
+        "max_abs": 1.714728359303308e-11,
+        "rms": 5.190201187705518e-12,
+        "signed_error_at_worst": 1.714728359303308e-11,
+        "worst_atom": 0,
+        "worst_coordinate": "y",
+        "worst_index": [
+          0,
+          1
+        ]
+      },
+      "energy_abs_error_eh": 4.831690603168681e-13,
+      "gradient": {
+        "actual_at_worst": 0.02033244565582865,
+        "expected_at_worst": 0.020332445651269404,
+        "max_abs": 4.55924534237262e-12,
+        "rms": 2.0533958058627893e-12,
+        "signed_error_at_worst": 4.55924534237262e-12,
+        "worst_atom": 3,
+        "worst_coordinate": "z",
+        "worst_index": [
+          3,
+          2
+        ]
+      },
+      "matrix": [
+        [
+          0.9436061213383621,
+          0.1701864333697023,
+          0.2839789880777666
+        ],
+        [
+          -0.12507133044039193,
+          0.9774424485353448,
+          -0.1701864333697023
+        ],
+        [
+          -0.3065365395424218,
+          0.12507133044039193,
+          0.9436061213383621
+        ]
+      ]
+    },
+    "unit_equivalence": {
+      "descriptor": {
+        "actual_at_worst": 1.451145793041182,
+        "expected_at_worst": 1.4511457930411955,
+        "max_abs": 1.354472090042691e-14,
+        "rms": 7.091576727838656e-15,
+        "signed_error_at_worst": -1.354472090042691e-14,
+        "worst_atom": 1,
+        "worst_coordinate": "z",
+        "worst_index": [
+          1,
+          2
+        ]
+      },
+      "energy_abs_error_eh": 1.4210854715202004e-13,
+      "force": {
+        "actual_at_worst": -0.07047763874900609,
+        "expected_at_worst": -0.07047763874899887,
+        "max_abs": 7.216449660063518e-15,
+        "rms": 2.6300471386764976e-15,
+        "signed_error_at_worst": -7.216449660063518e-15,
+        "worst_atom": 1,
+        "worst_coordinate": "x",
+        "worst_index": [
+          1,
+          0
+        ]
+      },
+      "gradient": {
+        "actual_at_worst": 0.07047763874900609,
+        "expected_at_worst": 0.07047763874899887,
+        "max_abs": 7.216449660063518e-15,
+        "rms": 2.6300471386764976e-15,
+        "signed_error_at_worst": 7.216449660063518e-15,
+        "worst_atom": 1,
+        "worst_coordinate": "x",
+        "worst_index": [
+          1,
+          0
+        ]
+      }
+    }
+  },
+  "passed": true,
+  "public_interfaces": {
+    "checkpoint_reload": {
+      "descriptor_identical": true,
+      "energy_identical": true,
+      "gradient_identical": true,
+      "passed": true,
+      "sha256": "942aae8f754bd65a9d82eef983459c280c3a59f01134e7e4521c0261071be869"
+    },
+    "cli": {
+      "direct": {
+        "command": [
+          "/home/mwding/WorkSpace/Projects/deepks-kit/.venv/bin/deepks",
+          "deephf",
+          "/home/mwding/WorkSpace/Projects/deepks-kit/validation/configs/deephf_direct.yaml"
+        ],
+        "passed": true,
+        "persisted": {
+          "fields": {
+            "converged": {
+              "exact_match": true
+            },
+            "descriptor": {
+              "actual_at_worst": 1.451145793041182,
+              "expected_at_worst": 1.4511457930411955,
+              "max_abs": 1.354472090042691e-14,
+              "rms": 7.091576727838656e-15,
+              "signed_error_at_worst": -1.354472090042691e-14,
+              "worst_atom": 1,
+              "worst_coordinate": "z",
+              "worst_index": [
+                1,
+                2
+              ]
+            },
+            "e_base": {
+              "actual_at_worst": -113.79462150856399,
+              "expected_at_worst": -113.79462150856385,
+              "max_abs": 1.4210854715202004e-13,
+              "rms": 1.4210854715202004e-13,
+              "signed_error_at_worst": -1.4210854715202004e-13,
+              "worst_index": []
+            },
+            "e_corr": {
+              "actual_at_worst": 0.11287737942062392,
+              "expected_at_worst": 0.1128773794206215,
+              "max_abs": 2.42861286636753e-15,
+              "rms": 2.42861286636753e-15,
+              "signed_error_at_worst": 2.42861286636753e-15,
+              "worst_index": []
+            },
+            "e_tot": {
+              "actual_at_worst": -113.68174412914337,
+              "expected_at_worst": -113.68174412914323,
+              "max_abs": 1.4210854715202004e-13,
+              "rms": 1.4210854715202004e-13,
+              "signed_error_at_worst": -1.4210854715202004e-13,
+              "worst_index": []
+            },
+            "force": {
+              "actual_at_worst": -0.07047763874900609,
+              "expected_at_worst": -0.07047763874899887,
+              "max_abs": 7.216449660063518e-15,
+              "rms": 2.6300471386764976e-15,
+              "signed_error_at_worst": -7.216449660063518e-15,
+              "worst_atom": 1,
+              "worst_coordinate": "x",
+              "worst_index": [
+                1,
+                0
+              ]
+            },
+            "gradient": {
+              "actual_at_worst": 0.07047763874900609,
+              "expected_at_worst": 0.07047763874899887,
+              "max_abs": 7.216449660063518e-15,
+              "rms": 2.6300471386764976e-15,
+              "signed_error_at_worst": 7.216449660063518e-15,
+              "worst_atom": 1,
+              "worst_coordinate": "x",
+              "worst_index": [
+                1,
+                0
+              ]
+            }
+          },
+          "passed": true
+        },
+        "return_code": 0
+      },
+      "zvector": {
+        "command": [
+          "/home/mwding/WorkSpace/Projects/deepks-kit/.venv/bin/deepks",
+          "deephf",
+          "/home/mwding/WorkSpace/Projects/deepks-kit/validation/configs/deephf_zvector.yaml"
+        ],
+        "passed": true,
+        "persisted": {
+          "fields": {
+            "converged": {
+              "exact_match": true
+            },
+            "descriptor": {
+              "actual_at_worst": 1.451145793041182,
+              "expected_at_worst": 1.4511457930411955,
+              "max_abs": 1.354472090042691e-14,
+              "rms": 7.091576727838656e-15,
+              "signed_error_at_worst": -1.354472090042691e-14,
+              "worst_atom": 1,
+              "worst_coordinate": "z",
+              "worst_index": [
+                1,
+                2
+              ]
+            },
+            "e_base": {
+              "actual_at_worst": -113.79462150856399,
+              "expected_at_worst": -113.79462150856385,
+              "max_abs": 1.4210854715202004e-13,
+              "rms": 1.4210854715202004e-13,
+              "signed_error_at_worst": -1.4210854715202004e-13,
+              "worst_index": []
+            },
+            "e_corr": {
+              "actual_at_worst": 0.11287737942062392,
+              "expected_at_worst": 0.1128773794206215,
+              "max_abs": 2.42861286636753e-15,
+              "rms": 2.42861286636753e-15,
+              "signed_error_at_worst": 2.42861286636753e-15,
+              "worst_index": []
+            },
+            "e_tot": {
+              "actual_at_worst": -113.68174412914337,
+              "expected_at_worst": -113.68174412914323,
+              "max_abs": 1.4210854715202004e-13,
+              "rms": 1.4210854715202004e-13,
+              "signed_error_at_worst": -1.4210854715202004e-13,
+              "worst_index": []
+            },
+            "force": {
+              "actual_at_worst": -0.07047763874900505,
+              "expected_at_worst": -0.07047763874899785,
+              "max_abs": 7.202571872255703e-15,
+              "rms": 2.6241900315100677e-15,
+              "signed_error_at_worst": -7.202571872255703e-15,
+              "worst_atom": 1,
+              "worst_coordinate": "x",
+              "worst_index": [
+                1,
+                0
+              ]
+            },
+            "gradient": {
+              "actual_at_worst": 0.07047763874900505,
+              "expected_at_worst": 0.07047763874899785,
+              "max_abs": 7.202571872255703e-15,
+              "rms": 2.6241900315100677e-15,
+              "signed_error_at_worst": 7.202571872255703e-15,
+              "worst_atom": 1,
+              "worst_coordinate": "x",
+              "worst_index": [
+                1,
+                0
+              ]
+            }
+          },
+          "passed": true
+        },
+        "return_code": 0
+      }
+    },
+    "concrete_method": {
+      "fields": {
+        "converged": {
+          "exact_match": true
+        },
+        "descriptor": {
+          "actual_at_worst": 1.411237628217311,
+          "expected_at_worst": 1.411237628217311,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        },
+        "e_base": {
+          "actual_at_worst": -113.79462150856385,
+          "expected_at_worst": -113.79462150856385,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "e_corr": {
+          "actual_at_worst": 0.1128773794206215,
+          "expected_at_worst": 0.1128773794206215,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "e_tot": {
+          "actual_at_worst": -113.68174412914323,
+          "expected_at_worst": -113.68174412914323,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "force": {
+          "actual_at_worst": 0.09576227657767145,
+          "expected_at_worst": 0.09576227657767145,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        },
+        "gradient": {
+          "actual_at_worst": -0.09576227657767145,
+          "expected_at_worst": -0.09576227657767145,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        }
+      },
+      "passed": true
+    },
+    "passed": true,
+    "public_factory": {
+      "fields": {
+        "converged": {
+          "exact_match": true
+        },
+        "descriptor": {
+          "actual_at_worst": 1.411237628217311,
+          "expected_at_worst": 1.411237628217311,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        },
+        "e_base": {
+          "actual_at_worst": -113.79462150856385,
+          "expected_at_worst": -113.79462150856385,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "e_corr": {
+          "actual_at_worst": 0.1128773794206215,
+          "expected_at_worst": 0.1128773794206215,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "e_tot": {
+          "actual_at_worst": -113.68174412914323,
+          "expected_at_worst": -113.68174412914323,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "force": {
+          "actual_at_worst": 0.09576227657767145,
+          "expected_at_worst": 0.09576227657767145,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        },
+        "gradient": {
+          "actual_at_worst": -0.09576227657767145,
+          "expected_at_worst": -0.09576227657767145,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        }
+      },
+      "passed": true
+    },
+    "public_helper": {
+      "fields": {
+        "converged": {
+          "exact_match": true
+        },
+        "descriptor": {
+          "actual_at_worst": 1.411237628217311,
+          "expected_at_worst": 1.411237628217311,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        },
+        "e_base": {
+          "actual_at_worst": -113.79462150856385,
+          "expected_at_worst": -113.79462150856385,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "e_corr": {
+          "actual_at_worst": 0.11287737942062392,
+          "expected_at_worst": 0.1128773794206215,
+          "max_abs": 2.42861286636753e-15,
+          "rms": 2.42861286636753e-15,
+          "signed_error_at_worst": 2.42861286636753e-15,
+          "worst_index": []
+        },
+        "e_tot": {
+          "actual_at_worst": -113.68174412914323,
+          "expected_at_worst": -113.68174412914323,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_index": []
+        },
+        "force": {
+          "actual_at_worst": 0.09576227657767145,
+          "expected_at_worst": 0.09576227657767145,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        },
+        "gradient": {
+          "actual_at_worst": -0.09576227657767145,
+          "expected_at_worst": -0.09576227657767145,
+          "max_abs": 0.0,
+          "rms": 0.0,
+          "signed_error_at_worst": 0.0,
+          "worst_atom": 0,
+          "worst_coordinate": "x",
+          "worst_index": [
+            0,
+            0
+          ]
+        }
+      },
+      "passed": true
+    },
+    "public_workflow": {
+      "fields": {
+        "converged": {
+          "exact_match": true
+        },
+        "descriptor": {
+          "actual_at_worst": 1.451145793041182,
+          "expected_at_worst": 1.4511457930411955,
+          "max_abs": 1.354472090042691e-14,
+          "rms": 7.091576727838656e-15,
+          "signed_error_at_worst": -1.354472090042691e-14,
+          "worst_atom": 1,
+          "worst_coordinate": "z",
+          "worst_index": [
+            1,
+            2
+          ]
+        },
+        "e_base": {
+          "actual_at_worst": -113.79462150856399,
+          "expected_at_worst": -113.79462150856385,
+          "max_abs": 1.4210854715202004e-13,
+          "rms": 1.4210854715202004e-13,
+          "signed_error_at_worst": -1.4210854715202004e-13,
+          "worst_index": []
+        },
+        "e_corr": {
+          "actual_at_worst": 0.11287737942062392,
+          "expected_at_worst": 0.1128773794206215,
+          "max_abs": 2.42861286636753e-15,
+          "rms": 2.42861286636753e-15,
+          "signed_error_at_worst": 2.42861286636753e-15,
+          "worst_index": []
+        },
+        "e_tot": {
+          "actual_at_worst": -113.68174412914337,
+          "expected_at_worst": -113.68174412914323,
+          "max_abs": 1.4210854715202004e-13,
+          "rms": 1.4210854715202004e-13,
+          "signed_error_at_worst": -1.4210854715202004e-13,
+          "worst_index": []
+        },
+        "force": {
+          "actual_at_worst": -0.07047763874900609,
+          "expected_at_worst": -0.07047763874899887,
+          "max_abs": 7.216449660063518e-15,
+          "rms": 2.6300471386764976e-15,
+          "signed_error_at_worst": -7.216449660063518e-15,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        },
+        "gradient": {
+          "actual_at_worst": 0.07047763874900609,
+          "expected_at_worst": 0.07047763874899887,
+          "max_abs": 7.216449660063518e-15,
+          "rms": 2.6300471386764976e-15,
+          "signed_error_at_worst": 7.216449660063518e-15,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      },
+      "passed": true
+    },
+    "workflow_persistence": {
+      "fields": {
+        "converged": {
+          "exact_match": true
+        },
+        "descriptor": {
+          "actual_at_worst": 1.451145793041182,
+          "expected_at_worst": 1.4511457930411955,
+          "max_abs": 1.354472090042691e-14,
+          "rms": 7.091576727838656e-15,
+          "signed_error_at_worst": -1.354472090042691e-14,
+          "worst_atom": 1,
+          "worst_coordinate": "z",
+          "worst_index": [
+            1,
+            2
+          ]
+        },
+        "e_base": {
+          "actual_at_worst": -113.79462150856399,
+          "expected_at_worst": -113.79462150856385,
+          "max_abs": 1.4210854715202004e-13,
+          "rms": 1.4210854715202004e-13,
+          "signed_error_at_worst": -1.4210854715202004e-13,
+          "worst_index": []
+        },
+        "e_corr": {
+          "actual_at_worst": 0.11287737942062392,
+          "expected_at_worst": 0.1128773794206215,
+          "max_abs": 2.42861286636753e-15,
+          "rms": 2.42861286636753e-15,
+          "signed_error_at_worst": 2.42861286636753e-15,
+          "worst_index": []
+        },
+        "e_tot": {
+          "actual_at_worst": -113.68174412914337,
+          "expected_at_worst": -113.68174412914323,
+          "max_abs": 1.4210854715202004e-13,
+          "rms": 1.4210854715202004e-13,
+          "signed_error_at_worst": -1.4210854715202004e-13,
+          "worst_index": []
+        },
+        "force": {
+          "actual_at_worst": -0.07047763874900609,
+          "expected_at_worst": -0.07047763874899887,
+          "max_abs": 7.216449660063518e-15,
+          "rms": 2.6300471386764976e-15,
+          "signed_error_at_worst": -7.216449660063518e-15,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        },
+        "gradient": {
+          "actual_at_worst": 0.07047763874900609,
+          "expected_at_worst": 0.07047763874899887,
+          "max_abs": 7.216449660063518e-15,
+          "rms": 2.6300471386764976e-15,
+          "signed_error_at_worst": 7.216449660063518e-15,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      },
+      "passed": true
+    }
+  },
+  "scanner": {
+    "backends": {
+      "direct": {
+        "energy_abs_errors_eh": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "fresh_object_graph_per_frame": true,
+        "gradient_errors": [
+          {
+            "actual_at_worst": -0.09576227657767145,
+            "expected_at_worst": -0.09576227657767145,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          },
+          {
+            "actual_at_worst": -0.09839982889679183,
+            "expected_at_worst": -0.09839982889679183,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          },
+          {
+            "actual_at_worst": -0.09073162683948374,
+            "expected_at_worst": -0.09073162683948374,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          },
+          {
+            "actual_at_worst": -0.09576227657767145,
+            "expected_at_worst": -0.09576227657767145,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          }
+        ],
+        "passed": true,
+        "sequence": "A-B-C-A"
+      },
+      "zvector": {
+        "energy_abs_errors_eh": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "fresh_object_graph_per_frame": true,
+        "gradient_errors": [
+          {
+            "actual_at_worst": -0.09576227657766735,
+            "expected_at_worst": -0.09576227657766735,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          },
+          {
+            "actual_at_worst": -0.0983998288967871,
+            "expected_at_worst": -0.0983998288967871,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          },
+          {
+            "actual_at_worst": -0.09073162683947276,
+            "expected_at_worst": -0.09073162683947276,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          },
+          {
+            "actual_at_worst": -0.09576227657766735,
+            "expected_at_worst": -0.09576227657766735,
+            "max_abs": 0.0,
+            "rms": 0.0,
+            "signed_error_at_worst": 0.0,
+            "worst_atom": 0,
+            "worst_coordinate": "x",
+            "worst_index": [
+              0,
+              0
+            ]
+          }
+        ],
+        "passed": true,
+        "sequence": "A-B-C-A"
+      }
+    },
+    "passed": true
+  },
+  "stage": "scientific_rhf",
+  "system": "formaldehyde.xyz"
+}

@@ -1,0 +1,50 @@
+{
+  "artifact_count": 218,
+  "artifact_manifest": "validation/reports/artifact_manifest.json",
+  "environment": {
+    "configuration_sha256": "34afb33c7bf2ff8361e87020bba08d466df25f0127a191acd8ad96198b027858",
+    "cpu_model": "AMD EPYC 7K62 48-Core Processor",
+    "git_revision": "cbac4288b3fd0b6b2edba4331c2231071466cf55",
+    "libxc": "7.0.0",
+    "logical_cores": 48,
+    "memory_bytes": 270108176384,
+    "numpy": "2.4.6",
+    "operating_system": "Linux-6.8.0-110-generic-x86_64-with-glibc2.35",
+    "physical_cores": 48,
+    "pyscf": "2.14.0",
+    "python": "3.11.15",
+    "thread_environment": {
+      "MKL_NUM_THREADS": null,
+      "NUMEXPR_NUM_THREADS": null,
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "VECLIB_MAXIMUM_THREADS": null
+    },
+    "timestamp_utc": "2026-08-20T14:48:36.831929+00:00",
+    "torch": "2.13.0+cpu",
+    "torch_num_interop_threads": 48,
+    "torch_num_threads": 48
+  },
+  "passed": true,
+  "stage": "release_validation",
+  "stage_reports": {
+    "performance": "validation/reports/performance.json",
+    "scientific_rhf": "validation/reports/scientific_rhf.json",
+    "scientific_rks": "validation/reports/scientific_rks.json",
+    "scientific_uhf": "validation/reports/scientific_uhf.json",
+    "scientific_uks": "validation/reports/scientific_uks.json",
+    "training_mp2": "validation/reports/training_mp2.json",
+    "training_teacher": "validation/reports/training_teacher.json",
+    "verification": "validation/reports/verification.json"
+  },
+  "stages": {
+    "performance": true,
+    "scientific_rhf": true,
+    "scientific_rks": true,
+    "scientific_uhf": true,
+    "scientific_uks": true,
+    "training_mp2": true,
+    "training_teacher": true,
+    "verification": true
+  }
+}

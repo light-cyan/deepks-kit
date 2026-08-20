@@ -1,0 +1,1092 @@
+[
+  {
+    "path": "validation/README.md",
+    "sha256": "0bf9ab9eca2633531c1d54b534aa8b6be2e76435b72912089482b7be44c43513",
+    "size_bytes": 18017
+  },
+  {
+    "path": "validation/configs/deephf_direct.yaml",
+    "sha256": "aae335b65b68ce9274848083b93236f2c1afcb8f8761cc099d188affcda016dc",
+    "size_bytes": 440
+  },
+  {
+    "path": "validation/configs/deephf_zvector.yaml",
+    "sha256": "c79e7138f1ddee39b1ba5e535f9349b66327c27d1ed15a9d55b9559500680c30",
+    "size_bytes": 442
+  },
+  {
+    "path": "validation/configs/validation.json",
+    "sha256": "34afb33c7bf2ff8361e87020bba08d466df25f0127a191acd8ad96198b027858",
+    "size_bytes": 1025
+  },
+  {
+    "path": "validation/geometries/formaldehyde/converged.npy",
+    "sha256": "d13bab448a58cfff3fb7336525998915b7cde741811292a048f4f925e89edb8f",
+    "size_bytes": 129
+  },
+  {
+    "path": "validation/geometries/formaldehyde/descriptor.npy",
+    "sha256": "27d6a8dbb1f341b7c200cec60d68827cad26db279c681df999fae8f205c3b56c",
+    "size_bytes": 256
+  },
+  {
+    "path": "validation/geometries/formaldehyde/e_base.npy",
+    "sha256": "770e79cc6e13842da5a466def6cd1d2221f08f7abfc0bf37e987360ba048d6a5",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/geometries/formaldehyde/e_corr.npy",
+    "sha256": "b6725bfdd0da780c9857d775aaced96e3b73fd433350471ef52bbac9e87eb989",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/geometries/formaldehyde/e_tot.npy",
+    "sha256": "78770ac35116e2a5dac031b5b7e43b3f699acff360055c15560923d3b4c8d0c1",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/geometries/formaldehyde/force.npy",
+    "sha256": "839d4254af6ac7afde29bfcb4aa8fb6789ce33429675cc33a5d2d34491fe3fa3",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/geometries/formaldehyde/gradient.npy",
+    "sha256": "c0d85caaf5f8060b7f8daf779eaf7660419009b3891837845f6901dced0d28d4",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/geometries/formaldehyde.xyz",
+    "sha256": "5940a4ce6fe17d7518c706d334682c3b57d8de93a3786fb4b0fae227f2b37048",
+    "size_bytes": 231
+  },
+  {
+    "path": "validation/geometries/hydroxymethyl.xyz",
+    "sha256": "d3c0c6d3412a708bbba58a5c7dad1d09934e1a21648002c87e3964d6f2a2c58e",
+    "size_bytes": 271
+  },
+  {
+    "path": "validation/geometries/water_dimer.xyz",
+    "sha256": "b4829fbba0936256ec3a27e102fb3abbd3e94487c535a5e685a019bcc5ce30b9",
+    "size_bytes": 302
+  },
+  {
+    "path": "validation/outputs/build/.gitignore",
+    "sha256": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
+    "size_bytes": 1
+  },
+  {
+    "path": "validation/outputs/build/deepks-0.1.dev421+gcbac4288b-py3-none-any.whl",
+    "sha256": "6040c43ee6b97ceccb32f19d521e785cbf4b73877db485f19f9801711de8b956",
+    "size_bytes": 231539
+  },
+  {
+    "path": "validation/outputs/build/deepks-0.1.dev421+gcbac4288b.tar.gz",
+    "sha256": "f0434b52b13b6dc68d3f3f03848cae9f3c0b4eaa0822ad42008716d82f54e397",
+    "size_bytes": 5173984
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/converged.npy",
+    "sha256": "d13bab448a58cfff3fb7336525998915b7cde741811292a048f4f925e89edb8f",
+    "size_bytes": 129
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/descriptor.npy",
+    "sha256": "27d6a8dbb1f341b7c200cec60d68827cad26db279c681df999fae8f205c3b56c",
+    "size_bytes": 256
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/e_base.npy",
+    "sha256": "770e79cc6e13842da5a466def6cd1d2221f08f7abfc0bf37e987360ba048d6a5",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/e_corr.npy",
+    "sha256": "b6725bfdd0da780c9857d775aaced96e3b73fd433350471ef52bbac9e87eb989",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/e_tot.npy",
+    "sha256": "78770ac35116e2a5dac031b5b7e43b3f699acff360055c15560923d3b4c8d0c1",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/force.npy",
+    "sha256": "839d4254af6ac7afde29bfcb4aa8fb6789ce33429675cc33a5d2d34491fe3fa3",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_direct/validation/geometries/formaldehyde/gradient.npy",
+    "sha256": "c0d85caaf5f8060b7f8daf779eaf7660419009b3891837845f6901dced0d28d4",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/converged.npy",
+    "sha256": "d13bab448a58cfff3fb7336525998915b7cde741811292a048f4f925e89edb8f",
+    "size_bytes": 129
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/descriptor.npy",
+    "sha256": "27d6a8dbb1f341b7c200cec60d68827cad26db279c681df999fae8f205c3b56c",
+    "size_bytes": 256
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/e_base.npy",
+    "sha256": "770e79cc6e13842da5a466def6cd1d2221f08f7abfc0bf37e987360ba048d6a5",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/e_corr.npy",
+    "sha256": "b6725bfdd0da780c9857d775aaced96e3b73fd433350471ef52bbac9e87eb989",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/e_tot.npy",
+    "sha256": "78770ac35116e2a5dac031b5b7e43b3f699acff360055c15560923d3b4c8d0c1",
+    "size_bytes": 136
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/force.npy",
+    "sha256": "bfbf09653243ed0ab565dbe4191737a69bb61ab6f9f112fe167b1f75f1aab218",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/formaldehyde/cli_zvector/validation/geometries/formaldehyde/gradient.npy",
+    "sha256": "0e744265e0e6859b098314d0d2de6a086f39e68132eb3ecde5b0fa81b2ce3784",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/formaldehyde/model.pth",
+    "sha256": "942aae8f754bd65a9d82eef983459c280c3a59f01134e7e4521c0261071be869",
+    "size_bytes": 4581
+  },
+  {
+    "path": "validation/outputs/rhf/coordinates_bohr.npy",
+    "sha256": "eae5676ec93b01a13b6df0db12729e7edbde57570c36c2ee3b5936bfa92bbce5",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/descriptor.npy",
+    "sha256": "b2c2314058f74e90babc1586b007cb4baf957f9649ccb5aaeddbb0b60f893d81",
+    "size_bytes": 256
+  },
+  {
+    "path": "validation/outputs/rhf/descriptor_fd_1e-03.npy",
+    "sha256": "c3c23499d8e860a731058435efee49bb8fafc1df6441ffd5a61965eb261ed0a6",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rhf/descriptor_fd_1e-04.npy",
+    "sha256": "76f80fce00e7e26073fe13ba70efcb050fef211a545a42d8314370a137ace5bd",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rhf/descriptor_fd_3e-04.npy",
+    "sha256": "195cd5f8c6de3bf2ef34ceaee223cc651add5912bea9e061954617b69ac7ba18",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rhf/direct_correction_gradient.npy",
+    "sha256": "928d04ddc96de8087d53d10d00a437f5ac86b76ec777948dd333310721374f93",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/direct_dq_dR_explicit.npy",
+    "sha256": "de7875cf220d84a58e017ae93eb683190281e545132b6fb84e5f14fd824512c8",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rhf/direct_dq_dR_relaxed.npy",
+    "sha256": "4ab444569c762ca2d2540f51b5689e8f7d0479810adc6df3c66c6223c5ed713d",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rhf/direct_dq_dR_response.npy",
+    "sha256": "ea257ac0e56f7bc549b386a0b3970a9f89af41724a973d543f333d39c27b438c",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rhf/direct_force.npy",
+    "sha256": "9c4edbe3848173346ba857fd0a4a9f7be74e62c1e355fea447c54331ae1f5beb",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/direct_gradient.npy",
+    "sha256": "1957a2ba9320c3aee2463aa268196b5fd66ea6e80a7d48859ee8f0979bef0a4a",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/direct_response_gradient.npy",
+    "sha256": "4f6746b7fb0d8a80ba8dd3a7d83d902a61eb6f70da1269266a775155591a7fb3",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/energy_fd_1e-03.npy",
+    "sha256": "1be0901255d86fd08e73a411d0cd2281be2b89d027f1196dd1b87255f12993d8",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/energy_fd_1e-04.npy",
+    "sha256": "0d7e1b235c6eb832d1bac7d593547ecc6bf058058dd386e1316bfbc437d7e7ae",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/energy_fd_3e-04.npy",
+    "sha256": "50cc3a04c85b1c61f3908ec78aef76028904273af43de7b103d276b0583485c8",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/native_gradient.npy",
+    "sha256": "2174cbd390e1af81643e2d5e1e252bbfabe332b1c2975cd69214e97afff633db",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rhf/zvector_gradient.npy",
+    "sha256": "2cd7de8241ae23e928232a58f4d8fe7136dfaf7177cbccedc54b9128bd19fe4c",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/coordinates_bohr.npy",
+    "sha256": "eae5676ec93b01a13b6df0db12729e7edbde57570c36c2ee3b5936bfa92bbce5",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/descriptor.npy",
+    "sha256": "3b88b1cac651a77a35a70878a32ccd77dd21815d1175b6a9e65a4224d6251d99",
+    "size_bytes": 256
+  },
+  {
+    "path": "validation/outputs/rks/descriptor_fd_1e-03.npy",
+    "sha256": "d84f3f78dfd5d5f031d43895d5c952ac2985c3a13cf70da63cc19c55c6f5d938",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rks/descriptor_fd_1e-04.npy",
+    "sha256": "71ad55f960f51b093964e1964b8fdf38c2d87e084184404ca1a7e7cccdf35b3e",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rks/descriptor_fd_3e-04.npy",
+    "sha256": "2f7266c349687085481d80eb8ecaf1a8adea35abf003869775285119048a1378",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rks/direct_correction_gradient.npy",
+    "sha256": "af2fa44fd9fe783cf000abc75428228242c6e0bcdf8b0f0b5107662ddb773035",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/direct_dq_dR_explicit.npy",
+    "sha256": "b41f9ba50b298f2b594e1018ae03d78f3290d132231317760b3c584e642cfb74",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rks/direct_dq_dR_relaxed.npy",
+    "sha256": "16fde7f9118b53067d55cc9e0424ddc7ebf5237114f7cb331fe041786d723c93",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rks/direct_dq_dR_response.npy",
+    "sha256": "9cfe583f386e4473b1b4a22b1f7851ef74d88a4be48d6d953aca8390d610714f",
+    "size_bytes": 1664
+  },
+  {
+    "path": "validation/outputs/rks/direct_force.npy",
+    "sha256": "7d57a05001098b52c23aa42d57adee37574eb9887f15f2b4ffe2253a3593fadd",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/direct_gradient.npy",
+    "sha256": "890e33213bc7ac35fcc0637ceeb2372df72f658114240b6358d3617367dc74e9",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/direct_response_gradient.npy",
+    "sha256": "1d86a1969ac6a3aed23323989f5996d60cc40e6c6d55357ce405f174fad8a88a",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/energy_fd_1e-03.npy",
+    "sha256": "42312944d7a46267fe98d2f06c2efef16770563c834d721896a48d6589dd2492",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/energy_fd_1e-04.npy",
+    "sha256": "4834e8d17378c83afd1f46f2394e0e4fd817ac2cfe4b894b301e6aa42ec2eb57",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/energy_fd_3e-04.npy",
+    "sha256": "d8e2d3046e35d680df4d94fac9a9d693e6c53e0878604297b970be8ebb565e30",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/native_gradient.npy",
+    "sha256": "a41aaa0399114ef482c771962c10f617e3d03e381eaf6ccbf0f191e4bb2cbf29",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/rks/zvector_gradient.npy",
+    "sha256": "39a91c343250c298db2167ea3123015efe7cb326e97846991d07b9f2a0362f2d",
+    "size_bytes": 224
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_force.pth",
+    "sha256": "e9c54f1f9e6400f14545d598a42b94b54d07701e79e66fab526fc343dd535dfb",
+    "size_bytes": 6681
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_force_restart.pth",
+    "sha256": "50272d8722cc8c20ddfd7dceede972f615a227e0d3c17a58109124c16e91c0a4",
+    "size_bytes": 6889
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_heldout/atom.npy",
+    "sha256": "85d342d9797675ce61bfefcfaf503f8e3dd8be704c4e618d560e7fbed9ad61e8",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_heldout/converged.npy",
+    "sha256": "ac537e78759740605ab6c13c1755caf6d517d19b47b4b20cf679e5fed978ed67",
+    "size_bytes": 130
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_heldout/descriptor.npy",
+    "sha256": "2739283fdea0be24a3e6be259e3b4777ec51cbc4f52b340391500b28c01c1eee",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_heldout/e_corr_target.npy",
+    "sha256": "74c427b70df891192ac37addcdfd64d2b0e1db65a9f211b6403cf20a81634d84",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_only.pth",
+    "sha256": "343fa085c5cceddb3c92d29fb5c49e79ba8c51146cc4667226b7274b0caec53e",
+    "size_bytes": 6023
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_train/atom.npy",
+    "sha256": "fba50951d628c691ce9cb622837f26a8d65ccccf5195efdc0c87697d98f8abe4",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_train/converged.npy",
+    "sha256": "8a97f6e802d09124d434bb9e4df258380f586226b3f3fd05841d4e76905aff32",
+    "size_bytes": 134
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_train/descriptor.npy",
+    "sha256": "e90667e308e0b5ae734e0f59bcd2bd24cbc8eec204cb254309d665dddec96b80",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_train/e_corr_target.npy",
+    "sha256": "7f33f5275f75d76166b3e1a49c2a7f26f859828de27ec387b0d4416ecf0c0a54",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_validation/atom.npy",
+    "sha256": "45baa83ef0b8f2999d167df0efb7411816d3113badf3ddb4b0c3b7783bbbc1d3",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_validation/converged.npy",
+    "sha256": "ac537e78759740605ab6c13c1755caf6d517d19b47b4b20cf679e5fed978ed67",
+    "size_bytes": 130
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_validation/descriptor.npy",
+    "sha256": "b44c0e2790c8070e21e276a2141a0ecaf83220b0e683a4c1f2d27924d70e883a",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/energy_validation/e_corr_target.npy",
+    "sha256": "a3d455fb70eaa79b879280f1047be3722e3cf38837272647dcdc0e6fb31d82c9",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/atom.npy",
+    "sha256": "85d342d9797675ce61bfefcfaf503f8e3dd8be704c4e618d560e7fbed9ad61e8",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/descriptor.npy",
+    "sha256": "2739283fdea0be24a3e6be259e3b4777ec51cbc4f52b340391500b28c01c1eee",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/dq_dR_relaxed.npy",
+    "sha256": "995e23cedbe45a40ad39d0c357467c2c262cee69cee2099ec6b9e2ce634b843a",
+    "size_bytes": 7040
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/e_base.npy",
+    "sha256": "abb45d80e615a758b0c6507ded71a32a6121226d7872fedc80015658fbe0456e",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/e_corr_target.npy",
+    "sha256": "74c427b70df891192ac37addcdfd64d2b0e1db65a9f211b6403cf20a81634d84",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/e_target.npy",
+    "sha256": "e8f345e55f96879b0a9e9ae27042116e94794c527d75f11e9b83eb93ec04fe1f",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/f_base.npy",
+    "sha256": "da292027e85da38ed5a2e7b392e04838f95f269e7c840e5cb90f68fbfa0f2212",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/f_corr_target.npy",
+    "sha256": "0619bd616a587fa8669cd22d4c85421a3a2da23d96beeecd3e092929563d0b57",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/f_target.npy",
+    "sha256": "d83539e58c5b675bcde63754208cd0db7d5b9a897557fcdfbce000c77fb9a7ec",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_heldout/force_data.json",
+    "sha256": "bb59f9874c9f0c2cc4d9e9d8d62c5b47f8463f9aefe083d935fc7ab5879e5c36",
+    "size_bytes": 15145
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/atom.npy",
+    "sha256": "fba50951d628c691ce9cb622837f26a8d65ccccf5195efdc0c87697d98f8abe4",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/descriptor.npy",
+    "sha256": "e90667e308e0b5ae734e0f59bcd2bd24cbc8eec204cb254309d665dddec96b80",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/dq_dR_relaxed.npy",
+    "sha256": "887da6a6e470c982e5cf3b34c1cea8f703a2818eca70044543be13894225c525",
+    "size_bytes": 20864
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/e_base.npy",
+    "sha256": "b0b41d37bf6de31d21556c3def6c566e77289ac97a3ffc4cac0329a952bc70ef",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/e_corr_target.npy",
+    "sha256": "7f33f5275f75d76166b3e1a49c2a7f26f859828de27ec387b0d4416ecf0c0a54",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/e_target.npy",
+    "sha256": "fd163e2945ffae15b28f90bf56d078665fc50f2c401b39cd1b98101914567373",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/f_base.npy",
+    "sha256": "34f4651d0709f0d77889c56954426019b7d9770d42cfdde3b4a84a95c2c5c554",
+    "size_bytes": 992
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/f_corr_target.npy",
+    "sha256": "c6ecdc6df654eb0dbcb01587cf5a3f8b26ec66a249bbba6d8c6ea5140f50c0c8",
+    "size_bytes": 992
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/f_target.npy",
+    "sha256": "f9e2693c7c57de2b67d69ba20c440de99751bdf929cf3ec2604f5140d8ec5610",
+    "size_bytes": 992
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_train/force_data.json",
+    "sha256": "ea13043601aec0f731958cf37cb055e21f28161af3bbab66c0f85fdab697e76c",
+    "size_bytes": 28224
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/atom.npy",
+    "sha256": "45baa83ef0b8f2999d167df0efb7411816d3113badf3ddb4b0c3b7783bbbc1d3",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/descriptor.npy",
+    "sha256": "b44c0e2790c8070e21e276a2141a0ecaf83220b0e683a4c1f2d27924d70e883a",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/dq_dR_relaxed.npy",
+    "sha256": "eb49fdbe0e6b511ad68714f872b88206d7551546de11e7c60e1c316ee9ef4150",
+    "size_bytes": 7040
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/e_base.npy",
+    "sha256": "ddb5ff846736f446db9577acdacf6e6e385c26fcd7f76a1f408e3b504c08c671",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/e_corr_target.npy",
+    "sha256": "a3d455fb70eaa79b879280f1047be3722e3cf38837272647dcdc0e6fb31d82c9",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/e_target.npy",
+    "sha256": "dedce982688432f9cf50b99d04d72bd6c018b5aa1445230edeae7f183b751d44",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/f_base.npy",
+    "sha256": "f2fa1939352ac79da38df2886bedf302645aa9d46c946286285f6fdd3f76e12e",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/f_corr_target.npy",
+    "sha256": "82be797134cfcc28ef006783ad1116716489784d03a85d14f389b00319d58d13",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/f_target.npy",
+    "sha256": "ed4e0faecd0ae972346f9c849c28c8641e9519b978640f20f3a428bc7aff8f61",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/mp2/force_validation/force_data.json",
+    "sha256": "45ef33027726f408776941c78816fece7fc6091579aabfc64ce23d71a9bf8d87",
+    "size_bytes": 15149
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_force.pth",
+    "sha256": "75aa341a6f84245fd7cc10c64d02bf7de115a25ce8423cad5bc390210679330d",
+    "size_bytes": 6681
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_force_restart.pth",
+    "sha256": "5fcbf14bcac72f3f78535beba4685685e18aba832e8f429ace0f827ee028055e",
+    "size_bytes": 6889
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_heldout/atom.npy",
+    "sha256": "85d342d9797675ce61bfefcfaf503f8e3dd8be704c4e618d560e7fbed9ad61e8",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_heldout/converged.npy",
+    "sha256": "ac537e78759740605ab6c13c1755caf6d517d19b47b4b20cf679e5fed978ed67",
+    "size_bytes": 130
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_heldout/descriptor.npy",
+    "sha256": "2739283fdea0be24a3e6be259e3b4777ec51cbc4f52b340391500b28c01c1eee",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_heldout/e_corr_target.npy",
+    "sha256": "6f077fe12898f836896ad011546341ff09fe1f1765db509292ec40315904723f",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_only.pth",
+    "sha256": "a3d9f9c73c5e80b4acf594106092358d92e0f7e84aeb4cb2a4bbb6d1bd485b71",
+    "size_bytes": 6023
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_train/atom.npy",
+    "sha256": "fba50951d628c691ce9cb622837f26a8d65ccccf5195efdc0c87697d98f8abe4",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_train/converged.npy",
+    "sha256": "8a97f6e802d09124d434bb9e4df258380f586226b3f3fd05841d4e76905aff32",
+    "size_bytes": 134
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_train/descriptor.npy",
+    "sha256": "e90667e308e0b5ae734e0f59bcd2bd24cbc8eec204cb254309d665dddec96b80",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_train/e_corr_target.npy",
+    "sha256": "ab892a47e212ff166233a1d4c417388fa2e2010554646e5d43e2ad24f68d42c1",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_validation/atom.npy",
+    "sha256": "45baa83ef0b8f2999d167df0efb7411816d3113badf3ddb4b0c3b7783bbbc1d3",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_validation/converged.npy",
+    "sha256": "ac537e78759740605ab6c13c1755caf6d517d19b47b4b20cf679e5fed978ed67",
+    "size_bytes": 130
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_validation/descriptor.npy",
+    "sha256": "b44c0e2790c8070e21e276a2141a0ecaf83220b0e683a4c1f2d27924d70e883a",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/energy_validation/e_corr_target.npy",
+    "sha256": "95ca39527ef8420300a828d1950e408a4fbfaafc6c4f5d7244712243fcbba2d5",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/atom.npy",
+    "sha256": "85d342d9797675ce61bfefcfaf503f8e3dd8be704c4e618d560e7fbed9ad61e8",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/descriptor.npy",
+    "sha256": "2739283fdea0be24a3e6be259e3b4777ec51cbc4f52b340391500b28c01c1eee",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/dq_dR_relaxed.npy",
+    "sha256": "995e23cedbe45a40ad39d0c357467c2c262cee69cee2099ec6b9e2ce634b843a",
+    "size_bytes": 7040
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/e_base.npy",
+    "sha256": "abb45d80e615a758b0c6507ded71a32a6121226d7872fedc80015658fbe0456e",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/e_corr_target.npy",
+    "sha256": "6f077fe12898f836896ad011546341ff09fe1f1765db509292ec40315904723f",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/e_target.npy",
+    "sha256": "bfbbf2fb34818dd09cc4de1fb11bc15318b00609acd86d41138d6054609b197f",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/f_base.npy",
+    "sha256": "da292027e85da38ed5a2e7b392e04838f95f269e7c840e5cb90f68fbfa0f2212",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/f_corr_target.npy",
+    "sha256": "ba1855eade15aa56b430e777742eb6af79acc1dbcaa2462fe47303762e47a83a",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/f_target.npy",
+    "sha256": "e84840e9642306ef4d8569860c1bab298ea82eff67dc793f97b63819804a4b6e",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_heldout/force_data.json",
+    "sha256": "caeddf8edc5c48d77454a91bbe09edf06044fc6e9f6ea4f36bbddac62d39128a",
+    "size_bytes": 15145
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/atom.npy",
+    "sha256": "fba50951d628c691ce9cb622837f26a8d65ccccf5195efdc0c87697d98f8abe4",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/descriptor.npy",
+    "sha256": "e90667e308e0b5ae734e0f59bcd2bd24cbc8eec204cb254309d665dddec96b80",
+    "size_bytes": 1280
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/dq_dR_relaxed.npy",
+    "sha256": "887da6a6e470c982e5cf3b34c1cea8f703a2818eca70044543be13894225c525",
+    "size_bytes": 20864
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/e_base.npy",
+    "sha256": "b0b41d37bf6de31d21556c3def6c566e77289ac97a3ffc4cac0329a952bc70ef",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/e_corr_target.npy",
+    "sha256": "ab892a47e212ff166233a1d4c417388fa2e2010554646e5d43e2ad24f68d42c1",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/e_target.npy",
+    "sha256": "722c7fa4881557f5fbf0e695e4b23d13d61142c0841908220390c2c441208682",
+    "size_bytes": 176
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/f_base.npy",
+    "sha256": "34f4651d0709f0d77889c56954426019b7d9770d42cfdde3b4a84a95c2c5c554",
+    "size_bytes": 992
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/f_corr_target.npy",
+    "sha256": "4dd3c6328970c635f1a441f745d9b1e5834592869d79f8e8206b9962eda5f4ff",
+    "size_bytes": 992
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/f_target.npy",
+    "sha256": "e3777d5e3f62c99ad6661cd91815e4c4ca09fb80ac0d75f2c5391bb4df22bfbf",
+    "size_bytes": 992
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_train/force_data.json",
+    "sha256": "7262eee820e523320a0064f4762349c7a36a7bde6d5e6786705e05a046ba105d",
+    "size_bytes": 28224
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/atom.npy",
+    "sha256": "45baa83ef0b8f2999d167df0efb7411816d3113badf3ddb4b0c3b7783bbbc1d3",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/descriptor.npy",
+    "sha256": "b44c0e2790c8070e21e276a2141a0ecaf83220b0e683a4c1f2d27924d70e883a",
+    "size_bytes": 512
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/dq_dR_relaxed.npy",
+    "sha256": "eb49fdbe0e6b511ad68714f872b88206d7551546de11e7c60e1c316ee9ef4150",
+    "size_bytes": 7040
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/e_base.npy",
+    "sha256": "ddb5ff846736f446db9577acdacf6e6e385c26fcd7f76a1f408e3b504c08c671",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/e_corr_target.npy",
+    "sha256": "95ca39527ef8420300a828d1950e408a4fbfaafc6c4f5d7244712243fcbba2d5",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/e_target.npy",
+    "sha256": "d6f6d49f9968fb3d0ffc0eee6b9b95f7b39a1b0f72826e639749bc6fe416c8a3",
+    "size_bytes": 144
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/f_base.npy",
+    "sha256": "f2fa1939352ac79da38df2886bedf302645aa9d46c946286285f6fdd3f76e12e",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/f_corr_target.npy",
+    "sha256": "0544dc112ce7c9544cb142646500725c86050fc13464fbcf3ca127b043f9df5e",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/f_target.npy",
+    "sha256": "101ffc641e6c64690dcbd627d67e74405d35ca594fa54249e179e1f98ef6dd2a",
+    "size_bytes": 416
+  },
+  {
+    "path": "validation/outputs/training/teacher/force_validation/force_data.json",
+    "sha256": "bb460e179a562ba237a55fe5320b26e99d58bab631f44767065a75489de203e2",
+    "size_bytes": 15149
+  },
+  {
+    "path": "validation/outputs/uhf/coordinates_bohr.npy",
+    "sha256": "396df9a80f3259003ca5bbba76f1eae315b83096ccd35c4d8bdeb16f35533580",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/descriptor.npy",
+    "sha256": "c6d39d1e92641c2605218393b00e0cf53114fcb5f6239e51f45779962516aa07",
+    "size_bytes": 288
+  },
+  {
+    "path": "validation/outputs/uhf/descriptor_fd_1e-03.npy",
+    "sha256": "a3c6ee555623e5e6f5c4b380a2f8c0d5c5c5c9f9e160c40142318ba868837d15",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uhf/descriptor_fd_1e-04.npy",
+    "sha256": "c0e21588ded2e962d3c4a995a3859b72c0a13781230fababe103daeb9226bac2",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uhf/descriptor_fd_3e-04.npy",
+    "sha256": "f0c9570f1b791e5eb892fae97d9a2597663f7e1c0462f3dc12349b79246cd43e",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uhf/direct_correction_gradient.npy",
+    "sha256": "f1594570018b60e5bdb8f8df38614e5a1f519d4afadaf5dd8020f71fd401599b",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/direct_dq_dR_explicit.npy",
+    "sha256": "dd514c765463ac64fb547b1ef0ac683b35219144f21d917e24a9d6ebb1762426",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uhf/direct_dq_dR_relaxed.npy",
+    "sha256": "7df64b563200b91ac040b83129e220e19e01892ed2a086fdbb53d43876e6d4ba",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uhf/direct_dq_dR_response.npy",
+    "sha256": "6e458c10b7a148280e82b430b27fb44697efce8955deba1daf973f0bab5224cb",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uhf/direct_force.npy",
+    "sha256": "b09dfc1c5d299340995c8e716871dee3818efb11b502714a01b54a94a62ff189",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/direct_gradient.npy",
+    "sha256": "fb8a197a5f55b17eb2f6b79f5f15a9eecfd8b6971b970d99f5bf99559c6091f6",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/direct_response_gradient.npy",
+    "sha256": "0d0200d39d6d852e35ebe835ede5f77f8e8f4626d638fa4249cf8ed2b8d3d04a",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/energy_fd_1e-03.npy",
+    "sha256": "e6478d6a9dced08767cff37dbfc96321519b2e1816de73c8a5f9a451005917e5",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/energy_fd_1e-04.npy",
+    "sha256": "2d8b2aa3ff1d48d4b9c8d4948fd92726c5670dfe06589328a4e700f4226465e5",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/energy_fd_3e-04.npy",
+    "sha256": "187089100d3e2dd7effb596f893a78803dee3a543e12b3f94823842e1e70fd72",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/native_gradient.npy",
+    "sha256": "24fdf1a1de377549a159fa1e075333628aaf6981b40234e8b8d87556db6b848b",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uhf/zvector_gradient.npy",
+    "sha256": "718e395ed3b882746c2d316bab20e159458ac9079ce28d35963b6c114aec9e30",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/coordinates_bohr.npy",
+    "sha256": "396df9a80f3259003ca5bbba76f1eae315b83096ccd35c4d8bdeb16f35533580",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/descriptor.npy",
+    "sha256": "224480570328783505b8307dacf3d3386b28066c1efca908d4592f5448fdc6ef",
+    "size_bytes": 288
+  },
+  {
+    "path": "validation/outputs/uks/descriptor_fd_1e-03.npy",
+    "sha256": "e594adb01c69e03c5562f34034da40e47792e320ebb7f139c3d5c2967770de53",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uks/descriptor_fd_1e-04.npy",
+    "sha256": "721b7b062b43efe40cd6b658926d170c5efc071672a03f68a9cc89918b6fb8d1",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uks/descriptor_fd_3e-04.npy",
+    "sha256": "b422610ff651070f2e3bd5e579396833f9c17641de740399aeb3b30a6e41e803",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uks/direct_correction_gradient.npy",
+    "sha256": "97081bd8231a6353510c6695b8bf7fe39747ca75348376559d518336b5600baa",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/direct_dq_dR_explicit.npy",
+    "sha256": "e79ffce34cec46c07bc924dba9cd277187ac7bbdb11e5bec931942b5d8f5fe9b",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uks/direct_dq_dR_relaxed.npy",
+    "sha256": "ee79a0f67de772315313947fce966d36da7b3548bdb53f9e9c02268226187ab3",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uks/direct_dq_dR_response.npy",
+    "sha256": "a2f447675d45450ef183296c75b98edf109ee98322c9aeacffe599e767637815",
+    "size_bytes": 2528
+  },
+  {
+    "path": "validation/outputs/uks/direct_force.npy",
+    "sha256": "70322397b7505d2893870e4eb76a0ff22dcb683d8154eb737b0f3a29e3b70b77",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/direct_gradient.npy",
+    "sha256": "e23bf1cf70b35a36b1b7f93362a194ed116d4aeb0a35d0357f77a62145b053da",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/direct_response_gradient.npy",
+    "sha256": "f335f20fdfc8f26f8cd1ecb41cd5cbc95957c9c41e726ed9788ce983fd7d08ed",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/energy_fd_1e-03.npy",
+    "sha256": "a918023ad7cac346cc9183914a732d2ee3eec9ad7caad53b0fa7c42fd7fda45b",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/energy_fd_1e-04.npy",
+    "sha256": "f4ba61f85bfc22d07f95c2f1dd87ce8ee3095b774af575af76cd27b0863160fb",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/energy_fd_3e-04.npy",
+    "sha256": "3eee93582f5d3f01716fdf7494a7ef8efcca2043835c5fb1c64e4e552b111f33",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/native_gradient.npy",
+    "sha256": "ed8a989d6751d8ccbc44fd2c2e60244959d395a729e14506acadefe593fac2b2",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/outputs/uks/zvector_gradient.npy",
+    "sha256": "66a295a7edffb26987140e16e9983cb9846d9714992e92035b6f7e93d2acb7f7",
+    "size_bytes": 248
+  },
+  {
+    "path": "validation/reports/cli_direct.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size_bytes": 0
+  },
+  {
+    "path": "validation/reports/cli_zvector.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size_bytes": 0
+  },
+  {
+    "path": "validation/reports/performance.json",
+    "sha256": "27bf42f352abbe1b048a7827c012d24c3c0444d9bc064e3680a27d5127b7c936",
+    "size_bytes": 7159
+  },
+  {
+    "path": "validation/reports/scientific_rhf.json",
+    "sha256": "d331afc3117890bd43717b08111ca4f1c75d1636e4df587a820744ddf01aec67",
+    "size_bytes": 67716
+  },
+  {
+    "path": "validation/reports/scientific_rks.json",
+    "sha256": "387a24b694f3d25afd33fb15e76ceb36d8e4e795c7ba63caba18a2de9f44225a",
+    "size_bytes": 45695
+  },
+  {
+    "path": "validation/reports/scientific_uhf.json",
+    "sha256": "37ee3372508d2757f3fa3331f14f0fa2cf22cb85932d00e5ba42b1e2d52d871a",
+    "size_bytes": 60737
+  },
+  {
+    "path": "validation/reports/scientific_uks.json",
+    "sha256": "b7025672fa93c227f6f7df6fa45a34501ea5052ffc740f0b767b07c7dc60b7ea",
+    "size_bytes": 66643
+  },
+  {
+    "path": "validation/reports/training_mp2.json",
+    "sha256": "fac747c37cbd25a4ac6005f5b984f590b82afdcd326f9e8eea0fcb97eeea3d6d",
+    "size_bytes": 12573
+  },
+  {
+    "path": "validation/reports/training_teacher.json",
+    "sha256": "038e0cc4ea398375fcf6e3f57cd6116c4f4b953709502854582795257d583f27",
+    "size_bytes": 24424
+  },
+  {
+    "path": "validation/reports/verification.json",
+    "sha256": "ac6abdd5556e77183e447229a12e0397d92afc8c02b476582b8d7755d79ff9fe",
+    "size_bytes": 1914
+  },
+  {
+    "path": "validation/reports/verification_baseline_tests.log",
+    "sha256": "9d67a781023a9c2dd1e184c48bb6444f16243826f91889ecf2c12306e128eb52",
+    "size_bytes": 1043
+  },
+  {
+    "path": "validation/reports/verification_build.log",
+    "sha256": "c23e756a39f39c890bad87067f32606c85c138653c739bf80064ac1b796462c1",
+    "size_bytes": 50147
+  },
+  {
+    "path": "validation/reports/verification_complete_tests.log",
+    "sha256": "d91a64fe83a8bb59183061d7dc55bac6c01728c30a8b50d4991eadab549613eb",
+    "size_bytes": 5541
+  },
+  {
+    "path": "validation/reports/verification_locked_sync.log",
+    "sha256": "3f97c0e5d9c4d3faa7506707af082ef0bf836df0db2cfd3131d430ed6291584e",
+    "size_bytes": 58
+  },
+  {
+    "path": "validation/scripts/__pycache__/common.cpython-311.pyc",
+    "sha256": "cf294e7414424c196e9fd4ff1e9af4bd1d75d59992558f4dfce1f1ac28a776b6",
+    "size_bytes": 26207
+  },
+  {
+    "path": "validation/scripts/__pycache__/finalize.cpython-311.pyc",
+    "sha256": "2ee48041cffdf5fa4b4898163968c6fcb3371c1cd496dc1b3927d4c8f6d9ce7f",
+    "size_bytes": 12016
+  },
+  {
+    "path": "validation/scripts/__pycache__/run_all.cpython-311.pyc",
+    "sha256": "6de08fa6f8ffcd1bd8f2278f91bce07d1df3c3fd7987cf98c434c1affffe0b3b",
+    "size_bytes": 4005
+  },
+  {
+    "path": "validation/scripts/__pycache__/run_performance.cpython-311.pyc",
+    "sha256": "87fc4fc2051129414eec0e5dbb87e88489f0da89281567b1f1973bc75ff59d8c",
+    "size_bytes": 13093
+  },
+  {
+    "path": "validation/scripts/__pycache__/run_scientific.cpython-311.pyc",
+    "sha256": "35dd1cd7aac58af9f13e77c3b7660059d87a9826632b6b9b9bc05c197771213e",
+    "size_bytes": 40663
+  },
+  {
+    "path": "validation/scripts/__pycache__/run_training.cpython-311.pyc",
+    "sha256": "23679469e553bb4db82b7f344217fae30d964489857b5c99c4e006e083a75bb1",
+    "size_bytes": 29254
+  },
+  {
+    "path": "validation/scripts/__pycache__/run_verification.cpython-311.pyc",
+    "sha256": "de680e92333258b95ecc7153d7c9a63f20cea434e6806be2846eebbc2463884b",
+    "size_bytes": 2903
+  },
+  {
+    "path": "validation/scripts/common.py",
+    "sha256": "4d30c5bf2dc7ac8f44f81e5d262315209bff1a56427566075341f583dc122c3c",
+    "size_bytes": 13704
+  },
+  {
+    "path": "validation/scripts/finalize.py",
+    "sha256": "9c019ebb97b6272b1c01468379ac4de4045c006fa6ba5cf9bf6e1a1b76bfde88",
+    "size_bytes": 6939
+  },
+  {
+    "path": "validation/scripts/run_all.py",
+    "sha256": "877de235880a33d5cb499598dfa599f74e5521d819fbb6990db1d0e0978e1db4",
+    "size_bytes": 2025
+  },
+  {
+    "path": "validation/scripts/run_performance.py",
+    "sha256": "b760ed595fd9c6b312b69af902c9943110ac8f37880b561d2ce07cfabfabf939",
+    "size_bytes": 8525
+  },
+  {
+    "path": "validation/scripts/run_scientific.py",
+    "sha256": "7b5ea2deae806bcc5a5ad101ab0d7e1167686ca82c543f237e99758db581d71e",
+    "size_bytes": 30236
+  },
+  {
+    "path": "validation/scripts/run_training.py",
+    "sha256": "131c9b642058d8b1b930131b8ee594dfc4e2f23adf8185e376c07cb204b09fdd",
+    "size_bytes": 20859
+  },
+  {
+    "path": "validation/scripts/run_verification.py",
+    "sha256": "28f1ac2481e9cf909a8c0fbd5500eb709825ac2c1dfc1f3f0b8e53753a1d4588",
+    "size_bytes": 2761
+  }
+]

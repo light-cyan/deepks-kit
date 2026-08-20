@@ -1,0 +1,641 @@
+Building source distribution...
+running egg_info
+writing deepks.egg-info/PKG-INFO
+writing dependency_links to deepks.egg-info/dependency_links.txt
+writing entry points to deepks.egg-info/entry_points.txt
+writing requirements to deepks.egg-info/requires.txt
+writing top-level names to deepks.egg-info/top_level.txt
+adding license file 'LICENSE'
+writing manifest file 'deepks.egg-info/SOURCES.txt'
+running sdist
+running egg_info
+writing deepks.egg-info/PKG-INFO
+writing dependency_links to deepks.egg-info/dependency_links.txt
+writing entry points to deepks.egg-info/entry_points.txt
+writing requirements to deepks.egg-info/requires.txt
+writing top-level names to deepks.egg-info/top_level.txt
+adding license file 'LICENSE'
+writing manifest file 'deepks.egg-info/SOURCES.txt'
+running check
+creating deepks-0.1.dev421+gcbac4288b
+creating deepks-0.1.dev421+gcbac4288b/.github
+creating deepks-0.1.dev421+gcbac4288b/.github/workflows
+creating deepks-0.1.dev421+gcbac4288b/deepks
+creating deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+creating deepks-0.1.dev421+gcbac4288b/deepks/data
+creating deepks-0.1.dev421+gcbac4288b/deepks/deephf
+creating deepks-0.1.dev421+gcbac4288b/deepks/deepks
+creating deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+creating deepks-0.1.dev421+gcbac4288b/deepks/iterate
+creating deepks-0.1.dev421+gcbac4288b/deepks/model
+creating deepks-0.1.dev421+gcbac4288b/deepks/task
+creating deepks-0.1.dev421+gcbac4288b/deepks/task/job
+creating deepks-0.1.dev421+gcbac4288b/deepks/tools
+creating deepks-0.1.dev421+gcbac4288b/docs/issue-93
+creating deepks-0.1.dev421+gcbac4288b/examples/deephf
+creating deepks-0.1.dev421+gcbac4288b/examples/iterate
+creating deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted
+creating deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_linear
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share/init
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/init_train
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share/init
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share/init
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning/share
+creating deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning/share/init
+creating deepks-0.1.dev421+gcbac4288b/examples/train_input
+creating deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+creating deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/test.n6
+creating deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n1
+creating deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n2
+creating deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n3
+creating deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/valid.n4
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/init
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/iter
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.00
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.01
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.02
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.03
+creating deepks-0.1.dev421+gcbac4288b/examples/water_single/withdens
+creating deepks-0.1.dev421+gcbac4288b/scripts
+creating deepks-0.1.dev421+gcbac4288b/scripts/legacy
+creating deepks-0.1.dev421+gcbac4288b/tests
+creating deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+creating deepks-0.1.dev421+gcbac4288b/tests/baseline
+creating deepks-0.1.dev421+gcbac4288b/tests/force_training
+creating deepks-0.1.dev421+gcbac4288b/tests/rks_analytic_forces
+creating deepks-0.1.dev421+gcbac4288b/tests/rks_zvector_inference
+creating deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+creating deepks-0.1.dev421+gcbac4288b/tests/uhf_zvector_inference
+creating deepks-0.1.dev421+gcbac4288b/tests/uks_analytic_forces
+creating deepks-0.1.dev421+gcbac4288b/tests/uks_zvector_inference
+creating deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+copying files to deepks-0.1.dev421+gcbac4288b...
+copying .git_archival.txt -> deepks-0.1.dev421+gcbac4288b
+copying .gitattributes -> deepks-0.1.dev421+gcbac4288b
+copying .gitignore -> deepks-0.1.dev421+gcbac4288b
+copying AGENTS.md -> deepks-0.1.dev421+gcbac4288b
+copying LICENSE -> deepks-0.1.dev421+gcbac4288b
+copying README.draft.md -> deepks-0.1.dev421+gcbac4288b
+copying README.md -> deepks-0.1.dev421+gcbac4288b
+copying pyproject.toml -> deepks-0.1.dev421+gcbac4288b
+copying uv.lock -> deepks-0.1.dev421+gcbac4288b
+copying .github/dependabot.yml -> deepks-0.1.dev421+gcbac4288b/.github
+copying .github/workflows/mirror_gitee.yml -> deepks-0.1.dev421+gcbac4288b/.github/workflows
+copying deepks/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks
+copying deepks/__main__.py -> deepks-0.1.dev421+gcbac4288b/deepks
+copying deepks/_version.py -> deepks-0.1.dev421+gcbac4288b/deepks
+copying deepks/main.py -> deepks-0.1.dev421+gcbac4288b/deepks
+copying deepks/utils.py -> deepks-0.1.dev421+gcbac4288b/deepks
+copying deepks.egg-info/PKG-INFO -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/SOURCES.txt -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/dependency_links.txt -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/entry_points.txt -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/requires.txt -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/scm_file_list.json -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/scm_version.json -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks.egg-info/top_level.txt -> deepks-0.1.dev421+gcbac4288b/deepks.egg-info
+copying deepks/data/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/data
+copying deepks/data/fields.py -> deepks-0.1.dev421+gcbac4288b/deepks/data
+copying deepks/data/force_schema.py -> deepks-0.1.dev421+gcbac4288b/deepks/data
+copying deepks/data/io.py -> deepks-0.1.dev421+gcbac4288b/deepks/data
+copying deepks/data/stats.py -> deepks-0.1.dev421+gcbac4288b/deepks/data
+copying deepks/deephf/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/adjoint.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/capabilities.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/force_data.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/gradient.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/method.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/pyscf_rhf.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/pyscf_rks.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/pyscf_uhf.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/pyscf_uks.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/rks_gradient.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/rks_method.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/rks_zvector.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/scanner.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/uhf_gradient.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/uhf_method.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/uhf_zvector.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/uks_gradient.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/uks_method.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/uks_zvector.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/workflow.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deephf/zvector.py -> deepks-0.1.dev421+gcbac4288b/deepks/deephf
+copying deepks/deepks/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/deepks/__main__.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/deepks/addons.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/deepks/gradient.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/deepks/method.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/deepks/penalty.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/deepks/run.py -> deepks-0.1.dev421+gcbac4288b/deepks/deepks
+copying deepks/descriptor/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+copying deepks/descriptor/core.py -> deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+copying deepks/descriptor/derivatives.py -> deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+copying deepks/descriptor/orbitals.py -> deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+copying deepks/descriptor/projection.py -> deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+copying deepks/descriptor/validation.py -> deepks-0.1.dev421+gcbac4288b/deepks/descriptor
+copying deepks/iterate/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/iterate
+copying deepks/iterate/__main__.py -> deepks-0.1.dev421+gcbac4288b/deepks/iterate
+copying deepks/iterate/iterate.py -> deepks-0.1.dev421+gcbac4288b/deepks/iterate
+copying deepks/iterate/template.py -> deepks-0.1.dev421+gcbac4288b/deepks/iterate
+copying deepks/model/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/model/__main__.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/model/evaluate.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/model/model.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/model/reader.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/model/test.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/model/train.py -> deepks-0.1.dev421+gcbac4288b/deepks/model
+copying deepks/task/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/task
+copying deepks/task/task.py -> deepks-0.1.dev421+gcbac4288b/deepks/task
+copying deepks/task/workflow.py -> deepks-0.1.dev421+gcbac4288b/deepks/task
+copying deepks/task/job/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/batch.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/dispatcher.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/job_status.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/lazy_local_context.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/local_context.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/shell.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/slurm.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/task/job/ssh_context.py -> deepks-0.1.dev421+gcbac4288b/deepks/task/job
+copying deepks/tools/__init__.py -> deepks-0.1.dev421+gcbac4288b/deepks/tools
+copying deepks/tools/geom_optim.py -> deepks-0.1.dev421+gcbac4288b/deepks/tools
+copying deepks/tools/num_hessian.py -> deepks-0.1.dev421+gcbac4288b/deepks/tools
+copying docs/issue-93/deepks_issue_93_assessment.0818.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/deepks_issue_93_assessment.0818.zh.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/deepks_issue_93_assessment.0819.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/issue_93_phase_plan.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p0_scientific_contract.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p1_refactor_task.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p2_rhf_direct_oracle.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p3a_rhf_force_training.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p3b_rhf_zvector_inference.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p4a_uhf_direct_oracle.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p4b_rks_direct_oracle.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p4c_rks_zvector_inference.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p4d_uhf_zvector_inference.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p4e_uks_inference.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying docs/issue-93/p5_public_integration.md -> deepks-0.1.dev421+gcbac4288b/docs/issue-93
+copying examples/deephf/.gitignore -> deepks-0.1.dev421+gcbac4288b/examples/deephf
+copying examples/deephf/README.md -> deepks-0.1.dev421+gcbac4288b/examples/deephf
+copying examples/deephf/generate_rhf_force_data.py -> deepks-0.1.dev421+gcbac4288b/examples/deephf
+copying examples/deephf/h2.xyz -> deepks-0.1.dev421+gcbac4288b/examples/deephf
+copying examples/deephf/rhf_force_train.yaml -> deepks-0.1.dev421+gcbac4288b/examples/deephf
+copying examples/deephf/rhf_inference.yaml -> deepks-0.1.dev421+gcbac4288b/examples/deephf
+copying examples/iterate/combined.yaml -> deepks-0.1.dev421+gcbac4288b/examples/iterate
+copying examples/iterate/splitted/args.yaml -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted
+copying examples/iterate/splitted/share/init_scf.yaml -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+copying examples/iterate/splitted/share/init_train.yaml -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+copying examples/iterate/splitted/share/scf_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+copying examples/iterate/splitted/share/systems_test.raw -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+copying examples/iterate/splitted/share/systems_train.raw -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+copying examples/iterate/splitted/share/train_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/iterate/splitted/share
+copying examples/legacy/iter_linear/run.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_linear
+copying examples/legacy/iter_nn_local/run.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local
+copying examples/legacy/iter_nn_local/run_res.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local
+copying examples/legacy/iter_nn_local/share/e_ref.npy -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share
+copying examples/legacy/iter_nn_local/share/mol_files.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share
+copying examples/legacy/iter_nn_local/share/scf_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share
+copying examples/legacy/iter_nn_local/share/train_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share
+copying examples/legacy/iter_nn_local/share/init/model.pth -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share/init
+copying examples/legacy/iter_nn_local/share/init/test_paths.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share/init
+copying examples/legacy/iter_nn_local/share/init/train_paths.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_local/share/init
+copying examples/legacy/iter_nn_new/extra.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new
+copying examples/legacy/iter_nn_new/run.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new
+copying examples/legacy/iter_nn_new/init_train/input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/init_train
+copying examples/legacy/iter_nn_new/init_train/log.train -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/init_train
+copying examples/legacy/iter_nn_new/init_train/model.pth -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/init_train
+copying examples/legacy/iter_nn_new/share/e_ref.npy -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+copying examples/legacy/iter_nn_new/share/f_ref.npy -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+copying examples/legacy/iter_nn_new/share/mol_files.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+copying examples/legacy/iter_nn_new/share/raw_scf_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+copying examples/legacy/iter_nn_new/share/scf_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+copying examples/legacy/iter_nn_new/share/train_input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share
+copying examples/legacy/iter_nn_new/share/init/model.pth -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_new/share/init
+copying examples/legacy/iter_nn_slurm/run.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm
+copying examples/legacy/iter_nn_slurm/run_res.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm
+copying examples/legacy/iter_nn_slurm/share/e_ref.npy -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share
+copying examples/legacy/iter_nn_slurm/share/index.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share
+copying examples/legacy/iter_nn_slurm/share/input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share
+copying examples/legacy/iter_nn_slurm/share/mol_files.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share
+copying examples/legacy/iter_nn_slurm/share/test.sh -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share
+copying examples/legacy/iter_nn_slurm/share/init/test_paths.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share/init
+copying examples/legacy/iter_nn_slurm/share/init/train_paths.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/iter_nn_slurm/share/init
+copying examples/legacy/train_active_learning/run.py -> deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning
+copying examples/legacy/train_active_learning/share/input.yaml -> deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning/share
+copying examples/legacy/train_active_learning/share/test_model.sh -> deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning/share
+copying examples/legacy/train_active_learning/share/init/new_test_paths.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning/share/init
+copying examples/legacy/train_active_learning/share/init/new_train_paths.raw -> deepks-0.1.dev421+gcbac4288b/examples/legacy/train_active_learning/share/init
+copying examples/train_input/extended.yaml -> deepks-0.1.dev421+gcbac4288b/examples/train_input
+copying examples/train_input/force.yaml -> deepks-0.1.dev421+gcbac4288b/examples/train_input
+copying examples/train_input/gelu.yaml -> deepks-0.1.dev421+gcbac4288b/examples/train_input
+copying examples/train_input/restart.yaml -> deepks-0.1.dev421+gcbac4288b/examples/train_input
+copying examples/water_cluster/.gitignore -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/README.md -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/args.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/run.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/run_shell.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/shell.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/test.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster
+copying examples/water_cluster/systems/test.n6/atom.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/test.n6
+copying examples/water_cluster/systems/test.n6/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/test.n6
+copying examples/water_cluster/systems/test.n6/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/test.n6
+copying examples/water_cluster/systems/test.n6/unit.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/test.n6
+copying examples/water_cluster/systems/train.n1/atom.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n1
+copying examples/water_cluster/systems/train.n1/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n1
+copying examples/water_cluster/systems/train.n1/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n1
+copying examples/water_cluster/systems/train.n1/unit.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n1
+copying examples/water_cluster/systems/train.n2/coord.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n2
+copying examples/water_cluster/systems/train.n2/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n2
+copying examples/water_cluster/systems/train.n2/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n2
+copying examples/water_cluster/systems/train.n2/type.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n2
+copying examples/water_cluster/systems/train.n2/unit.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n2
+copying examples/water_cluster/systems/train.n3/coord.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n3
+copying examples/water_cluster/systems/train.n3/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n3
+copying examples/water_cluster/systems/train.n3/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n3
+copying examples/water_cluster/systems/train.n3/type.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n3
+copying examples/water_cluster/systems/train.n3/unit.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/train.n3
+copying examples/water_cluster/systems/valid.n4/coord.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/valid.n4
+copying examples/water_cluster/systems/valid.n4/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/valid.n4
+copying examples/water_cluster/systems/valid.n4/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/valid.n4
+copying examples/water_cluster/systems/valid.n4/type.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/valid.n4
+copying examples/water_cluster/systems/valid.n4/unit.raw -> deepks-0.1.dev421+gcbac4288b/examples/water_cluster/systems/valid.n4
+copying examples/water_single/.gitignore -> deepks-0.1.dev421+gcbac4288b/examples/water_single
+copying examples/water_single/README.md -> deepks-0.1.dev421+gcbac4288b/examples/water_single
+copying examples/water_single/init/machines.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/init
+copying examples/water_single/init/params.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/init
+copying examples/water_single/init/run.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_single/init
+copying examples/water_single/init/systems.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/init
+copying examples/water_single/iter/args.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/iter
+copying examples/water_single/iter/run.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_single/iter
+copying examples/water_single/systems/group.00/atom.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.00
+copying examples/water_single/systems/group.00/dm.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.00
+copying examples/water_single/systems/group.00/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.00
+copying examples/water_single/systems/group.00/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.00
+copying examples/water_single/systems/group.01/atom.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.01
+copying examples/water_single/systems/group.01/dm.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.01
+copying examples/water_single/systems/group.01/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.01
+copying examples/water_single/systems/group.01/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.01
+copying examples/water_single/systems/group.02/atom.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.02
+copying examples/water_single/systems/group.02/dm.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.02
+copying examples/water_single/systems/group.02/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.02
+copying examples/water_single/systems/group.02/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.02
+copying examples/water_single/systems/group.03/atom.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.03
+copying examples/water_single/systems/group.03/dm.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.03
+copying examples/water_single/systems/group.03/energy.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.03
+copying examples/water_single/systems/group.03/force.npy -> deepks-0.1.dev421+gcbac4288b/examples/water_single/systems/group.03
+copying examples/water_single/withdens/base.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/withdens
+copying examples/water_single/withdens/penalty.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/withdens
+copying examples/water_single/withdens/pipe.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_single/withdens
+copying examples/water_single/withdens/relax.yaml -> deepks-0.1.dev421+gcbac4288b/examples/water_single/withdens
+copying examples/water_single/withdens/run.sh -> deepks-0.1.dev421+gcbac4288b/examples/water_single/withdens
+copying scripts/convert_xyz.py -> deepks-0.1.dev421+gcbac4288b/scripts
+copying scripts/solve_mol.py -> deepks-0.1.dev421+gcbac4288b/scripts
+copying scripts/legacy/calc_eig.py -> deepks-0.1.dev421+gcbac4288b/scripts/legacy
+copying scripts/legacy/proj_dm.py -> deepks-0.1.dev421+gcbac4288b/scripts/legacy
+copying scripts/legacy/rhf.py -> deepks-0.1.dev421+gcbac4288b/scripts/legacy
+copying scripts/legacy/rks.py -> deepks-0.1.dev421+gcbac4288b/scripts/legacy
+copying scripts/legacy/rmp2.py -> deepks-0.1.dev421+gcbac4288b/scripts/legacy
+copying tests/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests
+copying tests/analytic_forces/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_deephf_composition.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_deephf_rhf_gradient.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_deephf_strict_contract.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_descriptor_contracts.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_ghost_derivatives.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_package_architecture.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_rhf_density_response.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_rhf_relaxed_descriptor.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/analytic_forces/test_rhf_response_residual.py -> deepks-0.1.dev421+gcbac4288b/tests/analytic_forces
+copying tests/baseline/test_cli.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_deephf_public_workflow.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_deepks_numerics.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_descriptor_baseline.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_example_configuration.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_example_data.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_force_data_pipeline.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_model.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/baseline/test_scf_grad.py -> deepks-0.1.dev421+gcbac4288b/tests/baseline
+copying tests/force_training/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/force_contract_helpers.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_deephf_field_export.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_force_loss_parameter_fd.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_force_prediction.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_force_reader.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_force_schema.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_force_schema_failures.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_force_training_workflow.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_rhf_force_data_generation.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/force_training/test_saved_data_testing.py -> deepks-0.1.dev421+gcbac4288b/tests/force_training
+copying tests/rks_analytic_forces/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_analytic_forces
+copying tests/rks_analytic_forces/test_rks_density_response.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_analytic_forces
+copying tests/rks_analytic_forces/test_rks_gradient.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_analytic_forces
+copying tests/rks_analytic_forces/test_rks_relaxed_descriptor.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_analytic_forces
+copying tests/rks_analytic_forces/test_rks_strict_contract.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_analytic_forces
+copying tests/rks_zvector_inference/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_zvector_inference
+copying tests/rks_zvector_inference/test_rks_adjoint_strict.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_zvector_inference
+copying tests/rks_zvector_inference/test_rks_zvector_contract.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_zvector_inference
+copying tests/rks_zvector_inference/test_rks_zvector_independence.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_zvector_inference
+copying tests/rks_zvector_inference/test_rks_zvector_science.py -> deepks-0.1.dev421+gcbac4288b/tests/rks_zvector_inference
+copying tests/uhf_analytic_forces/__init__.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_analytic_forces/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_analytic_forces/test_uhf_density_response.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_analytic_forces/test_uhf_gradient.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_analytic_forces/test_uhf_relaxed_descriptor.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_analytic_forces/test_uhf_response_adapter.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_analytic_forces/test_uhf_strict_contract.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_analytic_forces
+copying tests/uhf_zvector_inference/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_zvector_inference
+copying tests/uhf_zvector_inference/test_uhf_adjoint_strict.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_zvector_inference
+copying tests/uhf_zvector_inference/test_uhf_zvector_contract.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_zvector_inference
+copying tests/uhf_zvector_inference/test_uhf_zvector_science.py -> deepks-0.1.dev421+gcbac4288b/tests/uhf_zvector_inference
+copying tests/uks_analytic_forces/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/uks_analytic_forces
+copying tests/uks_analytic_forces/test_uks_direct_oracle.py -> deepks-0.1.dev421+gcbac4288b/tests/uks_analytic_forces
+copying tests/uks_zvector_inference/test_uks_zvector.py -> deepks-0.1.dev421+gcbac4288b/tests/uks_zvector_inference
+copying tests/zvector_inference/conftest.py -> deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+copying tests/zvector_inference/test_adjoint_algebra.py -> deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+copying tests/zvector_inference/test_rhf_scanner.py -> deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+copying tests/zvector_inference/test_rhf_scanner_factory.py -> deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+copying tests/zvector_inference/test_rhf_zvector_gradient.py -> deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+copying tests/zvector_inference/test_rhf_zvector_strict_contract.py -> deepks-0.1.dev421+gcbac4288b/tests/zvector_inference
+Writing deepks-0.1.dev421+gcbac4288b/setup.cfg
+Creating tar archive
+removing 'deepks-0.1.dev421+gcbac4288b' (and everything under it)
+Building wheel from source distribution...
+running egg_info
+writing deepks.egg-info/PKG-INFO
+writing dependency_links to deepks.egg-info/dependency_links.txt
+writing entry points to deepks.egg-info/entry_points.txt
+writing requirements to deepks.egg-info/requires.txt
+writing top-level names to deepks.egg-info/top_level.txt
+adding license file 'LICENSE'
+writing manifest file 'deepks.egg-info/SOURCES.txt'
+running bdist_wheel
+running build
+running build_py
+creating build/lib/deepks
+copying deepks/__main__.py -> build/lib/deepks
+copying deepks/utils.py -> build/lib/deepks
+copying deepks/__init__.py -> build/lib/deepks
+copying deepks/main.py -> build/lib/deepks
+copying deepks/_version.py -> build/lib/deepks
+creating build/lib/deepks/iterate
+copying deepks/iterate/__main__.py -> build/lib/deepks/iterate
+copying deepks/iterate/__init__.py -> build/lib/deepks/iterate
+copying deepks/iterate/template.py -> build/lib/deepks/iterate
+copying deepks/iterate/iterate.py -> build/lib/deepks/iterate
+creating build/lib/deepks/tools
+copying deepks/tools/geom_optim.py -> build/lib/deepks/tools
+copying deepks/tools/__init__.py -> build/lib/deepks/tools
+copying deepks/tools/num_hessian.py -> build/lib/deepks/tools
+creating build/lib/deepks/task
+copying deepks/task/workflow.py -> build/lib/deepks/task
+copying deepks/task/__init__.py -> build/lib/deepks/task
+copying deepks/task/task.py -> build/lib/deepks/task
+creating build/lib/deepks/descriptor
+copying deepks/descriptor/derivatives.py -> build/lib/deepks/descriptor
+copying deepks/descriptor/validation.py -> build/lib/deepks/descriptor
+copying deepks/descriptor/__init__.py -> build/lib/deepks/descriptor
+copying deepks/descriptor/orbitals.py -> build/lib/deepks/descriptor
+copying deepks/descriptor/core.py -> build/lib/deepks/descriptor
+copying deepks/descriptor/projection.py -> build/lib/deepks/descriptor
+creating build/lib/deepks/deepks
+copying deepks/deepks/__main__.py -> build/lib/deepks/deepks
+copying deepks/deepks/penalty.py -> build/lib/deepks/deepks
+copying deepks/deepks/__init__.py -> build/lib/deepks/deepks
+copying deepks/deepks/addons.py -> build/lib/deepks/deepks
+copying deepks/deepks/method.py -> build/lib/deepks/deepks
+copying deepks/deepks/gradient.py -> build/lib/deepks/deepks
+copying deepks/deepks/run.py -> build/lib/deepks/deepks
+creating build/lib/deepks/model
+copying deepks/model/__main__.py -> build/lib/deepks/model
+copying deepks/model/evaluate.py -> build/lib/deepks/model
+copying deepks/model/test.py -> build/lib/deepks/model
+copying deepks/model/reader.py -> build/lib/deepks/model
+copying deepks/model/train.py -> build/lib/deepks/model
+copying deepks/model/model.py -> build/lib/deepks/model
+copying deepks/model/__init__.py -> build/lib/deepks/model
+creating build/lib/deepks/deephf
+copying deepks/deephf/rks_method.py -> build/lib/deepks/deephf
+copying deepks/deephf/workflow.py -> build/lib/deepks/deephf
+copying deepks/deephf/uks_zvector.py -> build/lib/deepks/deephf
+copying deepks/deephf/uhf_gradient.py -> build/lib/deepks/deephf
+copying deepks/deephf/zvector.py -> build/lib/deepks/deephf
+copying deepks/deephf/pyscf_rhf.py -> build/lib/deepks/deephf
+copying deepks/deephf/scanner.py -> build/lib/deepks/deephf
+copying deepks/deephf/rks_zvector.py -> build/lib/deepks/deephf
+copying deepks/deephf/force_data.py -> build/lib/deepks/deephf
+copying deepks/deephf/uhf_zvector.py -> build/lib/deepks/deephf
+copying deepks/deephf/__init__.py -> build/lib/deepks/deephf
+copying deepks/deephf/adjoint.py -> build/lib/deepks/deephf
+copying deepks/deephf/uks_method.py -> build/lib/deepks/deephf
+copying deepks/deephf/uhf_method.py -> build/lib/deepks/deephf
+copying deepks/deephf/method.py -> build/lib/deepks/deephf
+copying deepks/deephf/gradient.py -> build/lib/deepks/deephf
+copying deepks/deephf/pyscf_uhf.py -> build/lib/deepks/deephf
+copying deepks/deephf/capabilities.py -> build/lib/deepks/deephf
+copying deepks/deephf/rks_gradient.py -> build/lib/deepks/deephf
+copying deepks/deephf/pyscf_uks.py -> build/lib/deepks/deephf
+copying deepks/deephf/uks_gradient.py -> build/lib/deepks/deephf
+copying deepks/deephf/pyscf_rks.py -> build/lib/deepks/deephf
+creating build/lib/deepks/data
+copying deepks/data/force_schema.py -> build/lib/deepks/data
+copying deepks/data/fields.py -> build/lib/deepks/data
+copying deepks/data/__init__.py -> build/lib/deepks/data
+copying deepks/data/io.py -> build/lib/deepks/data
+copying deepks/data/stats.py -> build/lib/deepks/data
+creating build/lib/deepks/task/job
+copying deepks/task/job/job_status.py -> build/lib/deepks/task/job
+copying deepks/task/job/shell.py -> build/lib/deepks/task/job
+copying deepks/task/job/ssh_context.py -> build/lib/deepks/task/job
+copying deepks/task/job/local_context.py -> build/lib/deepks/task/job
+copying deepks/task/job/__init__.py -> build/lib/deepks/task/job
+copying deepks/task/job/lazy_local_context.py -> build/lib/deepks/task/job
+copying deepks/task/job/dispatcher.py -> build/lib/deepks/task/job
+copying deepks/task/job/batch.py -> build/lib/deepks/task/job
+copying deepks/task/job/slurm.py -> build/lib/deepks/task/job
+running egg_info
+writing deepks.egg-info/PKG-INFO
+writing dependency_links to deepks.egg-info/dependency_links.txt
+writing entry points to deepks.egg-info/entry_points.txt
+writing requirements to deepks.egg-info/requires.txt
+writing top-level names to deepks.egg-info/top_level.txt
+adding license file 'LICENSE'
+writing manifest file 'deepks.egg-info/SOURCES.txt'
+installing to build/bdist.linux-x86_64/wheel
+running install
+running install_lib
+creating build/bdist.linux-x86_64/wheel
+creating build/bdist.linux-x86_64/wheel/deepks
+creating build/bdist.linux-x86_64/wheel/deepks/iterate
+copying build/lib/deepks/iterate/__main__.py -> build/bdist.linux-x86_64/wheel/./deepks/iterate
+copying build/lib/deepks/iterate/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/iterate
+copying build/lib/deepks/iterate/template.py -> build/bdist.linux-x86_64/wheel/./deepks/iterate
+copying build/lib/deepks/iterate/iterate.py -> build/bdist.linux-x86_64/wheel/./deepks/iterate
+copying build/lib/deepks/__main__.py -> build/bdist.linux-x86_64/wheel/./deepks
+creating build/bdist.linux-x86_64/wheel/deepks/tools
+copying build/lib/deepks/tools/geom_optim.py -> build/bdist.linux-x86_64/wheel/./deepks/tools
+copying build/lib/deepks/tools/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/tools
+copying build/lib/deepks/tools/num_hessian.py -> build/bdist.linux-x86_64/wheel/./deepks/tools
+copying build/lib/deepks/utils.py -> build/bdist.linux-x86_64/wheel/./deepks
+copying build/lib/deepks/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks
+creating build/bdist.linux-x86_64/wheel/deepks/task
+copying build/lib/deepks/task/workflow.py -> build/bdist.linux-x86_64/wheel/./deepks/task
+creating build/bdist.linux-x86_64/wheel/deepks/task/job
+copying build/lib/deepks/task/job/job_status.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/shell.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/ssh_context.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/local_context.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/lazy_local_context.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/dispatcher.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/batch.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/job/slurm.py -> build/bdist.linux-x86_64/wheel/./deepks/task/job
+copying build/lib/deepks/task/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/task
+copying build/lib/deepks/task/task.py -> build/bdist.linux-x86_64/wheel/./deepks/task
+creating build/bdist.linux-x86_64/wheel/deepks/descriptor
+copying build/lib/deepks/descriptor/derivatives.py -> build/bdist.linux-x86_64/wheel/./deepks/descriptor
+copying build/lib/deepks/descriptor/validation.py -> build/bdist.linux-x86_64/wheel/./deepks/descriptor
+copying build/lib/deepks/descriptor/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/descriptor
+copying build/lib/deepks/descriptor/orbitals.py -> build/bdist.linux-x86_64/wheel/./deepks/descriptor
+copying build/lib/deepks/descriptor/core.py -> build/bdist.linux-x86_64/wheel/./deepks/descriptor
+copying build/lib/deepks/descriptor/projection.py -> build/bdist.linux-x86_64/wheel/./deepks/descriptor
+creating build/bdist.linux-x86_64/wheel/deepks/deepks
+copying build/lib/deepks/deepks/__main__.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+copying build/lib/deepks/deepks/penalty.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+copying build/lib/deepks/deepks/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+copying build/lib/deepks/deepks/addons.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+copying build/lib/deepks/deepks/method.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+copying build/lib/deepks/deepks/gradient.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+copying build/lib/deepks/deepks/run.py -> build/bdist.linux-x86_64/wheel/./deepks/deepks
+creating build/bdist.linux-x86_64/wheel/deepks/model
+copying build/lib/deepks/model/__main__.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+copying build/lib/deepks/model/evaluate.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+copying build/lib/deepks/model/test.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+copying build/lib/deepks/model/reader.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+copying build/lib/deepks/model/train.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+copying build/lib/deepks/model/model.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+copying build/lib/deepks/model/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/model
+creating build/bdist.linux-x86_64/wheel/deepks/deephf
+copying build/lib/deepks/deephf/rks_method.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/workflow.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/uks_zvector.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/uhf_gradient.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/zvector.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/pyscf_rhf.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/scanner.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/rks_zvector.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/force_data.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/uhf_zvector.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/adjoint.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/uks_method.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/uhf_method.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/method.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/gradient.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/pyscf_uhf.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/capabilities.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/rks_gradient.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/pyscf_uks.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/uks_gradient.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/deephf/pyscf_rks.py -> build/bdist.linux-x86_64/wheel/./deepks/deephf
+copying build/lib/deepks/main.py -> build/bdist.linux-x86_64/wheel/./deepks
+copying build/lib/deepks/_version.py -> build/bdist.linux-x86_64/wheel/./deepks
+creating build/bdist.linux-x86_64/wheel/deepks/data
+copying build/lib/deepks/data/force_schema.py -> build/bdist.linux-x86_64/wheel/./deepks/data
+copying build/lib/deepks/data/fields.py -> build/bdist.linux-x86_64/wheel/./deepks/data
+copying build/lib/deepks/data/__init__.py -> build/bdist.linux-x86_64/wheel/./deepks/data
+copying build/lib/deepks/data/io.py -> build/bdist.linux-x86_64/wheel/./deepks/data
+copying build/lib/deepks/data/stats.py -> build/bdist.linux-x86_64/wheel/./deepks/data
+running install_egg_info
+Copying deepks.egg-info to build/bdist.linux-x86_64/wheel/./deepks-0.1.dev421+gcbac4288b-py3.11.egg-info
+running install_scripts
+creating build/bdist.linux-x86_64/wheel/deepks-0.1.dev421+gcbac4288b.dist-info/WHEEL
+creating '/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/build/.tmp-o6jcwm2u/deepks-0.1.dev421+gcbac4288b-py3-none-any.whl' and adding 'build/bdist.linux-x86_64/wheel' to it
+adding 'deepks/__init__.py'
+adding 'deepks/__main__.py'
+adding 'deepks/_version.py'
+adding 'deepks/main.py'
+adding 'deepks/utils.py'
+adding 'deepks/data/__init__.py'
+adding 'deepks/data/fields.py'
+adding 'deepks/data/force_schema.py'
+adding 'deepks/data/io.py'
+adding 'deepks/data/stats.py'
+adding 'deepks/deephf/__init__.py'
+adding 'deepks/deephf/adjoint.py'
+adding 'deepks/deephf/capabilities.py'
+adding 'deepks/deephf/force_data.py'
+adding 'deepks/deephf/gradient.py'
+adding 'deepks/deephf/method.py'
+adding 'deepks/deephf/pyscf_rhf.py'
+adding 'deepks/deephf/pyscf_rks.py'
+adding 'deepks/deephf/pyscf_uhf.py'
+adding 'deepks/deephf/pyscf_uks.py'
+adding 'deepks/deephf/rks_gradient.py'
+adding 'deepks/deephf/rks_method.py'
+adding 'deepks/deephf/rks_zvector.py'
+adding 'deepks/deephf/scanner.py'
+adding 'deepks/deephf/uhf_gradient.py'
+adding 'deepks/deephf/uhf_method.py'
+adding 'deepks/deephf/uhf_zvector.py'
+adding 'deepks/deephf/uks_gradient.py'
+adding 'deepks/deephf/uks_method.py'
+adding 'deepks/deephf/uks_zvector.py'
+adding 'deepks/deephf/workflow.py'
+adding 'deepks/deephf/zvector.py'
+adding 'deepks/deepks/__init__.py'
+adding 'deepks/deepks/__main__.py'
+adding 'deepks/deepks/addons.py'
+adding 'deepks/deepks/gradient.py'
+adding 'deepks/deepks/method.py'
+adding 'deepks/deepks/penalty.py'
+adding 'deepks/deepks/run.py'
+adding 'deepks/descriptor/__init__.py'
+adding 'deepks/descriptor/core.py'
+adding 'deepks/descriptor/derivatives.py'
+adding 'deepks/descriptor/orbitals.py'
+adding 'deepks/descriptor/projection.py'
+adding 'deepks/descriptor/validation.py'
+adding 'deepks/iterate/__init__.py'
+adding 'deepks/iterate/__main__.py'
+adding 'deepks/iterate/iterate.py'
+adding 'deepks/iterate/template.py'
+adding 'deepks/model/__init__.py'
+adding 'deepks/model/__main__.py'
+adding 'deepks/model/evaluate.py'
+adding 'deepks/model/model.py'
+adding 'deepks/model/reader.py'
+adding 'deepks/model/test.py'
+adding 'deepks/model/train.py'
+adding 'deepks/task/__init__.py'
+adding 'deepks/task/task.py'
+adding 'deepks/task/workflow.py'
+adding 'deepks/task/job/__init__.py'
+adding 'deepks/task/job/batch.py'
+adding 'deepks/task/job/dispatcher.py'
+adding 'deepks/task/job/job_status.py'
+adding 'deepks/task/job/lazy_local_context.py'
+adding 'deepks/task/job/local_context.py'
+adding 'deepks/task/job/shell.py'
+adding 'deepks/task/job/slurm.py'
+adding 'deepks/task/job/ssh_context.py'
+adding 'deepks/tools/__init__.py'
+adding 'deepks/tools/geom_optim.py'
+adding 'deepks/tools/num_hessian.py'
+adding 'deepks-0.1.dev421+gcbac4288b.dist-info/licenses/LICENSE'
+adding 'deepks-0.1.dev421+gcbac4288b.dist-info/METADATA'
+adding 'deepks-0.1.dev421+gcbac4288b.dist-info/WHEEL'
+adding 'deepks-0.1.dev421+gcbac4288b.dist-info/entry_points.txt'
+adding 'deepks-0.1.dev421+gcbac4288b.dist-info/top_level.txt'
+adding 'deepks-0.1.dev421+gcbac4288b.dist-info/RECORD'
+removing build/bdist.linux-x86_64/wheel
+Successfully built validation/outputs/build/deepks-0.1.dev421+gcbac4288b.tar.gz
+Successfully built validation/outputs/build/deepks-0.1.dev421+gcbac4288b-py3-none-any.whl

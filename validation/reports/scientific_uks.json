@@ -1,0 +1,2394 @@
+{
+  "central": {
+    "descriptor_differentiability": {
+      "minimum_scaled_gap": 49526.54509264315,
+      "structural_zero_blocks": []
+    },
+    "direct_diagnostics": {
+      "core": {
+        "alpha_idempotency_residual": 9.298117831235686e-16,
+        "alpha_maximum_residual": 3.825944444070528e-12,
+        "alpha_metric_residual": 8.326672684688674e-17,
+        "alpha_particle_number_residual": 2.0261570199409107e-15,
+        "alpha_response_dimension": 135,
+        "alpha_translation_residual": 1.6469464680923807e-14,
+        "beta_idempotency_residual": 4.649058915617843e-16,
+        "beta_maximum_residual": 3.789763208111863e-12,
+        "beta_metric_residual": 4.163336342344337e-17,
+        "beta_particle_number_residual": 1.4849232954361469e-15,
+        "beta_response_dimension": 128,
+        "beta_translation_residual": 1.5987211554602254e-14,
+        "cphf_tolerance": 1e-11,
+        "density_reconstruction_residual": 1.249000902703301e-16,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 3.825944444070528e-12,
+        "minimum_alpha_orbital_gap": 0.1547200476440671,
+        "minimum_beta_orbital_gap": 0.177539635274653,
+        "operator_condition_number": 131.37221428355588,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 20.34112991394366,
+        "operator_minimum_eigenvalue": 0.15483586102947952,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 1.4346163146328195e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          9.921049908684365e-09,
+          3.825944444070528e-12
+        ],
+        "residual_rms": 4.569452028260482e-13,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 263,
+        "translation_residual": 3.164309092529294e-14
+      },
+      "fixed_grid_xc_residual": 5.349019838174485e-15,
+      "functional": {
+        "backend_module": "pyscf.dft.libxc",
+        "backend_reference": "S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1\u20135 (2018)",
+        "backend_version": "7.0.0",
+        "components": [
+          [
+            1,
+            1.0
+          ],
+          [
+            7,
+            1.0
+          ]
+        ],
+        "has_nlc": false,
+        "hybrid_coefficient": 0.0,
+        "numint_cutoff": 1e-13,
+        "range_separation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "signature": "c05a611a76e92e44a2570c67141aabae12c4df76175bfa204a6f5e8277c6d778",
+        "xc_type": "LDA"
+      },
+      "grid": {
+        "alignment": 1,
+        "ao_order_fingerprint": "da961a51e2808f5cfc4a7efeb5db174a27c33046c3f5823582a5cb2bffe27faa",
+        "atom_grid": [
+          [
+            "C",
+            [
+              20,
+              50
+            ]
+          ],
+          [
+            "H",
+            [
+              20,
+              50
+            ]
+          ],
+          [
+            "O",
+            [
+              20,
+              50
+            ]
+          ]
+        ],
+        "atom_indices_fingerprint": "2d05f1acc44f850d29365eb6de0afca79d98dc77248104fd199a3ef781a30ab7",
+        "atomic_radii_fingerprint": "d5eeefc53bb8261154cd2317ff60e5e642dd9cde1d1f283647b7956756b74a43",
+        "becke_scheme": "pyscf.dft.gen_grid.original_becke",
+        "coordinates_fingerprint": "6647393261c420e9f74e8506a5a616bc48e25046fda2358e6bf2598797bc3ec1",
+        "cutoff": 1e-15,
+        "generator": "pyscf.dft.gen_grid.Grids.build(with_non0tab=True,sort_grids=False)",
+        "grid_class": "pyscf.dft.gen_grid.Grids",
+        "nonzero_table_fingerprint": "54e746bf20c0d138434ff502e91297222e416e94de294052effe79dc6979011c",
+        "point_count": 5000,
+        "prune": null,
+        "quadrature_weights_fingerprint": "79ee316d131d8c4daa5c1a9438fe38651dde5c247fd6bece76110d9b38612760",
+        "radi_method": "pyscf.dft.radi.treutler_ahlrichs",
+        "radii_adjust": "pyscf.dft.radi.treutler_atomic_radii_adjust",
+        "response_generator": "pyscf.grad.rks.grids_response_cc",
+        "small_rho_cutoff": 0.0,
+        "sort_grids": false,
+        "weight_derivatives_fingerprint": "b56032befcca34f66d375b7ec7e22539b2319f7cb49b703c50654f6fea9c3692",
+        "weights_fingerprint": "95397de0cff88d7aec5b6d549df0c1f2026e14ea7314aeb376f754e3da5be311"
+      },
+      "hamiltonian_reconstruction_residual": 1.9634901343712485e-16,
+      "maximum_residual": 3.825944444070528e-12,
+      "residual_tolerance": 1e-09,
+      "response_dimension": 263
+    },
+    "direct_vs_zvector_correction": {
+      "actual_at_worst": 0.006989969298055043,
+      "expected_at_worst": 0.006989969298081902,
+      "max_abs": 2.6858723578548904e-14,
+      "rms": 9.683994878415121e-15,
+      "signed_error_at_worst": -2.6858723578548904e-14,
+      "worst_atom": 1,
+      "worst_coordinate": "z",
+      "worst_index": [
+        1,
+        2
+      ]
+    },
+    "direct_vs_zvector_response": {
+      "actual_at_worst": -0.0017023934646618073,
+      "expected_at_worst": -0.0017023934646349485,
+      "max_abs": 2.6858723578548904e-14,
+      "rms": 9.68393234967567e-15,
+      "signed_error_at_worst": -2.6858723578548904e-14,
+      "worst_atom": 1,
+      "worst_coordinate": "z",
+      "worst_index": [
+        1,
+        2
+      ]
+    },
+    "direct_vs_zvector_total": {
+      "actual_at_worst": 0.014689548649865691,
+      "expected_at_worst": 0.01468954864989255,
+      "max_abs": 2.6858723578548904e-14,
+      "rms": 9.684165930439969e-15,
+      "signed_error_at_worst": -2.6858723578548904e-14,
+      "worst_atom": 1,
+      "worst_coordinate": "z",
+      "worst_index": [
+        1,
+        2
+      ]
+    },
+    "energy": {
+      "correction_eh": 0.12937352619931797,
+      "identity_error_eh": 0.0,
+      "reference_eh": -114.06903274213674,
+      "total_eh": -113.93965921593743
+    },
+    "force_is_exact_negative_gradient": true,
+    "passed": true,
+    "state": {
+      "ao_count": 24,
+      "charge": 0,
+      "converged": true,
+      "electron_counts": [
+        9.0,
+        8.0
+      ],
+      "minimum_orbital_gap": [
+        0.1547200476440671,
+        0.177539635274653
+      ],
+      "occupations": [
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "response_dimensions": [
+        135,
+        128
+      ],
+      "spin": 1
+    },
+    "wall_time_seconds": {
+      "direct_gradient": 54.530002461746335,
+      "native_reference": 0.5144420694559813,
+      "zvector_gradient": 22.193903643637896
+    },
+    "zero_direct_vs_native": {
+      "actual_at_worst": -0.028657902015734926,
+      "expected_at_worst": -0.028657902015734926,
+      "max_abs": 0.0,
+      "rms": 0.0,
+      "signed_error_at_worst": 0.0,
+      "worst_atom": 0,
+      "worst_coordinate": "x",
+      "worst_index": [
+        0,
+        0
+      ]
+    },
+    "zero_zvector_vs_native": {
+      "actual_at_worst": -0.028657902015734926,
+      "expected_at_worst": -0.028657902015734926,
+      "max_abs": 0.0,
+      "rms": 0.0,
+      "signed_error_at_worst": 0.0,
+      "worst_atom": 0,
+      "worst_coordinate": "x",
+      "worst_index": [
+        0,
+        0
+      ]
+    },
+    "zvector_diagnostics": {
+      "core": {
+        "alpha_adjoint_density_symmetry_residual": 0.0,
+        "alpha_adjoint_potential_symmetry_residual": 2.168404344971009e-19,
+        "alpha_response_dimension": 135,
+        "beta_adjoint_density_symmetry_residual": 0.0,
+        "beta_adjoint_potential_symmetry_residual": 2.168404344971009e-19,
+        "beta_response_dimension": 128,
+        "gradient_reconstruction_residual": 2.168404344971009e-19,
+        "invariant_tolerance": 1e-09,
+        "maximum_physical_residual": 4.445228907190568e-17,
+        "maximum_solver_residual": 8.673617379884035e-18,
+        "maximum_transpose_residual": 4.445228907190568e-17,
+        "minimum_alpha_orbital_gap": 0.1547200476440671,
+        "minimum_beta_orbital_gap": 0.177539635274653,
+        "objective_gradient_norm": 0.04638283799763926,
+        "objective_symmetry_residual": 1.734723475976807e-18,
+        "objective_symmetry_tolerance": 1e-10,
+        "operator_condition_number": 131.37221428355588,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 20.34112991394366,
+        "operator_minimum_eigenvalue": 0.15483586102947952,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 1.4346163146328195e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "physical_residual_rms": 8.871068281534808e-18,
+        "pyscf_version": "2.14.0",
+        "residual_tolerance": 1e-09,
+        "response_dimension": 263,
+        "solution_norm": 0.04634835876500041,
+        "solve_count": 1,
+        "solver": "numpy.linalg.solve(A.T, b)",
+        "solver_residual_rms": 1.413257476594461e-18,
+        "transpose_residual_rms": 8.871068281534808e-18
+      },
+      "fixed_grid_xc_residual": 5.349019838174485e-15,
+      "functional": {
+        "backend_module": "pyscf.dft.libxc",
+        "backend_reference": "S. Lehtola, C. Steigemann, M. J.T. Oliveira, and M. A.L. Marques.,  SoftwareX 7, 1\u20135 (2018)",
+        "backend_version": "7.0.0",
+        "components": [
+          [
+            1,
+            1.0
+          ],
+          [
+            7,
+            1.0
+          ]
+        ],
+        "has_nlc": false,
+        "hybrid_coefficient": 0.0,
+        "numint_cutoff": 1e-13,
+        "range_separation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "signature": "c05a611a76e92e44a2570c67141aabae12c4df76175bfa204a6f5e8277c6d778",
+        "xc_type": "LDA"
+      },
+      "grid": {
+        "alignment": 1,
+        "ao_order_fingerprint": "da961a51e2808f5cfc4a7efeb5db174a27c33046c3f5823582a5cb2bffe27faa",
+        "atom_grid": [
+          [
+            "C",
+            [
+              20,
+              50
+            ]
+          ],
+          [
+            "H",
+            [
+              20,
+              50
+            ]
+          ],
+          [
+            "O",
+            [
+              20,
+              50
+            ]
+          ]
+        ],
+        "atom_indices_fingerprint": "2d05f1acc44f850d29365eb6de0afca79d98dc77248104fd199a3ef781a30ab7",
+        "atomic_radii_fingerprint": "d5eeefc53bb8261154cd2317ff60e5e642dd9cde1d1f283647b7956756b74a43",
+        "becke_scheme": "pyscf.dft.gen_grid.original_becke",
+        "coordinates_fingerprint": "6647393261c420e9f74e8506a5a616bc48e25046fda2358e6bf2598797bc3ec1",
+        "cutoff": 1e-15,
+        "generator": "pyscf.dft.gen_grid.Grids.build(with_non0tab=True,sort_grids=False)",
+        "grid_class": "pyscf.dft.gen_grid.Grids",
+        "nonzero_table_fingerprint": "54e746bf20c0d138434ff502e91297222e416e94de294052effe79dc6979011c",
+        "point_count": 5000,
+        "prune": null,
+        "quadrature_weights_fingerprint": "79ee316d131d8c4daa5c1a9438fe38651dde5c247fd6bece76110d9b38612760",
+        "radi_method": "pyscf.dft.radi.treutler_ahlrichs",
+        "radii_adjust": "pyscf.dft.radi.treutler_atomic_radii_adjust",
+        "response_generator": "pyscf.grad.rks.grids_response_cc",
+        "small_rho_cutoff": 0.0,
+        "sort_grids": false,
+        "weight_derivatives_fingerprint": "b56032befcca34f66d375b7ec7e22539b2319f7cb49b703c50654f6fea9c3692",
+        "weights_fingerprint": "95397de0cff88d7aec5b6d549df0c1f2026e14ea7314aeb376f754e3da5be311"
+      },
+      "maximum_physical_residual": 4.445228907190568e-17,
+      "maximum_solver_residual": 8.673617379884035e-18,
+      "maximum_transpose_residual": 4.445228907190568e-17,
+      "nuclear_partition_residual": 8.131516293641283e-18,
+      "residual_tolerance": 1e-09,
+      "response_dimension": 263,
+      "solve_count": 1
+    }
+  },
+  "configuration": {
+    "acceptance": {
+      "backend_max_abs": 1e-08,
+      "descriptor_fd_max_abs": 1e-05,
+      "explicit_error_ratio_min": 10.0,
+      "gradient_fd_max_abs": 1e-05,
+      "response_signal_min": 0.0001,
+      "rhf_force_sum_max_abs": 1e-08,
+      "rhf_rotation_max_abs": 1e-08,
+      "zero_native_max_abs": 1e-10
+    },
+    "basis": "6-31g",
+    "finite_difference_steps_bohr": [
+      0.001,
+      0.0003,
+      0.0001
+    ],
+    "lda": {
+      "alignment": 1,
+      "angular_grid": 50,
+      "cutoff": 1e-15,
+      "radial_grid": 20,
+      "small_rho_cutoff": 0.0,
+      "xc": "LDA_X + LDA_C_VWN"
+    },
+    "performance": {
+      "repetitions": 5,
+      "threads": 1,
+      "warmup": 1
+    },
+    "projector_basis": [
+      [
+        0,
+        [
+          0.8,
+          1.0
+        ]
+      ],
+      [
+        1,
+        [
+          0.3,
+          1.0
+        ]
+      ]
+    ],
+    "scf_controls": {
+      "conv_tol": 1e-13,
+      "conv_tol_cpscf": 1e-12,
+      "conv_tol_grad": 1e-10,
+      "max_cycle": 100
+    },
+    "seed": 20260820,
+    "training": {
+      "energy_factor": 1.0,
+      "force_factor": 10.0,
+      "mp2_epochs": 800,
+      "splits": {
+        "heldout": 2,
+        "train": 6,
+        "validation": 2
+      },
+      "start_lr": 0.005,
+      "teacher_epochs": 400
+    }
+  },
+  "environment": {
+    "configuration_sha256": "34afb33c7bf2ff8361e87020bba08d466df25f0127a191acd8ad96198b027858",
+    "cpu_model": "AMD EPYC 7K62 48-Core Processor",
+    "git_revision": "cbac4288b3fd0b6b2edba4331c2231071466cf55",
+    "libxc": "7.0.0",
+    "logical_cores": 48,
+    "memory_bytes": 270108176384,
+    "numpy": "2.4.6",
+    "operating_system": "Linux-6.8.0-110-generic-x86_64-with-glibc2.35",
+    "physical_cores": 48,
+    "pyscf": "2.14.0",
+    "python": "3.11.15",
+    "thread_environment": {
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "timestamp_utc": "2026-08-20T14:38:00.719583+00:00",
+    "torch": "2.13.0+cpu",
+    "torch_num_interop_threads": 1,
+    "torch_num_threads": 1
+  },
+  "family": "UKS",
+  "finite_difference": {
+    "anti_vacuity": {
+      "explicit_to_relaxed_gradient_error_ratio": 302611.3543773762,
+      "required_error_ratio": 10.0,
+      "required_response_signal": 0.0001,
+      "response_correction_gradient_max_abs_eh_per_bohr": 0.002596415008824372,
+      "response_descriptor_max_abs_bohr_inverse": 0.3242756262451293
+    },
+    "passed": true,
+    "state_continuity": [
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15462710964542148,
+          0.17759370356570314
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999945124484271,
+          0.9999945225899763
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15481277858403764,
+          0.17748533353897922
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999945123421048,
+          0.9999945224803148
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471695290644893,
+          0.17758736723331858
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999945519325661,
+          0.9999945411163721
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472314800036568,
+          0.1774917692177198
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999994551911824,
+          0.9999945410938705
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15475388288892833,
+          0.17752899281931156
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999994622658169,
+          0.9999944164545425
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15468637445500777,
+          0.17755011555014355
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999946226934713,
+          0.99999441644444
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15487352301584445,
+          0.17749606455456846
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999899138728456,
+          0.999989929767628
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15456623320491425,
+          0.1775830902637754
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999899140191122,
+          0.9999899299210611
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15482888075667356,
+          0.1774739767253415
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999900407519786,
+          0.9999900079667188
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15461114157733058,
+          0.17760526085330608
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999900406633546,
+          0.9999900078627031
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1548284000900333,
+          0.1775686166790693
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999899890474145,
+          0.9999899265317029
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15461160708668364,
+          0.1775106320597728
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999989988854088,
+          0.9999899263983133
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547184710694094,
+          0.17753573706459602
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999262651087,
+          0.9999999205361957
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472161479838076,
+          0.17754350865455915
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999926264506,
+          0.9999999205324634
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547219010498504,
+          0.17752874833589272
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999196057737,
+          0.9999999104987827
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471819200134962,
+          0.1775505120751577
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999919595444,
+          0.9999999104857495
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15469936853015498,
+          0.17756877985741282
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.99999994305422,
+          0.9999998871431008
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547407390217781,
+          0.17751046972186924
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999430579372,
+          0.9999998871264058
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15473222324807612,
+          0.1775498563529725
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999271837425,
+          0.9999999188911366
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547078515074778,
+          0.1775294088104411
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999271919384,
+          0.9999999188935953
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472015926390914,
+          0.1775353283644414
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999263836973,
+          0.9999999126882304
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471993543592966,
+          0.17754392609610337
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999263901439,
+          0.9999999127001762
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547266843543087,
+          0.17752032708689036
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999452198861,
+          0.99999988811222
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471343253519754,
+          0.17755892338753476
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999452110487,
+          0.9999998881421902
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 4,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15464857201946436,
+          0.17752261503572253
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999338918161,
+          0.9999999463177918
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 4,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15479142125781187,
+          0.17755663537498423
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999339159829,
+          0.9999999463127192
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 4,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15461226558565166,
+          0.17757265071052175
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999369587225,
+          0.9999999413915601
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 4,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15482774254630072,
+          0.17750660314319022
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999369725201,
+          0.9999999413987946
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 4,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15459190775383824,
+          0.17751134313421235
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999087328857,
+          0.9999999380717675
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 4,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15484809045788284,
+          0.17756791893194968
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999088098123,
+          0.9999999380471759
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.001
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1546921879715757,
+          0.17755588028212688
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995061132589,
+          0.9999995070258998
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547478886862721,
+          0.17752336924319012
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995061103867,
+          0.9999995070229376
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471911862984422,
+          0.17755396893888298
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995096695313,
+          0.9999995086960236
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472097716990607,
+          0.17752528952526525
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995096689701,
+          0.9999995086954144
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547301812044044,
+          0.17753645956901587
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995160366139,
+          0.9999994974768355
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15470992867194377,
+          0.17754279637542902
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999995160375675,
+          0.9999994974765632
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15476612592865235,
+          0.17752657619722512
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990922407817,
+          0.9999990936715448
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1546739388473286,
+          0.1775526839261441
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990922447335,
+          0.9999990936756887
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15475270525056728,
+          0.17751994115702674
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999991036525332,
+          0.9999991007013751
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15468738347761657,
+          0.1775593264087214
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999991036501394,
+          0.9999991006985655
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15475256263932113,
+          0.17754833198110664
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990989958119,
+          0.9999990933712838
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15468752472190617,
+          0.1775309365967681
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999990989905944,
+          0.999999093367683
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471957566571848,
+          0.17753846840520682
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999933638385,
+          0.9999999928481393
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547205187849725,
+          0.17754079988303473
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999933638217,
+          0.999999992848036
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472060389015163,
+          0.17753637028280256
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999927641907,
+          0.9999999919444768
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471949118880302,
+          0.17754289937058476
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999927639134,
+          0.9999999919441296
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547138426212653,
+          0.17754838085303226
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999948749944,
+          0.99999998984235
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472625376994875,
+          0.17753088781082949
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999948750946,
+          0.9999999898419025
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472370248229916,
+          0.17754270215445067
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999934467934,
+          0.9999999927002782
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547163909641016,
+          0.17753656789320105
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999934470144,
+          0.9999999927003459
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472008118187808,
+          0.17753834491457954
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999933747336,
+          0.9999999921423154
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472001404738145,
+          0.17754092419956713
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999933749082,
+          0.9999999921426388
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472203639104798,
+          0.17753384491801216
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999950695093,
+          0.9999999899310422
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471806084380169,
+          0.17754542381745475
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999950692714,
+          0.9999999899318524
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 4,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15469861566591003,
+          0.17753453132015484
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999994051025,
+          0.999999995168439
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 4,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547414704472152,
+          0.17754473740212573
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999940516773,
+          0.9999999951683017
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 4,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15468772216358606,
+          0.17754954168540515
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999943267205,
+          0.9999999947254657
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 4,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547523652727818,
+          0.17752972737745054
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999943270939,
+          0.9999999947256618
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 4,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15468161585984275,
+          0.1775311485123947
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999917883851,
+          0.999999994425681
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 4,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15475847069723736,
+          0.17754812125923625
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999917904636,
+          0.999999994425017
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0003
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471076315335308,
+          0.1775450526197131
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999451235448,
+          0.999999945224946
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472933006154088,
+          0.17753421560087923
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999451234426,
+          0.9999999452248405
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471973792147264,
+          0.17754441449136737
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999455187774,
+          0.9999999454106074
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547203574322611,
+          0.17753485469286545
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999455187546,
+          0.9999999454105827
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472342387708093,
+          0.17753857832788178
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999462262905,
+          0.999999944164047
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 0,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547166730316929,
+          0.1775406905994592
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999462263156,
+          0.9999999441640259
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15473541046716188,
+          0.17753528339984515
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998991378939,
+          0.9999998992968749
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15470468143689398,
+          0.1775439859741359
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998991380432,
+          0.9999998992970313
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547309342306693,
+          0.17753307092630854
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999004056329,
+          0.9999999000777113
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15470916032307747,
+          0.177546199303255
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999004055468,
+          0.9999999000776092
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15473088685931335,
+          0.17754253438902068
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999998998881112,
+          0.9999998992632239
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 1,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15470920755425777,
+          0.1775367359243163
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.99999989988792,
+          0.9999998992630916
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471989041419887,
+          0.17753924656079256
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999992626459,
+          0.9999999992053468
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472020478637827,
+          0.1775400237220961
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999992626462,
+          0.9999999992053411
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472023308871008,
+          0.1775385470281603
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999991960089,
+          0.9999999991049334
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471986218348333,
+          0.17754072340214133
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999991959987,
+          0.9999999991049178
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471797917974173,
+          0.17754255067802371
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999994305573,
+          0.999999998871354
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 2,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472211622932974,
+          0.17753671966386553
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999994305613,
+          0.9999999988713408
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472126611670323,
+          0.17754065764974514
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999992718741,
+          0.999999999188922
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15471882894406908,
+          0.17753861289606854
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999992718835,
+          0.9999999991889255
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472005883223483,
+          0.17753920530843859
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999992638656,
+          0.9999999991269364
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472003645333832,
+          0.17754006507093245
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999992638727,
+          0.9999999991269493
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547207103459518,
+          0.17753770535033908
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999994521583,
+          0.9999999988812579
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 3,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547193851613058,
+          0.17754156498972784
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999994521495,
+          0.9999999988812855
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 4,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547129046746194,
+          0.17753793414911523
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999993390276,
+          0.9999999994631544
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 4,
+        "coordinate": 0,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15472718959655007,
+          0.17754133619020918
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999993390529,
+          0.9999999994631498
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 4,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547092733622406,
+          0.17754293756145123
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999993696498,
+          0.9999999994139476
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 4,
+        "coordinate": 1,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15473082106073832,
+          0.17753633280342607
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.9999999993696639,
+          0.999999999413956
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 4,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.15470723802089914,
+          0.17753680643479441
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999999087677,
+          0.9999999993806045
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": 1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      },
+      {
+        "atom": 4,
+        "coordinate": 2,
+        "electron_counts_match": true,
+        "minimum_orbital_gap": [
+          0.1547328563028838,
+          0.17754246401222495
+        ],
+        "occupations_match": true,
+        "occupied_subspace_minimum_singular_values": [
+          0.999999999087755,
+          0.9999999993805809
+        ],
+        "passed": true,
+        "response_dimensions_match": true,
+        "sign": -1,
+        "spin_match": true,
+        "step_bohr": 0.0001
+      }
+    ],
+    "steps": {
+      "1.0e-03": {
+        "explicit_descriptor_jacobian": {
+          "actual_at_worst": 0.31935983376495447,
+          "expected_at_worst": -0.004915660529292154,
+          "max_abs": 0.3242754942942466,
+          "rms": 0.067576663322111,
+          "signed_error_at_worst": 0.3242754942942466,
+          "worst_atom": 1,
+          "worst_coordinate": "z",
+          "worst_index": [
+            1,
+            2,
+            1,
+            3
+          ]
+        },
+        "explicit_only_total_gradient": {
+          "actual_at_worst": -0.051809448134553696,
+          "expected_at_worst": -0.05440584177307528,
+          "max_abs": 0.0025963936385215852,
+          "rms": 0.0015007058010385402,
+          "signed_error_at_worst": 0.0025963936385215852,
+          "worst_atom": 0,
+          "worst_coordinate": "y",
+          "worst_index": [
+            0,
+            1
+          ]
+        },
+        "relaxed_descriptor_jacobian": {
+          "actual_at_worst": -0.3293967509584921,
+          "expected_at_worst": -0.329393575766751,
+          "max_abs": 3.175191741089378e-06,
+          "rms": 3.514832462598129e-07,
+          "signed_error_at_worst": -3.175191741089378e-06,
+          "worst_atom": 4,
+          "worst_coordinate": "x",
+          "worst_index": [
+            4,
+            0,
+            4,
+            2
+          ]
+        },
+        "step_bohr": 0.001,
+        "total_gradient": {
+          "actual_at_worst": -0.00012619723969066552,
+          "expected_at_worst": -0.00012649179836898838,
+          "max_abs": 2.945586783228635e-07,
+          "rms": 1.2466012496160115e-07,
+          "signed_error_at_worst": 2.945586783228635e-07,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      },
+      "1.0e-04": {
+        "explicit_descriptor_jacobian": {
+          "actual_at_worst": 0.31935983376495447,
+          "expected_at_worst": -0.004915791302906314,
+          "max_abs": 0.3242756250678608,
+          "rms": 0.06757666316618341,
+          "signed_error_at_worst": 0.3242756250678608,
+          "worst_atom": 1,
+          "worst_coordinate": "z",
+          "worst_index": [
+            1,
+            2,
+            1,
+            3
+          ]
+        },
+        "explicit_only_total_gradient": {
+          "actual_at_worst": -0.051809448134553696,
+          "expected_at_worst": -0.054405861575901326,
+          "max_abs": 0.002596413441347631,
+          "rms": 0.0015007535517942159,
+          "signed_error_at_worst": 0.002596413441347631,
+          "worst_atom": 0,
+          "worst_coordinate": "y",
+          "worst_index": [
+            0,
+            1
+          ]
+        },
+        "relaxed_descriptor_jacobian": {
+          "actual_at_worst": -0.08381354703018443,
+          "expected_at_worst": -0.0838140682812849,
+          "max_abs": 5.212511004770715e-07,
+          "rms": 4.657204692826956e-08,
+          "signed_error_at_worst": 5.212511004770715e-07,
+          "worst_atom": 1,
+          "worst_coordinate": "y",
+          "worst_index": [
+            1,
+            1,
+            0,
+            1
+          ]
+        },
+        "step_bohr": 0.0001,
+        "total_gradient": {
+          "actual_at_worst": 0.025585250380767238,
+          "expected_at_worst": 0.025585241800740732,
+          "max_abs": 8.580026505250471e-09,
+          "rms": 2.8341526597787267e-09,
+          "signed_error_at_worst": 8.580026505250471e-09,
+          "worst_atom": 1,
+          "worst_coordinate": "y",
+          "worst_index": [
+            1,
+            1
+          ]
+        }
+      },
+      "3.0e-04": {
+        "explicit_descriptor_jacobian": {
+          "actual_at_worst": 0.31935983376495447,
+          "expected_at_worst": -0.00491577058836512,
+          "max_abs": 0.3242756043533196,
+          "rms": 0.0675766598377063,
+          "signed_error_at_worst": 0.3242756043533196,
+          "worst_atom": 1,
+          "worst_coordinate": "z",
+          "worst_index": [
+            1,
+            2,
+            1,
+            3
+          ]
+        },
+        "explicit_only_total_gradient": {
+          "actual_at_worst": -0.051809448134553696,
+          "expected_at_worst": -0.05440586133905375,
+          "max_abs": 0.0025964132045000546,
+          "rms": 0.0015007497486400742,
+          "signed_error_at_worst": 0.0025964132045000546,
+          "worst_atom": 0,
+          "worst_coordinate": "y",
+          "worst_index": [
+            0,
+            1
+          ]
+        },
+        "relaxed_descriptor_jacobian": {
+          "actual_at_worst": -0.21188459184460898,
+          "expected_at_worst": -0.21188487961787408,
+          "max_abs": 2.8777326510631696e-07,
+          "rms": 3.869086374159322e-08,
+          "signed_error_at_worst": 2.8777326510631696e-07,
+          "worst_atom": 4,
+          "worst_coordinate": "x",
+          "worst_index": [
+            4,
+            0,
+            4,
+            1
+          ]
+        },
+        "step_bohr": 0.0003,
+        "total_gradient": {
+          "actual_at_worst": -0.00012619723969066552,
+          "expected_at_worst": -0.00012622306163242078,
+          "max_abs": 2.5821941755259153e-08,
+          "rms": 1.1182398046812182e-08,
+          "signed_error_at_worst": 2.5821941755259153e-08,
+          "worst_atom": 1,
+          "worst_coordinate": "x",
+          "worst_index": [
+            1,
+            0
+          ]
+        }
+      }
+    },
+    "wall_time_seconds": {
+      "maximum_per_displacement": 1.6041984260082245,
+      "median_per_displacement": 1.443011298775673,
+      "minimum_per_displacement": 1.4040092378854752,
+      "total": 129.90334737859666
+    }
+  },
+  "passed": true,
+  "stage": "scientific_uks",
+  "system": "hydroxymethyl.xyz"
+}

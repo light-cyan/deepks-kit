@@ -1,0 +1,593 @@
+{
+  "atom_mapping": {
+    "descriptor_to_raw": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "ghost_policy": "rejected",
+    "nuclear_charges": [
+      8,
+      1,
+      1,
+      8,
+      1,
+      1
+    ],
+    "raw_to_descriptor": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "compatibility_fingerprint": "f811c2f9aa31d370e13cd5219725105402ff5a4415735f137986c408294914a3",
+  "conventions": {
+    "cartesian_order": [
+      "x",
+      "y",
+      "z"
+    ],
+    "energy_unit": "Eh",
+    "force_sign": "force=-dE/dR",
+    "force_unit": "Eh/Bohr",
+    "jacobian_name": "dq_dR_relaxed",
+    "jacobian_semantics": "complete_relaxed_reference_response",
+    "jacobian_sign": "+dq/dR",
+    "jacobian_unit": "Bohr^-1",
+    "length_unit": "Bohr"
+  },
+  "descriptor": {
+    "definition": "ordered_projected_density_eigenvalues",
+    "differentiability_controls": {
+      "gap_atol": 1e-09,
+      "gap_rtol": 1e-07,
+      "sensitivity_atol": 1e-08,
+      "structural_zero_blocks": "rejected",
+      "validator": "deepks.descriptor.validate_differentiability",
+      "zero_atol": 1e-09
+    },
+    "projector_basis": [
+      [
+        0,
+        [
+          0.8,
+          1.0
+        ]
+      ],
+      [
+        1,
+        [
+          0.3,
+          1.0
+        ]
+      ]
+    ],
+    "projector_sha256": "960a95889415c9db1cd4e9ac92315390ca7a6bdf35c8885c272f01c249af9200",
+    "shell_sizes": [
+      1,
+      3
+    ],
+    "spin_semantics": "spin_summed"
+  },
+  "dimensions": {
+    "n_descriptor_atom": 6,
+    "n_feature": 4,
+    "n_frame": 2,
+    "n_raw_atom": 6
+  },
+  "fields": {
+    "atom": {
+      "axes": [
+        "frame",
+        "raw_atom",
+        "charge_and_cartesian"
+      ],
+      "dtype": "float64",
+      "file": "atom.npy",
+      "semantics": "nuclear_charge_then_raw_atom_position",
+      "sha256": "75b4d39cc1e2cf9814c0f5a8786953225a63f42fc80a8480f48655ff0cf60445",
+      "shape": [
+        2,
+        6,
+        4
+      ],
+      "sign": "not_applicable",
+      "unit": "nuclear_charge+Bohr"
+    },
+    "descriptor": {
+      "axes": [
+        "frame",
+        "descriptor_atom",
+        "feature"
+      ],
+      "dtype": "float64",
+      "file": "descriptor.npy",
+      "semantics": "ordered_projected_density_eigenvalues",
+      "sha256": "3b6ed6a3be5890aa592b2ad71a6b54260ecb5a529013443bddbd9fa90efcdd2f",
+      "shape": [
+        2,
+        6,
+        4
+      ],
+      "sign": "not_applicable",
+      "unit": "1"
+    },
+    "dq_dR_relaxed": {
+      "axes": [
+        "frame",
+        "raw_atom",
+        "cartesian",
+        "descriptor_atom",
+        "feature"
+      ],
+      "dtype": "float64",
+      "file": "dq_dR_relaxed.npy",
+      "semantics": "complete_relaxed_reference_response",
+      "sha256": "87c3d1e4c5c6477a3b09504696b0beaff920000e3cd2f606efac251ffb7729f9",
+      "shape": [
+        2,
+        6,
+        3,
+        6,
+        4
+      ],
+      "sign": "+dq/dR",
+      "unit": "Bohr^-1"
+    },
+    "e_base": {
+      "axes": [
+        "frame",
+        "scalar"
+      ],
+      "dtype": "float64",
+      "file": "e_base.npy",
+      "semantics": "native_rhf_energy",
+      "sha256": "bf008963d44e3728bd8e987dc6fe437a602846e4cb83835b35a2a48e1ec972bc",
+      "shape": [
+        2,
+        1
+      ],
+      "sign": "+energy",
+      "unit": "Eh"
+    },
+    "e_corr_target": {
+      "axes": [
+        "frame",
+        "scalar"
+      ],
+      "dtype": "float64",
+      "file": "e_corr_target.npy",
+      "semantics": "e_target-e_base",
+      "sha256": "5e455af5465d5df32f8851fe2be4cc227d355ea37ee1741df8284cabb3f55f81",
+      "shape": [
+        2,
+        1
+      ],
+      "sign": "+energy",
+      "unit": "Eh"
+    },
+    "e_target": {
+      "axes": [
+        "frame",
+        "scalar"
+      ],
+      "dtype": "float64",
+      "file": "e_target.npy",
+      "semantics": "supervised_total_energy",
+      "sha256": "81eef307601553f291831e7041edb027cea320d03ef20f7b7760f3a9a290520b",
+      "shape": [
+        2,
+        1
+      ],
+      "sign": "+energy",
+      "unit": "Eh"
+    },
+    "f_base": {
+      "axes": [
+        "frame",
+        "raw_atom",
+        "cartesian"
+      ],
+      "dtype": "float64",
+      "file": "f_base.npy",
+      "semantics": "native_rhf_force",
+      "sha256": "376e9e02737731df56c4f5e80770a7292edcf5aaf4c884faf2cdf032d49aa4df",
+      "shape": [
+        2,
+        6,
+        3
+      ],
+      "sign": "force=-dE/dR",
+      "unit": "Eh/Bohr"
+    },
+    "f_corr_target": {
+      "axes": [
+        "frame",
+        "raw_atom",
+        "cartesian"
+      ],
+      "dtype": "float64",
+      "file": "f_corr_target.npy",
+      "semantics": "f_target-f_base",
+      "sha256": "2ac475f4ced8c43cd3511317ff442e5b486208ef20d705009d09b08cd805083a",
+      "shape": [
+        2,
+        6,
+        3
+      ],
+      "sign": "force=-dE/dR",
+      "unit": "Eh/Bohr"
+    },
+    "f_target": {
+      "axes": [
+        "frame",
+        "raw_atom",
+        "cartesian"
+      ],
+      "dtype": "float64",
+      "file": "f_target.npy",
+      "semantics": "supervised_total_force",
+      "sha256": "8381b52c1bf552e46a09ee7b0b89fae308f8e1dda0c597df8884052c2e256f47",
+      "shape": [
+        2,
+        6,
+        3
+      ],
+      "sign": "force=-dE/dR",
+      "unit": "Eh/Bohr"
+    }
+  },
+  "frames": [
+    {
+      "descriptor_diagnostics": {
+        "minimum_scaled_gap": 70769.02032203756,
+        "structural_zero_blocks": []
+      },
+      "field_sha256": {
+        "atom": "8b44df72d56904ccc1368693e6dfbd7e714780b04fbbf025957df2e217dd926e",
+        "descriptor": "7995cc92f44f4bfe25792038a132dfbf6f1cf7c4c5f03440cf9e43ec72667733",
+        "dq_dR_relaxed": "414210368e2311a30ee5f5ee532fe9da14c51f02231ebdce62833557b86046d8",
+        "e_base": "baa9218174f7cd8dc316a573d74adacb7a7421b3e0ca45c23e7f420fd88b29e6",
+        "e_corr_target": "c76fa47b40e4ec5996ea9793a6a704071ef5a713699c2b20a897f7b56c590db1",
+        "e_target": "424b4cdb770d2c5f1e0bd6205413a208e1f7ee8ad491d17d711a0955b6962b09",
+        "f_base": "46778966994f8cc35d33d6bb8bc8557ec71b8dff68b5abdeb597ac45de38bac1",
+        "f_corr_target": "da7cdc7abc587776fdb412c63745bebe9ae72d7d0c12d308e8b233204aa5e9d5",
+        "f_target": "4d00562803232f86682dd5a20fe4f286095f45cd0cf85b3f3c23aa78bebb1baa"
+      },
+      "geometry_bohr": [
+        [
+          -2.7401028806193395,
+          0.056691783736951856,
+          -0.15117808996520496
+        ],
+        [
+          -2.0598014757759175,
+          1.625164467125953,
+          0.27967946643562913
+        ],
+        [
+          -1.2158686858064067,
+          -1.100954440171605,
+          -0.42129554221053495
+        ],
+        [
+          2.2298768269867733,
+          -0.13228082871955435,
+          0.20786987370215682
+        ],
+        [
+          2.926823852426489,
+          1.3881918044811703,
+          -0.16931946076102952
+        ],
+        [
+          3.4420917641651765,
+          -1.3308865257132272,
+          0.6751046580008684
+        ]
+      ],
+      "reference_converged": true,
+      "reference_state_fingerprint": "d7b7d7ec5570affafa6714bb3e9d650921df86403833af23625ee4a461c74781",
+      "response_converged": true,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 2.4598378889351125e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 1.4446886124463293e-11,
+        "metric_residual": 4.163336342344337e-17,
+        "minimum_orbital_gap": 0.630271812087166,
+        "operator_condition_number": 59.67842811786288,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.137944503409436,
+        "operator_minimum_eigenvalue": 0.37095388068344803,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 3.1502578323738817e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 1.7208456881689926e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          3.5714234715086834e-07,
+          1.4446886124463293e-11
+        ],
+        "residual_rms": 1.0885031664338439e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_integrity_fingerprint": "2d2a7cdea53e9421891f843a7d4a926468d5b4d78408f7321c95a278af60e0bb",
+      "sample_id": "728096d8dfd82853c57e2d0144e21c597a7f959ef0139eb809324f299f68e86a"
+    },
+    {
+      "descriptor_diagnostics": {
+        "minimum_scaled_gap": 121828.4084050117,
+        "structural_zero_blocks": []
+      },
+      "field_sha256": {
+        "atom": "11f150b3e65fa79d7066bc572623a25f7885d0c6f7c64e116005884b1bc4de38",
+        "descriptor": "a483abd35dffc02203d2aac58328539cccdae3cc41d969d86600f654f359d169",
+        "dq_dR_relaxed": "a37153cfec1551801a1a709ff319eccb9339f85208a85bcc6e8f303e5988e400",
+        "e_base": "5046a608cc3089f389c6490017d95537791defc808b149f7ad1866c87ca9f8b7",
+        "e_corr_target": "ecff28830cf92827223cc096bd9297ee418bf781e21ab2cb753fda31b27ca22d",
+        "e_target": "9ddc5fff22cd4f519ce8744c905ab86295cee99a7c095ad2500dbe3e11644260",
+        "f_base": "46721bce1ac8b330a704a99aec12e0bd899a46fef8ba8a256a32edb923ac754d",
+        "f_corr_target": "12133e81af46b95d4b1cdb99a61c3e282c2a391cbfd2acd6dc766ab7eacdc459",
+        "f_target": "3fa944666fc1b32129c786a546fffe44009867be8d556410bf790194fe45a700"
+      },
+      "geometry_bohr": [
+        [
+          -2.7401028806193395,
+          0.056691783736951856,
+          -0.15117808996520496
+        ],
+        [
+          -2.0598014757759175,
+          1.625164467125953,
+          0.18141370795824593
+        ],
+        [
+          -1.2755840313426625,
+          -1.0556010131820435,
+          -0.4107130759129706
+        ],
+        [
+          2.6834110968823883,
+          -0.13228082871955435,
+          0.20786987370215682
+        ],
+        [
+          3.7348626764972233,
+          1.168496538975272,
+          -0.10053342982686128
+        ],
+        [
+          3.5880340810952993,
+          -1.6378566499751288,
+          0.6892776039351063
+        ]
+      ],
+      "reference_converged": true,
+      "reference_state_fingerprint": "ca70db7685f80a8e5ddcbf8814d763b7b9a229c9b253c0ea09d2d4bd2a27cb96",
+      "response_converged": true,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 3.74353326115795e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 9.575176589116108e-11,
+        "metric_residual": 2.7755575615628914e-17,
+        "minimum_orbital_gap": 0.640957178236323,
+        "operator_condition_number": 58.576761090684265,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.148241964994266,
+        "operator_minimum_eigenvalue": 0.3781062925399029,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.42861286636753e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 2.3314683517128287e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          9.806548182250685e-07,
+          9.575176589116108e-11
+        ],
+        "residual_rms": 6.8721797535762275e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_integrity_fingerprint": "f9e70158a669fd007b28e7b525106fddb27728151738721e6059e7b143097dd1",
+      "sample_id": "88e25910bf08a74049974436cec4e6cd8cfdb7f88aa49916bbaea0f3405aad4c"
+    }
+  ],
+  "generation": {
+    "deepks_commit": "ga022ad5e4",
+    "deepks_version": "0.1.dev420+ga022ad5e4",
+    "numpy_version": "2.4.6",
+    "producer": "deepks.deephf.force_data.rhf_direct",
+    "producer_version": 1,
+    "pyscf_version": "2.14.0",
+    "python_version": "3.11.15",
+    "torch_version": "2.13.0+cpu"
+  },
+  "manifest_fingerprint": "ccca3bd7d57a02bb2eed9dfd90720447d9860665c9e943aa53beb9337b71fa1e",
+  "reference": {
+    "basis_content": {
+      "H": [
+        [
+          0,
+          [
+            18.731137,
+            0.0334946
+          ],
+          [
+            2.8253937,
+            0.23472695
+          ],
+          [
+            0.6401217,
+            0.81375733
+          ]
+        ],
+        [
+          0,
+          [
+            0.1612778,
+            1.0
+          ]
+        ]
+      ],
+      "O": [
+        [
+          0,
+          [
+            5484.6717,
+            0.0018311
+          ],
+          [
+            825.23495,
+            0.0139501
+          ],
+          [
+            188.04696,
+            0.0684451
+          ],
+          [
+            52.9645,
+            0.2327143
+          ],
+          [
+            16.89757,
+            0.470193
+          ],
+          [
+            5.7996353,
+            0.3585209
+          ]
+        ],
+        [
+          0,
+          [
+            15.539616,
+            -0.1107775
+          ],
+          [
+            3.5999336,
+            -0.1480263
+          ],
+          [
+            1.0137618,
+            1.130767
+          ]
+        ],
+        [
+          0,
+          [
+            0.2700058,
+            1.0
+          ]
+        ],
+        [
+          1,
+          [
+            15.539616,
+            0.0708743
+          ],
+          [
+            3.5999336,
+            0.3397528
+          ],
+          [
+            1.0137618,
+            0.7271586
+          ]
+        ],
+        [
+          1,
+          [
+            0.2700058,
+            1.0
+          ]
+        ]
+      ]
+    },
+    "basis_sha256": "0e5dec3d6fdd72564879c864fda4f7d7ce3bc92977fdb6fa6b3ec5d2faa6c247",
+    "charge": 0,
+    "ecp": null,
+    "family": "RHF",
+    "occupations": [
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "python_class": "pyscf.scf.hf.RHF",
+    "scf_controls": {
+      "conv_check": true,
+      "conv_tol": 1e-13,
+      "conv_tol_cpscf": 1e-12,
+      "conv_tol_grad": 1e-10,
+      "diis_space": 8,
+      "direct_scf": true,
+      "level_shift": 0.0,
+      "max_cycle": 100
+    },
+    "spin": 0
+  },
+  "response": {
+    "adapter": "deepks.deephf.pyscf_rhf.RHFResponseAdapter",
+    "backend": "rhf_direct",
+    "controls": {
+      "cphf_tolerance": 1e-11,
+      "invariant_tolerance": 1e-09,
+      "level_shift": 0.0,
+      "max_cycle": 100,
+      "max_refinement_cycles": 3,
+      "operator_condition_tolerance": 100000000.0,
+      "operator_dimension_limit": 512,
+      "operator_stability_tolerance": 1e-06,
+      "operator_symmetry_tolerance": 1e-10,
+      "orbital_gap_tolerance": 1e-07,
+      "residual_tolerance": 1e-09
+    }
+  },
+  "schema": {
+    "id": "deepks.deephf.rhf-force-data",
+    "version": 1
+  }
+}

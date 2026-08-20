@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/mwding/WorkSpace/Projects/deepks-kit
+configfile: pyproject.toml
+collected 52 items
+
+tests/baseline/test_cli.py .                                             [  1%]
+tests/baseline/test_deephf_public_workflow.py ......                     [ 13%]
+tests/baseline/test_deepks_numerics.py ......                            [ 25%]
+tests/baseline/test_descriptor_baseline.py ...                           [ 30%]
+tests/baseline/test_example_configuration.py ..........................  [ 80%]
+tests/baseline/test_example_data.py ..                                   [ 84%]
+tests/baseline/test_force_data_pipeline.py ..                            [ 88%]
+tests/baseline/test_model.py .....                                       [ 98%]
+tests/baseline/test_scf_grad.py .                                        [100%]
+
+============================== 52 passed in 5.55s ==============================

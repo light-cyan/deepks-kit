@@ -1,0 +1,21 @@
+systems:
+  - validation/geometries/formaldehyde.xyz
+reference: rhf
+model_file: validation/outputs/formaldehyde/model.pth
+basis: 6-31g
+projector_basis:
+  - [0, [0.8, 1.0]]
+  - [1, [0.3, 1.0]]
+backend: direct
+device: cpu
+dump_dir: validation/outputs/formaldehyde/cli_direct
+mol_args:
+  unit: Angstrom
+  symmetry: false
+  cart: false
+scf_args:
+  conv_tol: 1.0e-13
+  conv_tol_grad: 1.0e-10
+  conv_tol_cpscf: 1.0e-12
+  max_cycle: 100
+verbose: 0

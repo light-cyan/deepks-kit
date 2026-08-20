@@ -1,0 +1,43 @@
+{
+  "seed": 20260820,
+  "basis": "6-31g",
+  "projector_basis": [[0, [0.8, 1.0]], [1, [0.3, 1.0]]],
+  "finite_difference_steps_bohr": [0.001, 0.0003, 0.0001],
+  "scf_controls": {
+    "conv_tol": 1e-13,
+    "conv_tol_grad": 1e-10,
+    "conv_tol_cpscf": 1e-12,
+    "max_cycle": 100
+  },
+  "lda": {
+    "xc": "LDA_X + LDA_C_VWN",
+    "radial_grid": 20,
+    "angular_grid": 50,
+    "alignment": 1,
+    "cutoff": 1e-15,
+    "small_rho_cutoff": 0.0
+  },
+  "acceptance": {
+    "zero_native_max_abs": 1e-10,
+    "backend_max_abs": 1e-8,
+    "gradient_fd_max_abs": 1e-5,
+    "descriptor_fd_max_abs": 1e-5,
+    "rhf_force_sum_max_abs": 1e-8,
+    "rhf_rotation_max_abs": 1e-8,
+    "response_signal_min": 1e-4,
+    "explicit_error_ratio_min": 10.0
+  },
+  "training": {
+    "teacher_epochs": 400,
+    "mp2_epochs": 800,
+    "start_lr": 0.005,
+    "energy_factor": 1.0,
+    "force_factor": 10.0,
+    "splits": {"train": 6, "validation": 2, "heldout": 2}
+  },
+  "performance": {
+    "warmup": 1,
+    "repetitions": 5,
+    "threads": 1
+  }
+}

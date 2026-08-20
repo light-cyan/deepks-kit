@@ -1,0 +1,697 @@
+{
+  "checkpoint_reload_exact": true,
+  "configuration": {
+    "acceptance": {
+      "backend_max_abs": 1e-08,
+      "descriptor_fd_max_abs": 1e-05,
+      "explicit_error_ratio_min": 10.0,
+      "gradient_fd_max_abs": 1e-05,
+      "response_signal_min": 0.0001,
+      "rhf_force_sum_max_abs": 1e-08,
+      "rhf_rotation_max_abs": 1e-08,
+      "zero_native_max_abs": 1e-10
+    },
+    "basis": "6-31g",
+    "finite_difference_steps_bohr": [
+      0.001,
+      0.0003,
+      0.0001
+    ],
+    "lda": {
+      "alignment": 1,
+      "angular_grid": 50,
+      "cutoff": 1e-15,
+      "radial_grid": 20,
+      "small_rho_cutoff": 0.0,
+      "xc": "LDA_X + LDA_C_VWN"
+    },
+    "performance": {
+      "repetitions": 5,
+      "threads": 1,
+      "warmup": 1
+    },
+    "projector_basis": [
+      [
+        0,
+        [
+          0.8,
+          1.0
+        ]
+      ],
+      [
+        1,
+        [
+          0.3,
+          1.0
+        ]
+      ]
+    ],
+    "scf_controls": {
+      "conv_tol": 1e-13,
+      "conv_tol_cpscf": 1e-12,
+      "conv_tol_grad": 1e-10,
+      "max_cycle": 100
+    },
+    "seed": 20260820,
+    "training": {
+      "energy_factor": 1.0,
+      "force_factor": 10.0,
+      "mp2_epochs": 800,
+      "splits": {
+        "heldout": 2,
+        "train": 6,
+        "validation": 2
+      },
+      "start_lr": 0.005,
+      "teacher_epochs": 400
+    }
+  },
+  "contracts": {
+    "heldout": {
+      "compatibility_fingerprint": "f811c2f9aa31d370e13cd5219725105402ff5a4415735f137986c408294914a3",
+      "dimensions": {
+        "n_descriptor_atom": 6,
+        "n_feature": 4,
+        "n_frame": 2,
+        "n_raw_atom": 6
+      },
+      "directory": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/force_heldout",
+      "energy_directory": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/energy_heldout",
+      "manifest_fingerprint": "7b0837217c6173d5246c58279630c3a9c9818477d0c4528279e1b3a583b8c669"
+    },
+    "train": {
+      "compatibility_fingerprint": "f811c2f9aa31d370e13cd5219725105402ff5a4415735f137986c408294914a3",
+      "dimensions": {
+        "n_descriptor_atom": 6,
+        "n_feature": 4,
+        "n_frame": 6,
+        "n_raw_atom": 6
+      },
+      "directory": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/force_train",
+      "energy_directory": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/energy_train",
+      "manifest_fingerprint": "ec41240150d09b79e26cd33ef85d891d4e93c2da97df06e1eb81e1297c745ec9"
+    },
+    "validation": {
+      "compatibility_fingerprint": "f811c2f9aa31d370e13cd5219725105402ff5a4415735f137986c408294914a3",
+      "dimensions": {
+        "n_descriptor_atom": 6,
+        "n_feature": 4,
+        "n_frame": 2,
+        "n_raw_atom": 6
+      },
+      "directory": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/force_validation",
+      "energy_directory": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/energy_validation",
+      "manifest_fingerprint": "d91c3554e6da705bab83d5ea11fb6d43e665c76941073fb449e105a4a8ddde8a"
+    }
+  },
+  "dataset_generation_wall_seconds": {
+    "heldout": 3.5129712261259556,
+    "train": 10.593731001019478,
+    "validation": 3.5401154290884733
+  },
+  "environment": {
+    "configuration_sha256": "34afb33c7bf2ff8361e87020bba08d466df25f0127a191acd8ad96198b027858",
+    "cpu_model": "AMD EPYC 7K62 48-Core Processor",
+    "git_revision": "cbac4288b3fd0b6b2edba4331c2231071466cf55",
+    "libxc": "7.0.0",
+    "logical_cores": 48,
+    "memory_bytes": 270108176384,
+    "numpy": "2.4.6",
+    "operating_system": "Linux-6.8.0-110-generic-x86_64-with-glibc2.35",
+    "physical_cores": 48,
+    "pyscf": "2.14.0",
+    "python": "3.11.15",
+    "thread_environment": {
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1"
+    },
+    "timestamp_utc": "2026-08-20T14:34:25.316567+00:00",
+    "torch": "2.13.0+cpu",
+    "torch_num_interop_threads": 1,
+    "torch_num_threads": 1
+  },
+  "frame_count": 10,
+  "fresh_geometry_inference": {
+    "energy_only": {
+      "direct": {
+        "correction_energy": {
+          "mae": 0.0002043945657334012,
+          "max_abs": 0.0002847202373310598,
+          "rmse": 0.0002196118212186233
+        },
+        "correction_force": {
+          "mae": 0.006754530786923937,
+          "max_abs": 0.01999602820327884,
+          "rmse": 0.008532936886610663
+        },
+        "solve_counts": [],
+        "total_energies_eh": [
+          -151.59322711807675,
+          -151.5964222377958
+        ],
+        "total_energy": {
+          "mae": 0.00020439456572773906,
+          "max_abs": 0.00028472023731751506,
+          "rmse": 0.00021961182121047035
+        },
+        "total_force": {
+          "mae": 0.006754530786923937,
+          "max_abs": 0.01999602820327884,
+          "rmse": 0.008532936886610663
+        }
+      },
+      "energy_backend_max_abs": 0.0,
+      "zvector": {
+        "correction_energy": {
+          "mae": 0.0002043945657334012,
+          "max_abs": 0.0002847202373310598,
+          "rmse": 0.0002196118212186233
+        },
+        "correction_force": {
+          "mae": 0.006754530787004479,
+          "max_abs": 0.019996028203312328,
+          "rmse": 0.00853293688677014
+        },
+        "solve_counts": [
+          1,
+          1
+        ],
+        "total_energies_eh": [
+          -151.59322711807675,
+          -151.5964222377958
+        ],
+        "total_energy": {
+          "mae": 0.00020439456572773906,
+          "max_abs": 0.00028472023731751506,
+          "rmse": 0.00021961182121047035
+        },
+        "total_force": {
+          "mae": 0.006754530787004479,
+          "max_abs": 0.019996028203312328,
+          "rmse": 0.00853293688677014
+        }
+      }
+    },
+    "energy_plus_force": {
+      "direct": {
+        "correction_energy": {
+          "mae": 0.00013750338460313816,
+          "max_abs": 0.00021887282339427827,
+          "rmse": 0.00015977536213854633
+        },
+        "correction_force": {
+          "mae": 0.002221164600061124,
+          "max_abs": 0.0062112986263704525,
+          "rmse": 0.00281289751095693
+        },
+        "solve_counts": [],
+        "total_energies_eh": [
+          -151.593321922006,
+          -151.59619365150428
+        ],
+        "total_energy": {
+          "mae": 0.0001375033845931739,
+          "max_abs": 0.00021887282338184377,
+          "rmse": 0.00015977536212871302
+        },
+        "total_force": {
+          "mae": 0.002221164600061124,
+          "max_abs": 0.0062112986263704525,
+          "rmse": 0.00281289751095693
+        }
+      },
+      "energy_backend_max_abs": 0.0,
+      "zvector": {
+        "correction_energy": {
+          "mae": 0.00013750338460313816,
+          "max_abs": 0.00021887282339427827,
+          "rmse": 0.00015977536213854633
+        },
+        "correction_force": {
+          "mae": 0.0022211646002156396,
+          "max_abs": 0.006211298626377822,
+          "rmse": 0.0028128975111619235
+        },
+        "solve_counts": [
+          1,
+          1
+        ],
+        "total_energies_eh": [
+          -151.593321922006,
+          -151.59619365150428
+        ],
+        "total_energy": {
+          "mae": 0.0001375033845931739,
+          "max_abs": 0.00021887282338184377,
+          "rmse": 0.00015977536212871302
+        },
+        "total_force": {
+          "mae": 0.0022211646002156396,
+          "max_abs": 0.006211298626377822,
+          "rmse": 0.0028128975111619235
+        }
+      }
+    }
+  },
+  "heldout_comparison": {
+    "energy_only": {
+      "energy": {
+        "mae": 0.0002043945657334012,
+        "max_abs": 0.0002847202373310598,
+        "rmse": 0.0002196118212186233
+      },
+      "force": {
+        "mae": 0.006754530786923939,
+        "max_abs": 0.019996028203278837,
+        "rmse": 0.008532936886610663
+      }
+    },
+    "energy_plus_force": {
+      "energy": {
+        "mae": 0.00011104361318664546,
+        "max_abs": 0.00019240407739018472,
+        "rmse": 0.00013765975869861437
+      },
+      "force": {
+        "mae": 0.002222434157740057,
+        "max_abs": 0.006204879628153713,
+        "rmse": 0.0028140947434502485
+      }
+    },
+    "zero_correction_rhf": {
+      "energy": {
+        "mae": 0.37791269901215685,
+        "max_abs": 0.3781526548428644,
+        "rmse": 0.3779127751921781
+      },
+      "force": {
+        "mae": 0.015359682610381335,
+        "max_abs": 0.0392278060774279,
+        "rmse": 0.018887979056123612
+      }
+    }
+  },
+  "native_reference_wall_seconds": {
+    "median_per_frame": 0.13506293948739767,
+    "total": 1.366762911900878
+  },
+  "passed": true,
+  "restart": {
+    "checkpoint": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/energy_force_restart.pth",
+    "sha256": "5fcbf14bcac72f3f78535beba4685685e18aba832e8f429ace0f827ee028055e",
+    "training_energy_rmse": 0.00019377095596579335,
+    "training_force_rmse": 0.0025395877015284515
+  },
+  "saved_data_test": {
+    "energy_mae": 0.00011104361318664546,
+    "energy_rmse": 0.00013765975869861437,
+    "force_mae": 0.002222434157740057,
+    "force_rmse": 0.0028140947434502485
+  },
+  "split_slices": {
+    "heldout": [
+      8,
+      10
+    ],
+    "train": [
+      0,
+      6
+    ],
+    "validation": [
+      6,
+      8
+    ]
+  },
+  "stage": "training_teacher",
+  "system": "asymmetric water dimer",
+  "target_diagnostics": [
+    {
+      "correction_energy_eh": 0.37904681806177193,
+      "reference_energy_eh": -151.96886373002428,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 4.394054564649252e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 1.44664329885906e-11,
+        "metric_residual": 5.551115123125783e-17,
+        "minimum_orbital_gap": 0.6289592360811751,
+        "operator_condition_number": 58.992113399356455,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.13616076723027,
+        "operator_minimum_eigenvalue": 0.3752393242360385,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.518818487118324e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 2.2360585605341043e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          5.821890766057741e-07,
+          1.44664329885906e-11
+        ],
+        "residual_rms": 9.75984519426959e-13,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.023843036741980086
+    },
+    {
+      "correction_energy_eh": 0.3789970469739805,
+      "reference_energy_eh": -151.97129033540975,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 1.1657341758564144e-14,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 9.198058981141344e-12,
+        "metric_residual": 5.551115123125783e-17,
+        "minimum_orbital_gap": 0.632183034078782,
+        "operator_condition_number": 58.63381423140815,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.142916012630618,
+        "operator_minimum_eigenvalue": 0.37764754524138405,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 4.163336342344337e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 6.439293542825908e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          5.981417183012483e-07,
+          9.198058981141344e-12
+        ],
+        "residual_rms": 6.536119646043487e-13,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.024724181375526122
+    },
+    {
+      "correction_energy_eh": 0.3776720480685885,
+      "reference_energy_eh": -151.97046842776436,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 5.218048215738236e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 2.374612138866805e-11,
+        "metric_residual": 8.326672684688674e-17,
+        "minimum_orbital_gap": 0.6340062589051636,
+        "operator_condition_number": 59.216374917844114,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.138993836635933,
+        "operator_minimum_eigenvalue": 0.3738660778771283,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.3592239273284576e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 2.886579864025407e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          6.729129375365045e-07,
+          2.374612138866805e-11
+        ],
+        "residual_rms": 1.563999025439522e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.023933823690356012
+    },
+    {
+      "correction_energy_eh": 0.3784027704055439,
+      "reference_energy_eh": -151.97277060762383,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 2.220446049250313e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 2.1360780332047025e-11,
+        "metric_residual": 4.163336342344337e-17,
+        "minimum_orbital_gap": 0.6378105955956932,
+        "operator_condition_number": 58.58078211545656,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.145097507375677,
+        "operator_minimum_eigenvalue": 0.37802666177672434,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 4.135580766728708e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 1.1657341758564144e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          6.41239415264316e-07,
+          2.1360780332047025e-11
+        ],
+        "residual_rms": 2.134884006707332e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.024575694689428634
+    },
+    {
+      "correction_energy_eh": 0.3777356551504817,
+      "reference_energy_eh": -151.9726030842923,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 3.774758283725532e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 4.9899985619245024e-11,
+        "metric_residual": 2.7755575615628914e-17,
+        "minimum_orbital_gap": 0.6408485033508442,
+        "operator_condition_number": 59.044749649073175,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.141583143784104,
+        "operator_minimum_eigenvalue": 0.3749966470411084,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.581268532253489e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 4.6629367034256575e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          8.178005609675229e-07,
+          4.9899985619245024e-11
+        ],
+        "residual_rms": 3.2587945327330348e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.02335718082457643
+    },
+    {
+      "correction_energy_eh": 0.37727628129283614,
+      "reference_energy_eh": -151.97331839410597,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 1.880440247958859e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 1.095263607998713e-10,
+        "metric_residual": 4.163336342344337e-17,
+        "minimum_orbital_gap": 0.6421207153267077,
+        "operator_condition_number": 58.795521229634424,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.14564282899997,
+        "operator_minimum_eigenvalue": 0.37665526839207625,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 4.3576253716537394e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 1.2212453270876722e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          9.031664187455525e-07,
+          1.095263607998713e-10
+        ],
+        "residual_rms": 8.15064604935362e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.021701397362560524
+    },
+    {
+      "correction_energy_eh": 0.3781659905584271,
+      "reference_energy_eh": -151.96897635158103,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 2.4598378889351125e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 1.4446886124463293e-11,
+        "metric_residual": 4.163336342344337e-17,
+        "minimum_orbital_gap": 0.630271812087166,
+        "operator_condition_number": 59.67842811786288,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.137944503409436,
+        "operator_minimum_eigenvalue": 0.37095388068344803,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 3.1502578323738817e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 1.7208456881689926e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          3.5714234715086834e-07,
+          1.4446886124463293e-11
+        ],
+        "residual_rms": 1.0885031664338439e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.023753647362037774
+    },
+    {
+      "correction_energy_eh": 0.37781899385752277,
+      "reference_energy_eh": -151.97352727962942,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 3.74353326115795e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 9.575176589116108e-11,
+        "metric_residual": 2.7755575615628914e-17,
+        "minimum_orbital_gap": 0.640957178236323,
+        "operator_condition_number": 58.576761090684265,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.148241964994266,
+        "operator_minimum_eigenvalue": 0.3781062925399029,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.42861286636753e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 2.3314683517128287e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          9.806548182250685e-07,
+          9.575176589116108e-11
+        ],
+        "residual_rms": 6.8721797535762275e-12,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.022132640451096395
+    },
+    {
+      "correction_energy_eh": 0.37815265484287724,
+      "reference_energy_eh": -151.97125570402548,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 5.1850884696946764e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 9.135228611436598e-12,
+        "metric_residual": 2.7755575615628914e-17,
+        "minimum_orbital_gap": 0.6369067964475894,
+        "operator_condition_number": 59.2785868781908,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.13876844293804,
+        "operator_minimum_eigenvalue": 0.37346990893069215,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.6055546609171643e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 2.7200464103316335e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          5.205118128051925e-07,
+          9.135228611436598e-12
+        ],
+        "residual_rms": 6.666120592559139e-13,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.02370457410395967
+    },
+    {
+      "correction_energy_eh": 0.37767274318143534,
+      "reference_energy_eh": -151.97381026073992,
+      "response_diagnostics": {
+        "cphf_tolerance": 1e-11,
+        "idempotency_residual": 5.530298441414061e-15,
+        "invariant_tolerance": 1e-09,
+        "level_shift": 0.0,
+        "max_cycle": 100,
+        "max_refinement_cycles": 3,
+        "maximum_residual": 6.745648655002816e-10,
+        "metric_residual": 2.7755575615628914e-17,
+        "minimum_orbital_gap": 0.643962847305465,
+        "operator_condition_number": 58.61021884886589,
+        "operator_condition_tolerance": 100000000.0,
+        "operator_dimension_limit": 512,
+        "operator_maximum_eigenvalue": 22.147485486981125,
+        "operator_minimum_eigenvalue": 0.37787754289215864,
+        "operator_stability_tolerance": 1e-06,
+        "operator_symmetry_residual": 2.9282132274488504e-15,
+        "operator_symmetry_tolerance": 1e-10,
+        "orbital_gap_tolerance": 1e-07,
+        "particle_number_residual": 2.914335439641036e-15,
+        "pyscf_version": "2.14.0",
+        "refinement_cycles": 1,
+        "residual_history": [
+          2.140122339906736e-06,
+          6.745648655002816e-10
+        ],
+        "residual_rms": 3.7436276288501473e-11,
+        "residual_tolerance": 1e-09,
+        "response_dimension": 160
+      },
+      "response_max_abs_eh_per_bohr": 0.018734033169411128
+    }
+  ],
+  "training": {
+    "energy_checkpoint": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/energy_only.pth",
+    "energy_checkpoint_sha256": "a3d9f9c73c5e80b4acf594106092358d92e0f7e84aeb4cb2a4bbb6d1bd485b71",
+    "energy_only_seconds_per_epoch": 0.0027853387873619795,
+    "energy_only_wall_seconds": 1.1141355149447918,
+    "energy_plus_force_seconds_per_epoch": 0.02308774213772267,
+    "energy_plus_force_wall_seconds": 9.235096855089068,
+    "final_training_energy_rmse": 0.00017852742326815026,
+    "final_training_force_rmse": 0.0025416741816738165,
+    "final_validation_energy_rmse": 0.00023632951630957508,
+    "final_validation_force_rmse": 0.0026148615523194107,
+    "force_checkpoint": "/home/mwding/WorkSpace/Projects/deepks-kit/validation/outputs/training/teacher/energy_force.pth",
+    "force_checkpoint_sha256": "75aa341a6f84245fd7cc10c64d02bf7de115a25ce8423cad5bc390210679330d"
+  },
+  "workflow": "teacher"
+}
