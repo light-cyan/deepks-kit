@@ -79,6 +79,20 @@ def _validated_dimension(value) -> int:
     return dimension
 
 
+def _validated_residual_tolerance(value) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value,
+        (int, float, np.integer, np.floating),
+    ):
+        raise TypeError("adjoint residual_tolerance must be a real number")
+    tolerance = float(value)
+    if not np.isfinite(tolerance) or tolerance <= 0.0:
+        raise ValueError(
+            "adjoint residual_tolerance must be finite and positive"
+        )
+    return tolerance
+
+
 def _validated_vector(value, dimension: int, name: str) -> np.ndarray:
     try:
         array = np.asarray(value)
@@ -151,6 +165,76 @@ def _residual_statistics(residual: np.ndarray) -> tuple[float, float]:
     )
 
 
+def _action_attempted_input_mutation(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(
+        marker in message
+        for marker in (
+            "read-only",
+            "readonly",
+            "writeable flag",
+            "writable flag",
+        )
+    )
+
+
+def _isolated_problem_action(
+    action,
+    solution: np.ndarray,
+    dimension: int,
+    *,
+    action_name: str,
+    result_name: str,
+) -> np.ndarray:
+    """Apply an untrusted action to a private immutable solution snapshot."""
+    action_input = _immutable_array(
+        _validated_vector(
+            solution,
+            dimension,
+            f"{action_name} input",
+        )
+    )
+    input_fingerprint = _array_fingerprint(action_input)
+    try:
+        action_result = action(action_input)
+    except Exception as error:
+        input_changed = (
+            action_input.flags.writeable
+            or _array_fingerprint(action_input) != input_fingerprint
+        )
+        if input_changed:
+            raise AdjointError(
+                f"{action_name} mutated its isolated adjoint solution input"
+            ) from error
+        if _action_attempted_input_mutation(error):
+            raise AdjointError(
+                f"{action_name} attempted to mutate its immutable adjoint "
+                "solution input"
+            ) from error
+        if isinstance(error, AdjointError):
+            raise
+        raise AdjointError(f"{action_name} failed: {error}") from error
+    input_changed = (
+        action_input.flags.writeable
+        or _array_fingerprint(action_input) != input_fingerprint
+    )
+    if input_changed:
+        raise AdjointError(
+            f"{action_name} mutated its isolated adjoint solution input"
+        )
+    action_result = _immutable_array(
+        _validated_vector(action_result, dimension, result_name)
+    )
+    if (
+        action_input.flags.writeable
+        or _array_fingerprint(action_input) != input_fingerprint
+    ):
+        raise AdjointError(
+            f"{action_name} mutated its isolated adjoint solution input"
+        )
+    return action_result
+
+
 def solve_scalar_adjoint(
     problem: ScalarAdjointProblem,
     objective_gradient: np.ndarray,
@@ -164,9 +248,7 @@ def solve_scalar_adjoint(
             "adjoint problem does not implement the scalar adjoint protocol"
         )
     dimension = _validated_dimension(problem.dimension)
-    residual_tolerance = float(residual_tolerance)
-    if not np.isfinite(residual_tolerance) or residual_tolerance <= 0:
-        raise ValueError("adjoint residual_tolerance must be finite and positive")
+    residual_tolerance = _validated_residual_tolerance(residual_tolerance)
     if not isinstance(require_physical_residual, (bool, np.bool_)):
         raise TypeError("require_physical_residual must be boolean")
     objective_gradient = _immutable_array(
@@ -190,47 +272,53 @@ def solve_scalar_adjoint(
         raise AdjointError(
             f"dense transpose adjoint solver raised an error: {error}"
         ) from error
-    solution = _validated_vector(solution, dimension, "adjoint solution")
-    solver_residual = _validated_vector(
-        matrix.T @ solution - objective_gradient,
-        dimension,
-        "literal transpose adjoint residual",
+    solution = _immutable_array(
+        _validated_vector(solution, dimension, "adjoint solution")
     )
-    try:
-        transpose_image = problem.apply_transpose(solution)
-    except Exception as error:
-        if isinstance(error, AdjointError):
-            raise
+    transpose_image = _isolated_problem_action(
+        problem.apply_transpose,
+        solution,
+        dimension,
+        action_name="independent transpose adjoint action",
+        result_name="independent transpose adjoint action",
+    )
+    physical_image = _isolated_problem_action(
+        problem.apply,
+        solution,
+        dimension,
+        action_name="physical adjoint action",
+        result_name="physical adjoint action",
+    )
+    final_dimension = _validated_dimension(problem.dimension)
+    if final_dimension != dimension:
         raise AdjointError(
-            f"independent transpose adjoint action failed: {error}"
-        ) from error
-    transpose_image = _validated_vector(
-        transpose_image,
-        dimension,
-        "independent transpose adjoint action",
-    )
-    transpose_residual = _validated_vector(
-        transpose_image - objective_gradient,
-        dimension,
-        "independent transpose adjoint residual",
-    )
-    try:
-        physical_image = problem.apply(solution)
-    except Exception as error:
-        if isinstance(error, AdjointError):
-            raise
+            "adjoint problem dimension changed during independent residual checks"
+        )
+    final_matrix = _validated_matrix(problem.dense_operator(), dimension)
+    if not np.array_equal(final_matrix, matrix):
         raise AdjointError(
-            f"physical adjoint action failed: {error}"
-        ) from error
-    physical_image = _validated_vector(
-        physical_image,
-        dimension,
-        "physical adjoint action",
+            "adjoint response operator changed during independent residual checks"
+        )
+    solver_residual = _immutable_array(
+        _validated_vector(
+            matrix.T @ solution - objective_gradient,
+            dimension,
+            "literal transpose adjoint residual",
+        )
     )
-    physical_residual = _validated_vector(
-        physical_image - objective_gradient,
-        dimension,
-        "physical adjoint residual",
+    transpose_residual = _immutable_array(
+        _validated_vector(
+            transpose_image - objective_gradient,
+            dimension,
+            "independent transpose adjoint residual",
+        )
+    )
+    physical_residual = _immutable_array(
+        _validated_vector(
+            physical_image - objective_gradient,
+            dimension,
+            "physical adjoint residual",
+        )
     )
     maximum_solver_residual, solver_residual_rms = _residual_statistics(
         solver_residual

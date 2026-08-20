@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from deepks.deephf import DeePHF
+from deepks.deephf import DeePHF, RHFResponseError
 from deepks.model.model import CorrNet
 
 
@@ -156,6 +156,27 @@ def test_force_sign_and_selected_atom_gradient(rhf_oracle_case):
         rtol=2.0e-12,
         atol=2.0e-12,
     )
+
+
+def test_direct_gradient_driver_has_an_immutable_backend_binding(
+    rhf_oracle_case,
+):
+    driver = rhf_oracle_case.method.nuc_grad_method(backend="direct")
+
+    for name, value in (
+        ("base", object()),
+        ("mol", object()),
+        ("backend", "zvector"),
+    ):
+        with pytest.raises(AttributeError):
+            setattr(driver, name, value)
+
+    driver._backend = "zvector"
+    with pytest.raises(
+        RHFResponseError,
+        match="direct gradient driver binding is invalid",
+    ):
+        driver.kernel()
 
 
 @pytest.mark.parametrize("invalid_index", [0.9, True, "0"])

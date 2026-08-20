@@ -10,6 +10,7 @@ from .adjoint import (
 
 from .capabilities import (
     DeePHFCapabilityError,
+    validate_force_model,
     validate_model,
     validate_model_output,
     validate_reference,
@@ -65,6 +66,7 @@ __all__ = [
     "generate_rhf_force_frame",
     "solve_scalar_adjoint",
     "validate_model",
+    "validate_force_model",
     "validate_model_output",
     "validate_reference",
     "write_rhf_force_dataset",

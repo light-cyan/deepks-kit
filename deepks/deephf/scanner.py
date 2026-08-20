@@ -43,6 +43,18 @@ class _AtomDomain:
 
 
 _MODULE_CONTAINER_FIELDS = frozenset({"_parameters", "_buffers", "_modules"})
+_MODULE_EXECUTION_HOOK_FIELDS = (
+    ("forward-pre", "_forward_pre_hooks"),
+    ("forward", "_forward_hooks"),
+    ("backward-pre", "_backward_pre_hooks"),
+    ("backward", "_backward_hooks"),
+)
+_GLOBAL_MODULE_EXECUTION_HOOK_FIELDS = (
+    ("global-forward-pre", "_global_forward_pre_hooks"),
+    ("global-forward", "_global_forward_hooks"),
+    ("global-backward-pre", "_global_backward_pre_hooks"),
+    ("global-backward", "_global_backward_hooks"),
+)
 
 
 def _qualified_type(value: object) -> str:
@@ -170,7 +182,7 @@ def _model_state_fingerprint(model) -> str:
         digest.update(name.encode("utf-8"))
         digest.update(_qualified_type(module).encode("utf-8"))
         for attribute_name, value in sorted(module.__dict__.items()):
-            if attribute_name in _MODULE_CONTAINER_FIELDS or attribute_name == "training":
+            if attribute_name in _MODULE_CONTAINER_FIELDS:
                 continue
             digest.update(attribute_name.encode("utf-8"))
             _update_metadata_fingerprint(digest, value, set())
@@ -192,6 +204,61 @@ def _model_state_fingerprint(model) -> str:
         digest.update(str(name).encode("utf-8"))
         _update_metadata_fingerprint(digest, value, set())
     return digest.hexdigest()
+
+
+def _active_hook_registry(owner, field_name: str, context: str) -> bool:
+    try:
+        registry = getattr(owner, field_name)
+    except Exception as error:
+        raise RHFDeePHFScannerError(
+            f"the correction model {context} hooks could not be inspected: {error}"
+        ) from error
+    if not isinstance(registry, Mapping):
+        raise RHFDeePHFScannerError(
+            f"the correction model {context} hook registry is invalid"
+        )
+    return bool(registry)
+
+
+def _validate_model_inference_preflight(model) -> None:
+    """Require stable evaluation semantics before constructing a fresh reference."""
+    if model is None:
+        return
+    if not isinstance(model, torch.nn.Module):
+        raise RHFDeePHFScannerError(
+            "the scanner correction model must be a torch.nn.Module or None"
+        )
+    try:
+        modules = tuple(model.named_modules(remove_duplicate=False))
+    except Exception as error:
+        raise RHFDeePHFScannerError(
+            f"the correction model evaluation mode could not be inspected: {error}"
+        ) from error
+    training_modules = [
+        name or "<root>"
+        for name, module in modules
+        if module.training is not False
+    ]
+    if training_modules:
+        raise RHFDeePHFScannerError(
+            "the scanner correction model must remain in evaluation mode; "
+            f"training modules: {', '.join(training_modules)}"
+        )
+    active_hooks = []
+    for name, module in modules:
+        module_name = name or "<root>"
+        for hook_name, field_name in _MODULE_EXECUTION_HOOK_FIELDS:
+            if _active_hook_registry(module, field_name, f"{module_name} {hook_name}"):
+                active_hooks.append(f"{module_name}:{hook_name}")
+    global_module_hooks = torch.nn.modules.module
+    for hook_name, field_name in _GLOBAL_MODULE_EXECUTION_HOOK_FIELDS:
+        if _active_hook_registry(global_module_hooks, field_name, hook_name):
+            active_hooks.append(hook_name)
+    if active_hooks:
+        raise RHFDeePHFScannerError(
+            "the scanner correction model cannot contain module execution hooks; "
+            f"active hooks: {', '.join(active_hooks)}"
+        )
 
 
 def _validated_root_overlap_tolerance(value) -> float:
@@ -251,7 +318,7 @@ class RHFDeePHFGradientScanner:
         try:
             base_method = driver.base
             backend = driver.backend
-            response_options = driver.response_options
+            backend_options = driver.response_options
         except AttributeError as error:
             raise TypeError(
                 "the scanner requires an RHF DeePHF gradient driver"
@@ -262,12 +329,17 @@ class RHFDeePHFGradientScanner:
             )
         if backend not in {"direct", "zvector"}:
             raise ValueError("the scanner gradient backend must be direct or zvector")
-        if not isinstance(response_options, Mapping):
-            raise TypeError("the scanner response_options must be a mapping")
+        if not isinstance(backend_options, Mapping):
+            raise TypeError("the scanner backend options must be a mapping")
+        if not isinstance(base_method.response_options, Mapping):
+            raise TypeError("the scanner method response_options must be a mapping")
+        if not isinstance(base_method.adjoint_options, Mapping):
+            raise TypeError("the scanner method adjoint_options must be a mapping")
         tolerance = _validated_root_overlap_tolerance(root_overlap_tolerance)
         try:
-            method_options = deepcopy(base_method.response_options)
-            driver_options = deepcopy(dict(response_options))
+            method_response_options = deepcopy(dict(base_method.response_options))
+            method_adjoint_options = deepcopy(dict(base_method.adjoint_options))
+            driver_options = deepcopy(dict(backend_options))
             projector_basis = deepcopy(base_method._descriptor.projector_basis)
         except Exception as error:
             raise RHFDeePHFScannerError(
@@ -277,8 +349,9 @@ class RHFDeePHFGradientScanner:
         self._base = driver
         self._backend = backend
         self._response_options_view = MappingProxyType(deepcopy(driver_options))
-        self._driver_response_options = driver_options
-        self._method_response_options = method_options
+        self._driver_backend_options = MappingProxyType(driver_options)
+        self._method_response_options = MappingProxyType(method_response_options)
+        self._method_adjoint_options = MappingProxyType(method_adjoint_options)
         self._projector_basis = projector_basis
         self._model = base_method.model
         self._device = base_method.device
@@ -317,6 +390,7 @@ class RHFDeePHFGradientScanner:
         """Return fresh-reference DeePHF energy and nuclear gradient."""
         self._clear_public_result()
         atom_indices = _validate_atom_indices(self._atom_domain, atmlst)
+        _validate_model_inference_preflight(self._model)
         model_fingerprint = _model_state_fingerprint(self._model)
         fresh_reference, candidate_root = self._reference_factory.build(
             mol_or_coordinates,
@@ -331,7 +405,8 @@ class RHFDeePHFGradientScanner:
             self._model,
             projector_basis=deepcopy(self._projector_basis),
             device=self._device,
-            response_options=deepcopy(self._method_response_options),
+            response_options=deepcopy(dict(self._method_response_options)),
+            adjoint_options=deepcopy(dict(self._method_adjoint_options)),
         )
         energy = float(method.kernel())
         if not np.isfinite(energy):
@@ -344,7 +419,7 @@ class RHFDeePHFGradientScanner:
             )
         gradient_driver = method.nuc_grad_method(
             backend=self.backend,
-            **deepcopy(self._driver_response_options),
+            **deepcopy(dict(self._driver_backend_options)),
         )
         if gradient_driver.base is not method or gradient_driver.backend != self.backend:
             raise RHFDeePHFScannerError(

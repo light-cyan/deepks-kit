@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -7,7 +8,12 @@ from pyscf import gto, scf
 
 import deepks.deephf.adjoint as adjoint_module
 from deepks.deephf import DeePHF, DeePHFCapabilityError
-from deepks.deephf.pyscf_rhf import RHFAdjointAdapter, RHFAdjointError
+from deepks.deephf.capabilities import force_rng_fingerprints
+from deepks.deephf.pyscf_rhf import (
+    RHFAdjointAdapter,
+    RHFAdjointError,
+    adjoint_integrity_fingerprint,
+)
 from deepks.descriptor import DescriptorDifferentiabilityError
 from deepks.model.model import CorrNet
 
@@ -69,6 +75,82 @@ def test_backend_specific_options_are_strictly_namespaced(
             backend=backend,
             **options,
         )
+
+
+def test_method_direct_and_adjoint_option_namespaces_are_independent(
+    zvector_algebra_case,
+):
+    case = zvector_algebra_case
+    direct_configured = DeePHF(
+        case.reference,
+        deepcopy(case.model),
+        projector_basis=case.model._pbas,
+        response_options={"cphf_tolerance": 1.0e-11},
+    )
+    zvector_configured = DeePHF(
+        case.reference,
+        deepcopy(case.model),
+        projector_basis=case.model._pbas,
+        adjoint_options={"objective_symmetry_tolerance": 1.0e-10},
+    )
+
+    zvector_gradient = direct_configured.gradient(backend="zvector")
+    direct_gradient = zvector_configured.gradient(backend="direct")
+
+    assert np.isfinite(zvector_gradient).all()
+    assert np.isfinite(direct_gradient).all()
+
+
+def test_adjoint_options_require_a_mapping_at_construction(
+    zvector_algebra_case,
+):
+    case = zvector_algebra_case
+    with pytest.raises(TypeError, match="adjoint_options must be a mapping"):
+        DeePHF(
+            case.reference,
+            deepcopy(case.model),
+            projector_basis=case.model._pbas,
+            adjoint_options=[("objective_symmetry_tolerance", 1.0e-10)],
+        )
+
+
+@pytest.mark.parametrize(
+    ("configured_namespace", "match"),
+    [
+        (
+            "direct",
+            "unsupported direct backend options: objective_symmetry_tolerance",
+        ),
+        (
+            "zvector",
+            "unsupported zvector backend options: cphf_tolerance",
+        ),
+    ],
+)
+def test_invalid_method_options_fail_in_their_own_backend_namespace(
+    zvector_algebra_case,
+    configured_namespace,
+    match,
+):
+    case = zvector_algebra_case
+    constructor_options = (
+        {
+            "response_options": {
+                "objective_symmetry_tolerance": 1.0e-10,
+            }
+        }
+        if configured_namespace == "direct"
+        else {"adjoint_options": {"cphf_tolerance": 1.0e-11}}
+    )
+    method = DeePHF(
+        case.reference,
+        deepcopy(case.model),
+        projector_basis=case.model._pbas,
+        **constructor_options,
+    )
+
+    with pytest.raises(ValueError, match=match):
+        method.nuc_grad_method(backend=configured_namespace)
 
 
 def _corrupted_solver(kind, original_solve):
@@ -209,6 +291,96 @@ def test_projector_model_metadata_mismatch_is_not_deferred_to_a_backend(
         )
 
 
+def test_mutating_a_shared_projector_basis_rejects_stale_energy_and_zvector(
+    zvector_algebra_case,
+):
+    case = zvector_algebra_case
+    shared_basis = deepcopy(case.model._pbas)
+    model = CorrNet(
+        input_dim=4,
+        hidden_sizes=(3,),
+        actv_fn="tanh",
+        use_resnet=False,
+        proj_basis=shared_basis,
+    ).double()
+    model.load_state_dict(case.model.state_dict())
+    model.eval()
+    method = DeePHF(
+        case.reference,
+        model,
+        projector_basis=shared_basis,
+    )
+    baseline_energy = method.kernel()
+    driver = method.nuc_grad_method(backend="zvector").run()
+    baseline_gradient = driver.de_full.copy()
+    descriptor_basis = deepcopy(method._descriptor.projector_basis)
+
+    assert model._pbas is shared_basis
+    assert method._descriptor.projector_basis is not shared_basis
+    shared_basis[0][1][0] *= 1.6
+    assert method._descriptor.projector_basis == descriptor_basis
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="projector metadata does not match projector_basis",
+    ):
+        method.kernel()
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="projector metadata does not match projector_basis",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+    fresh_method = DeePHF(
+        case.reference,
+        model,
+        projector_basis=shared_basis,
+    )
+    fresh_energy = fresh_method.kernel()
+    fresh_gradient = fresh_method.gradient(backend="zvector")
+
+    assert not np.isclose(fresh_energy, baseline_energy, rtol=0.0, atol=1.0e-10)
+    assert not np.allclose(
+        fresh_gradient,
+        baseline_gradient,
+        rtol=0.0,
+        atol=1.0e-9,
+    )
+
+
+@pytest.mark.parametrize("state", ["projector_basis", "overlap_cache"])
+def test_mutating_bound_descriptor_state_is_rejected_before_evaluation(
+    zvector_algebra_case,
+    state,
+):
+    case = zvector_algebra_case
+    model = deepcopy(case.model)
+    method = DeePHF(
+        case.reference,
+        model,
+        projector_basis=model._pbas,
+    )
+    driver = method.nuc_grad_method(backend="zvector").run()
+
+    if state == "projector_basis":
+        method._descriptor.projector_basis[0][1][0] *= 1.1
+    else:
+        method._descriptor.overlap_shells[0][0, 0, 0] += 1.0e-4
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="DeePHF scientific state changed",
+    ):
+        method.correction_energy()
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="DeePHF scientific state changed",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
 def test_nondifferentiable_descriptor_failure_propagates_before_adjoint():
     molecule = gto.M(
         atom="H 0 0 0; H 0 0 1.4",
@@ -250,4 +422,364 @@ def test_nondifferentiable_descriptor_failure_propagates_before_adjoint():
     ):
         driver.kernel()
 
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        "residual_tolerance",
+        "orbital_gap_tolerance",
+        "operator_stability_tolerance",
+        "operator_condition_tolerance",
+        "operator_symmetry_tolerance",
+        "objective_symmetry_tolerance",
+    ],
+)
+@pytest.mark.parametrize(
+    "invalid_value",
+    [True, np.bool_(False), "1e-9", 1.0e-9 + 0.0j, np.array(1.0e-9)],
+)
+def test_adjoint_real_controls_reject_non_real_scalar_types(
+    zvector_algebra_case,
+    control,
+    invalid_value,
+):
+    with pytest.raises(
+        ValueError,
+        match=rf"adjoint {control} must be a real numeric scalar",
+    ):
+        RHFAdjointAdapter(
+            zvector_algebra_case.reference,
+            **{control: invalid_value},
+        )
+
+
+@pytest.mark.parametrize("invalid_value", [True, np.bool_(False), 4.0, "4"])
+def test_adjoint_dimension_limit_keeps_the_strict_integer_gate(
+    zvector_algebra_case,
+    invalid_value,
+):
+    with pytest.raises(ValueError, match="operator_dimension_limit must be an integer"):
+        RHFAdjointAdapter(
+            zvector_algebra_case.reference,
+            operator_dimension_limit=invalid_value,
+        )
+
+
+def _fresh_reference(case, displacement=0.0):
+    molecule = deepcopy(case.reference.mol)
+    coordinates = np.asarray(molecule.atom_coords(unit="Bohr")).copy()
+    coordinates[0, 0] += displacement
+    molecule.set_geom_(coordinates, unit="Bohr")
+    reference = scf.RHF(molecule)
+    reference.conv_tol = 1.0e-13
+    reference.conv_tol_grad = 1.0e-10
+    reference.conv_tol_cpscf = 1.0e-12
+    reference.max_cycle = 100
+    reference.kernel(dm0=None)
+    assert reference.converged
+    return reference
+
+
+def _fresh_method(case, displacement=0.0):
+    reference = _fresh_reference(case, displacement=displacement)
+    model = deepcopy(case.model)
+    return DeePHF(
+        reference,
+        model,
+        projector_basis=model._pbas,
+    )
+
+
+def test_reference_science_guard_ignores_common_origin_scratch(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    with method.mol.with_common_origin((0.31, -0.27, 0.19)):
+        gradient = method.gradient(backend="zvector")
+    assert np.isfinite(gradient).all()
+
+
+@pytest.mark.parametrize("mutation", ["replace", "inplace", "eri_cache"])
+def test_model_forward_state_mutation_fails_and_clears_the_driver(
+    zvector_algebra_case,
+    mutation,
+):
+    case = zvector_algebra_case
+    method = _fresh_method(case)
+    foreign = _fresh_reference(case, displacement=0.02)
+    driver = method.nuc_grad_method(backend="zvector").run()
+    model = method.model
+    original_forward = model.forward
+    target_reference = method.reference
+    zero_eri = np.zeros_like(
+        target_reference.mol.intor("int2e", aosym="s8")
+    )
+
+    def mutating_forward(values):
+        if mutation == "replace":
+            method.reference = foreign
+        elif mutation == "inplace":
+            target_reference.mo_coeff = np.asarray(foreign.mo_coeff).copy()
+            target_reference.mo_energy = np.asarray(foreign.mo_energy).copy()
+            target_reference.mo_occ = np.asarray(foreign.mo_occ).copy()
+            target_reference.e_tot = float(foreign.e_tot)
+        else:
+            target_reference._eri = zero_eri
+        return original_forward(values)
+
+    model.forward = mutating_forward
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="scientific state|identity changed|two-electron interaction",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_standalone_zvector_rejects_paired_mode_restoring_hooks_before_forward(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    calls = []
+
+    def enable_training(module, _inputs):
+        calls.append("pre")
+        module.train()
+
+    def restore_evaluation(module, _inputs, output):
+        calls.append("post")
+        module.eval()
+        return output
+
+    pre_hook = method.model.register_forward_pre_hook(enable_training)
+    post_hook = method.model.register_forward_hook(restore_evaluation)
+    try:
+        with pytest.raises(
+            DeePHFCapabilityError,
+            match="cannot contain module execution hooks",
+        ):
+            method.gradient(backend="zvector")
+    finally:
+        pre_hook.remove()
+        post_hook.remove()
+    assert calls == []
+
+
+def test_standalone_zvector_rejects_a_training_submodule(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    method.model.linear.train()
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="must remain in evaluation mode",
+    ):
+        method.gradient(backend="zvector")
+
+
+def test_standalone_zvector_rejects_model_buffer_mutation_during_forward(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    driver = method.nuc_grad_method(backend="zvector").run()
+    original_forward = method.model.forward
+
+    def self_mutating_forward(values):
+        with torch.no_grad():
+            method.model.energy_const.add_(0.1)
+        return original_forward(values)
+
+    method.model.forward = self_mutating_forward
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="force correction model state changed",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_standalone_zvector_rejects_hook_free_eval_torch_random_forward(
+    zvector_algebra_case,
+):
+    case = zvector_algebra_case
+    reference = _fresh_reference(case)
+    model = deepcopy(case.model).eval()
+    original_forward = model.forward
+
+    def stochastic_forward(values):
+        output = original_forward(values)
+        return output + torch.rand((), dtype=output.dtype, device=output.device)
+
+    model.forward = stochastic_forward
+    method = DeePHF(reference, model, projector_basis=model._pbas)
+    assert np.isfinite(method.kernel())
+    driver = method.nuc_grad_method(backend="zvector")
+    assert not any(module._forward_hooks for module in model.modules())
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="consumed global RNG state: Torch CPU",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_legal_corrnet_zvector_preserves_caller_rng_state(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    rng_before = force_rng_fingerprints()
+    gradient = method.gradient(backend="zvector")
+    rng_after = force_rng_fingerprints()
+
+    assert np.isfinite(gradient).all()
+    assert rng_after == rng_before
+
+
+@pytest.mark.parametrize("corruption", ["nonfinite", "rng"])
+def test_standalone_zvector_audits_complete_element_constant_transaction(
+    zvector_algebra_case,
+    corruption,
+):
+    method = _fresh_method(zvector_algebra_case)
+    driver = method.nuc_grad_method(backend="zvector").run()
+    if corruption == "nonfinite":
+        method.model.get_elem_const = lambda _elements: np.nan
+        match = "element constant must be real and finite"
+    else:
+        method.model.get_elem_const = lambda _elements: float(torch.rand(()))
+        match = "consumed global RNG state: Torch CPU"
+
+    with pytest.raises(DeePHFCapabilityError, match=match):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_foreign_geometry_tuple_is_rejected_before_native_gradient(
+    zvector_algebra_case,
+    monkeypatch,
+):
+    method = _fresh_method(zvector_algebra_case)
+    foreign_method = _fresh_method(zvector_algebra_case, displacement=0.02)
+    foreign_tuple = foreign_method._zvector_inputs({})
+    driver = method.nuc_grad_method(backend="zvector")
+    monkeypatch.setattr(method, "_zvector_inputs", lambda _options: foreign_tuple)
+
+    with pytest.raises(
+        RHFAdjointError,
+        match="was not produced by this DeePHF evaluation",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement_value", "match"),
+    [
+        ("zvector", np.zeros((1, 1), dtype=np.float64), "has shape"),
+        (
+            "objective_ao_potential",
+            np.zeros((7, 7), dtype=np.float32),
+            "must use real numpy.float64",
+        ),
+        (
+            "correction_gradient_response",
+            np.zeros((3, 3), dtype=np.float64),
+            "must be immutable",
+        ),
+    ],
+)
+def test_adjoint_audit_rejects_resealed_shape_dtype_and_mutability_forgery(
+    zvector_algebra_case,
+    field,
+    replacement_value,
+    match,
+):
+    case = zvector_algebra_case
+    sensitivity = case.method.correction_sensitivity()
+    expected_objective = case.method._correction_ao_potential(sensitivity)
+    adjoint = RHFAdjointAdapter(case.reference).solve(expected_objective)
+    forged = replace(adjoint, **{field: replacement_value})
+    forged = replace(forged, integrity_fingerprint="")
+    forged = replace(
+        forged,
+        integrity_fingerprint=adjoint_integrity_fingerprint(forged),
+    )
+
+    with pytest.raises(RHFAdjointError, match=match):
+        RHFAdjointAdapter(case.reference).audit_adjoint(
+            forged,
+            expected_objective,
+        )
+
+
+def test_adjoint_audit_rejects_coordinated_resealed_gradient_forgery(
+    zvector_algebra_case,
+):
+    case = zvector_algebra_case
+    sensitivity = case.method.correction_sensitivity()
+    expected_objective = case.method._correction_ao_potential(sensitivity)
+    adjoint = RHFAdjointAdapter(case.reference).solve(expected_objective)
+    delta = np.full((case.reference.mol.natm, 3), 2.0e-3)
+
+    def immutable(value):
+        value = np.ascontiguousarray(value)
+        return np.frombuffer(value.tobytes(), dtype=value.dtype).reshape(value.shape)
+
+    forged = replace(
+        adjoint,
+        correction_gradient_metric=immutable(
+            adjoint.correction_gradient_metric + delta
+        ),
+        correction_gradient_occupied_virtual=immutable(
+            adjoint.correction_gradient_occupied_virtual - delta
+        ),
+    )
+    forged = replace(forged, integrity_fingerprint="")
+    forged = replace(
+        forged,
+        integrity_fingerprint=adjoint_integrity_fingerprint(forged),
+    )
+
+    with pytest.raises(
+        RHFAdjointError,
+        match="correction_gradient_metric is inconsistent",
+    ):
+        RHFAdjointAdapter(case.reference).audit_adjoint(
+            forged,
+            expected_objective,
+        )
+
+
+def test_zvector_driver_public_provenance_properties_are_read_only(
+    zvector_algebra_case,
+):
+    driver = zvector_algebra_case.method.nuc_grad_method(backend="zvector")
+    for name, value in (
+        ("base", object()),
+        ("mol", object()),
+        ("backend", "direct"),
+    ):
+        with pytest.raises(AttributeError):
+            setattr(driver, name, value)
+
+
+@pytest.mark.parametrize("corruption", ["base", "mol", "backend"])
+def test_zvector_driver_rejects_corrupted_internal_provenance(
+    zvector_algebra_case,
+    corruption,
+):
+    case = zvector_algebra_case
+    driver = case.method.nuc_grad_method(backend="zvector")
+    if corruption == "base":
+        driver._base = _fresh_method(case, displacement=0.02)
+    elif corruption == "mol":
+        driver._mol = deepcopy(case.reference.mol)
+    else:
+        driver._backend = "direct"
+
+    with pytest.raises(RHFAdjointError, match="driver binding is invalid"):
+        driver.kernel()
     assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)

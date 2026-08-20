@@ -1,14 +1,23 @@
 """Perturbative DeePHF energy method composed around a native reference."""
 
+from collections.abc import Mapping
+import hashlib
+
 import numpy as np
 import torch
 
-from deepks.descriptor import AtomicDensityDescriptor, validate_differentiability
-from deepks.model.evaluate import descriptor_sensitivity
+from deepks.descriptor import (
+    AtomicDensityDescriptor,
+    DescriptorDiagnostics,
+    validate_differentiability,
+)
 from deepks.model.model import CorrNet
 
 from .capabilities import (
     DeePHFCapabilityError,
+    force_model_fingerprint,
+    force_rng_fingerprints,
+    validate_force_model,
     validate_model,
     validate_model_output,
     validate_reference,
@@ -16,10 +25,14 @@ from .capabilities import (
 from .pyscf_rhf import (
     RHFAdjoint,
     RHFAdjointAdapter,
+    RHFAdjointDiagnostics,
+    RHFAdjointError,
     RHFResponse,
     RHFResponseAdapter,
     RHFResponseDiagnostics,
     RHFResponseError,
+    adjoint_integrity_fingerprint,
+    molecule_science_fingerprint,
     reference_fingerprint,
     response_integrity_fingerprint,
 )
@@ -63,6 +76,51 @@ def _validated_backend_options(base_options, override_options, allowed, backend)
     return options
 
 
+def _immutable_array(value: np.ndarray) -> np.ndarray:
+    array = np.ascontiguousarray(value)
+    return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
+
+
+def _array_fingerprint(value: np.ndarray) -> str:
+    array = np.ascontiguousarray(value)
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(repr(array.shape).encode("ascii"))
+    digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def _update_science_digest(digest, value) -> None:
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+    if isinstance(value, np.ndarray):
+        array = np.ascontiguousarray(value)
+        digest.update(array.dtype.str.encode("ascii"))
+        digest.update(repr(array.shape).encode("ascii"))
+        digest.update(array.tobytes())
+        return
+    if isinstance(value, np.generic):
+        _update_science_digest(digest, value.item())
+        return
+    if isinstance(value, Mapping):
+        for key in sorted(value, key=lambda item: (type(item).__name__, repr(item))):
+            _update_science_digest(digest, key)
+            _update_science_digest(digest, value[key])
+        return
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            _update_science_digest(digest, item)
+        return
+    if value is None or isinstance(value, (bool, int, float, str)):
+        digest.update(type(value).__name__.encode("ascii"))
+        digest.update(repr(value).encode("utf-8"))
+        return
+    raise DeePHFCapabilityError(
+        "cannot fingerprint DeePHF descriptor state of type "
+        f"{type(value).__name__}"
+    )
+
+
 class DeePHF:
     """Evaluate a perturbative correction without modifying the RHF reference."""
 
@@ -73,6 +131,7 @@ class DeePHF:
         projector_basis=None,
         device="cpu",
         response_options=None,
+        adjoint_options=None,
     ):
         self.reference = validate_reference(reference)
         self.device = device or "cpu"
@@ -92,9 +151,26 @@ class DeePHF:
             self.reference.mol,
             projector_basis,
         )
+        self._bound_reference = self.reference
+        self._bound_molecule = self.reference.mol
+        self._bound_descriptor = self._descriptor
+        self._bound_projector_molecule = self._descriptor.projector_mol
+        self._bound_science_state_fingerprint = (
+            self._current_science_state_fingerprint()
+        )
         self.response_options = dict(response_options or {})
+        if adjoint_options is None:
+            adjoint_options = {}
+        elif not isinstance(adjoint_options, Mapping):
+            raise TypeError("adjoint_options must be a mapping")
+        self.adjoint_options = dict(adjoint_options)
         self._trusted_response = None
         self._trusted_response_integrity = None
+        self._trusted_adjoint = None
+        self._trusted_adjoint_integrity = None
+        self._trusted_adjoint_sensitivity_fingerprint = None
+        self._trusted_adjoint_descriptor_diagnostics = None
+        self._trusted_adjoint_model_fingerprint = None
         validate_model(
             self.model,
             self._descriptor.projector_basis,
@@ -104,6 +180,83 @@ class DeePHF:
         self.e_base = None
         self.e_corr = None
         self.e_tot = None
+
+    def _descriptor_science_fingerprint(self) -> str:
+        descriptor = self._descriptor
+        digest = hashlib.sha256()
+        values = (
+            f"{type(descriptor).__module__}.{type(descriptor).__qualname__}",
+            descriptor.projector_basis,
+            descriptor.shell_sizes,
+            int(descriptor.n_features),
+            descriptor.descriptor_atom_indices,
+            molecule_science_fingerprint(descriptor.projector_mol),
+            descriptor.overlap_shells,
+        )
+        for value in values:
+            _update_science_digest(digest, value)
+        return digest.hexdigest()
+
+    def _current_science_state_fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        digest.update(reference_fingerprint(self.reference).encode("ascii"))
+        digest.update(self._descriptor_science_fingerprint().encode("ascii"))
+        return digest.hexdigest()
+
+    def _assert_science_state(self, boundary: str) -> str:
+        identities_match = (
+            self.reference is self._bound_reference
+            and self.reference.mol is self._bound_molecule
+            and self._descriptor is self._bound_descriptor
+            and self._descriptor.mol is self._bound_molecule
+            and self._descriptor.projector_mol is self._bound_projector_molecule
+        )
+        if not identities_match:
+            raise DeePHFCapabilityError(
+                f"the DeePHF reference or descriptor identity changed during {boundary}"
+            )
+        try:
+            fingerprint = self._current_science_state_fingerprint()
+        except Exception as error:
+            if isinstance(error, DeePHFCapabilityError):
+                raise
+            raise DeePHFCapabilityError(
+                f"the DeePHF scientific state could not be checked during {boundary}: {error}"
+            ) from error
+        if fingerprint != self._bound_science_state_fingerprint:
+            raise DeePHFCapabilityError(
+                f"the DeePHF scientific state changed during {boundary}"
+            )
+        return fingerprint
+
+    def _validate_science_state(self, boundary: str) -> str:
+        self._assert_science_state(boundary)
+        validate_reference(self.reference)
+        return self._assert_science_state(boundary)
+
+    def _clear_trusted_adjoint(self) -> None:
+        self._trusted_adjoint = None
+        self._trusted_adjoint_integrity = None
+        self._trusted_adjoint_sensitivity_fingerprint = None
+        self._trusted_adjoint_descriptor_diagnostics = None
+        self._trusted_adjoint_model_fingerprint = None
+
+    def _assert_force_model_state(self, fingerprint: str, boundary: str) -> None:
+        validate_force_model(self.model)
+        if force_model_fingerprint(self.model) != fingerprint:
+            raise DeePHFCapabilityError(
+                f"the force correction model state changed during {boundary}"
+            )
+
+    def _assert_trusted_force_model_state(self, boundary: str) -> None:
+        if type(self._trusted_adjoint_model_fingerprint) is not str:
+            raise RHFAdjointError(
+                "the Z-vector force-model provenance is unavailable"
+            )
+        self._assert_force_model_state(
+            self._trusted_adjoint_model_fingerprint,
+            boundary,
+        )
 
     @property
     def mol(self):
@@ -118,7 +271,10 @@ class DeePHF:
         return self._descriptor.n_features
 
     def ao_density(self):
-        return np.asarray(self.reference.make_rdm1())
+        self._assert_science_state("AO density evaluation")
+        density = np.asarray(self.reference.make_rdm1())
+        self._assert_science_state("AO density evaluation")
+        return density
 
     def projected_density(self, flatten=False):
         return self._descriptor.projected_density(
@@ -136,35 +292,130 @@ class DeePHF:
         return self._descriptor.dq_dR_explicit(self.ao_density())
 
     def _descriptor_values_tensor(self) -> torch.Tensor:
-        return self._descriptor.torch_descriptor(self.ao_density())
+        self._assert_science_state("descriptor evaluation")
+        values = self._descriptor.torch_descriptor(self.ao_density())
+        self._assert_science_state("descriptor evaluation")
+        return values
 
     def _validated_model_output(self) -> torch.Tensor:
+        self._assert_science_state("model evaluation")
         validate_model(
             self.model,
             self._descriptor.projector_basis,
             self._descriptor.n_features,
         )
-        return validate_model_output(
+        output = validate_model_output(
             self.model,
             self._descriptor_values_tensor(),
         )
+        self._assert_science_state("model evaluation")
+        return output
 
     def correction_sensitivity(self) -> np.ndarray:
         """Return the validated derivative of the scalar correction with respect to q."""
+        self._assert_science_state("model sensitivity evaluation")
         values = self._descriptor_values_tensor()
-        self._validated_model_output()
+        validate_force_model(self.model)
+        validate_model(
+            self.model,
+            self._descriptor.projector_basis,
+            self._descriptor.n_features,
+        )
+        model_fingerprint = force_model_fingerprint(self.model)
         if self.model is None:
             sensitivity = torch.zeros_like(values)
         else:
-            sensitivity = descriptor_sensitivity(self.model, values)
+            evaluations = [
+                self._force_energy_and_sensitivity(
+                    values,
+                    model_fingerprint,
+                )
+                for _ in range(2)
+            ]
+            first_energy, sensitivity = evaluations[0]
+            second_energy, second_sensitivity = evaluations[1]
+            if not torch.equal(first_energy, second_energy):
+                raise DeePHFCapabilityError(
+                    "the force correction model energy is not deterministic for "
+                    "one descriptor input"
+                )
+            if not torch.equal(sensitivity, second_sensitivity):
+                raise DeePHFCapabilityError(
+                    "the force correction model descriptor sensitivity is not "
+                    "deterministic for one descriptor input"
+                )
         if not torch.isfinite(sensitivity).all():
             raise DeePHFCapabilityError(
                 "the correction model descriptor sensitivity must be finite"
             )
+        self._assert_science_state("model sensitivity evaluation")
         return sensitivity.detach().cpu().numpy()
+
+    def _force_energy_and_sensitivity(
+        self,
+        values: torch.Tensor,
+        model_fingerprint: str,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        evaluation_values = values.detach().clone().requires_grad_(True)
+        rng_before = force_rng_fingerprints()
+        try:
+            energy = validate_model_output(self.model, evaluation_values)
+            if energy.requires_grad:
+                (sensitivity,) = torch.autograd.grad(
+                    energy,
+                    evaluation_values,
+                    torch.ones_like(energy),
+                    allow_unused=True,
+                )
+            else:
+                sensitivity = None
+            element_constant = self._validated_element_constant()
+            complete_energy = energy + energy.new_tensor(element_constant)
+            if not torch.isfinite(complete_energy).all():
+                raise DeePHFCapabilityError(
+                    "the complete correction energy must be finite"
+                )
+        except Exception:
+            self._assert_force_rng_state(rng_before)
+            raise
+        self._assert_force_rng_state(rng_before)
+        self._assert_force_model_state(
+            model_fingerprint,
+            "force model energy and sensitivity evaluation",
+        )
+        self._assert_science_state(
+            "force model energy and sensitivity evaluation"
+        )
+        if sensitivity is None:
+            sensitivity = torch.zeros_like(evaluation_values)
+        if sensitivity.shape != evaluation_values.shape:
+            raise DeePHFCapabilityError(
+                "the correction model descriptor sensitivity shape is invalid"
+            )
+        if sensitivity.dtype != torch.float64 or sensitivity.is_complex():
+            raise DeePHFCapabilityError(
+                "the correction model descriptor sensitivity must use real torch.float64"
+            )
+        if not torch.isfinite(sensitivity).all():
+            raise DeePHFCapabilityError(
+                "the correction model descriptor sensitivity must be finite"
+            )
+        return complete_energy.detach().clone(), sensitivity.detach().clone()
+
+    @staticmethod
+    def _assert_force_rng_state(before) -> None:
+        after = force_rng_fingerprints()
+        changed = [name for name in before if before[name] != after.get(name)]
+        changed.extend(name for name in after if name not in before)
+        if changed:
+            raise DeePHFCapabilityError(
+                "the force correction model consumed global RNG state: "
+                + ", ".join(changed)
+            )
 
     def _correction_ao_potential(self, sensitivity: np.ndarray) -> np.ndarray:
         """Contract one validated model sensitivity with dq/dP."""
+        self._assert_science_state("correction AO potential construction")
         sensitivity = np.asarray(sensitivity)
         expected_shape = (
             self.n_descriptor_atoms,
@@ -201,6 +452,7 @@ class DeePHF:
             raise DeePHFCapabilityError(
                 "the correction AO potential must be finite"
             )
+        self._assert_science_state("correction AO potential construction")
         return potential
 
     def correction_ao_potential(self) -> np.ndarray:
@@ -211,34 +463,44 @@ class DeePHF:
         if self.model is None:
             return 0.0
         tensor_energy = self._validated_model_output()
-        energy = float(tensor_energy.detach().cpu().item())
-        get_element_constant = getattr(self.model, "get_elem_const", None)
-        if get_element_constant is not None:
-            element_constant = get_element_constant(
-                [int(charge) for charge in self.mol.atom_charges()]
-            )
-            element_constant = np.asarray(element_constant)
-            if element_constant.size != 1:
-                raise DeePHFCapabilityError(
-                    "the correction model element constant must be scalar"
-                )
-            if np.iscomplexobj(element_constant) or not np.isfinite(
-                element_constant
-            ).all():
-                raise DeePHFCapabilityError(
-                    "the correction model element constant must be real and finite"
-                )
-            energy += float(element_constant.reshape(-1)[0])
+        energy = (
+            float(tensor_energy.detach().cpu().item())
+            + self._validated_element_constant()
+        )
         if not np.isfinite(energy):
             raise DeePHFCapabilityError(
                 "the complete correction energy must be finite"
             )
         return energy
 
+    def _validated_element_constant(self) -> float:
+        if self.model is None:
+            return 0.0
+        get_element_constant = getattr(self.model, "get_elem_const", None)
+        if get_element_constant is None:
+            return 0.0
+        element_constant = get_element_constant(
+            [int(charge) for charge in self.mol.atom_charges()]
+        )
+        element_constant = np.asarray(element_constant)
+        if element_constant.size != 1:
+            raise DeePHFCapabilityError(
+                "the correction model element constant must be scalar"
+            )
+        if np.iscomplexobj(element_constant) or not np.isfinite(
+            element_constant
+        ).all():
+            raise DeePHFCapabilityError(
+                "the correction model element constant must be real and finite"
+            )
+        return float(element_constant.reshape(-1)[0])
+
     def validate_force_compatibility(self, **tolerances):
         """Validate ordered-eigenvalue and model-sensitivity force semantics."""
+        validate_force_model(self.model)
         validate_reference(self.reference)
         sensitivity = self.correction_sensitivity()
+        validate_force_model(self.model)
         return self._validate_force_compatibility_with_sensitivity(
             sensitivity,
             **tolerances,
@@ -249,15 +511,18 @@ class DeePHF:
         sensitivity,
         **tolerances,
     ):
+        validate_force_model(self.model)
         values = self._descriptor_values_tensor()
         n_occupied = int(np.count_nonzero(self.reference.mo_occ > 0))
-        return validate_differentiability(
+        diagnostics = validate_differentiability(
             values.detach().cpu().numpy(),
             self._descriptor.shell_sizes,
             n_occupied,
             sensitivity,
             **tolerances,
         )
+        validate_force_model(self.model)
+        return diagnostics
 
     def response(self, **response_options) -> RHFResponse:
         """Solve the audited complete first-order RHF density response."""
@@ -275,27 +540,155 @@ class DeePHF:
 
     def adjoint(self, **adjoint_options) -> RHFAdjoint:
         """Solve one audited correction-specific RHF scalar adjoint."""
-        _diagnostics, _sensitivity, adjoint = self._zvector_inputs(
+        inputs = self._zvector_inputs(
             adjoint_options
         )
-        return adjoint
+        return self._validate_zvector_inputs(*inputs)[2]
 
     def _zvector_inputs(self, adjoint_options):
         """Evaluate one internally consistent sensitivity and scalar adjoint."""
+        self._clear_trusted_adjoint()
+        self._assert_science_state("Z-vector input evaluation")
+        validate_force_model(self.model)
+        model_fingerprint = force_model_fingerprint(self.model)
         validate_reference(self.reference)
-        sensitivity = self.correction_sensitivity()
+        self._assert_science_state("Z-vector reference validation")
+        sensitivity = _immutable_array(self.correction_sensitivity())
+        self._assert_force_model_state(
+            model_fingerprint,
+            "Z-vector model sensitivity evaluation",
+        )
+        self._validate_science_state("Z-vector model sensitivity evaluation")
         descriptor_diagnostics = (
             self._validate_force_compatibility_with_sensitivity(sensitivity)
         )
+        self._assert_science_state("Z-vector descriptor validation")
+        self._assert_force_model_state(
+            model_fingerprint,
+            "Z-vector descriptor validation",
+        )
         options = _validated_backend_options(
-            self.response_options,
+            self.adjoint_options,
             adjoint_options,
             _ZVECTOR_OPTIONS,
             "zvector",
         )
-        adjoint = RHFAdjointAdapter(self.reference, **options).solve(
-            self._correction_ao_potential(sensitivity)
+        objective_ao_potential = self._correction_ao_potential(sensitivity)
+        self._validate_science_state("Z-vector AO potential construction")
+        self._assert_force_model_state(
+            model_fingerprint,
+            "Z-vector AO potential construction",
         )
+        adjoint = RHFAdjointAdapter(self.reference, **options).solve(
+            objective_ao_potential
+        )
+        self._assert_science_state("Z-vector adjoint construction")
+        self._assert_force_model_state(
+            model_fingerprint,
+            "Z-vector adjoint construction",
+        )
+        self._trusted_adjoint = adjoint
+        self._trusted_adjoint_integrity = adjoint.integrity_fingerprint
+        self._trusted_adjoint_sensitivity_fingerprint = _array_fingerprint(
+            sensitivity
+        )
+        self._trusted_adjoint_descriptor_diagnostics = descriptor_diagnostics
+        self._trusted_adjoint_model_fingerprint = model_fingerprint
+        return descriptor_diagnostics, sensitivity, adjoint
+
+    def _validate_zvector_inputs(
+        self,
+        descriptor_diagnostics,
+        sensitivity,
+        adjoint,
+    ):
+        """Audit one Z-vector tuple before any gradient data are consumed."""
+        self._assert_science_state("Z-vector result consumption")
+        if type(descriptor_diagnostics) is not DescriptorDiagnostics:
+            raise RHFAdjointError(
+                "the supplied descriptor diagnostics have an invalid type"
+            )
+        if type(adjoint) is not RHFAdjoint:
+            raise RHFAdjointError("the supplied RHF adjoint has an invalid type")
+        if type(adjoint.diagnostics) is not RHFAdjointDiagnostics:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint diagnostics have an invalid type"
+            )
+        if adjoint is not self._trusted_adjoint:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint was not produced by this DeePHF evaluation"
+            )
+        self._assert_trusted_force_model_state("Z-vector result consumption")
+        if (
+            adjoint.integrity_fingerprint
+            != self._trusted_adjoint_integrity
+            or adjoint.integrity_fingerprint
+            != adjoint_integrity_fingerprint(adjoint)
+        ):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint failed its integrity check"
+            )
+        if not isinstance(sensitivity, np.ndarray):
+            raise RHFAdjointError(
+                "the supplied correction sensitivity has an invalid type"
+            )
+        expected_sensitivity_shape = (
+            self.n_descriptor_atoms,
+            self.n_descriptor_features,
+        )
+        if sensitivity.shape != expected_sensitivity_shape:
+            raise RHFAdjointError(
+                "the supplied correction sensitivity has an invalid shape"
+            )
+        if sensitivity.dtype != np.dtype(np.float64) or np.iscomplexobj(
+            sensitivity
+        ):
+            raise RHFAdjointError(
+                "the supplied correction sensitivity must use real numpy.float64"
+            )
+        if not np.isfinite(sensitivity).all() or sensitivity.flags.writeable:
+            raise RHFAdjointError(
+                "the supplied correction sensitivity must be finite and immutable"
+            )
+        if (
+            _array_fingerprint(sensitivity)
+            != self._trusted_adjoint_sensitivity_fingerprint
+        ):
+            raise RHFAdjointError(
+                "the supplied correction sensitivity failed its integrity check"
+            )
+        if descriptor_diagnostics != self._trusted_adjoint_descriptor_diagnostics:
+            raise RHFAdjointError(
+                "the supplied descriptor diagnostics do not match this evaluation"
+            )
+        expected_objective_ao_potential = self._correction_ao_potential(
+            sensitivity
+        )
+        diagnostics = adjoint.diagnostics
+        audit_adapter = RHFAdjointAdapter(
+            self.reference,
+            residual_tolerance=diagnostics.residual_tolerance,
+            orbital_gap_tolerance=diagnostics.orbital_gap_tolerance,
+            operator_stability_tolerance=(
+                diagnostics.operator_stability_tolerance
+            ),
+            operator_condition_tolerance=(
+                diagnostics.operator_condition_tolerance
+            ),
+            operator_symmetry_tolerance=(
+                diagnostics.operator_symmetry_tolerance
+            ),
+            operator_dimension_limit=diagnostics.operator_dimension_limit,
+            objective_symmetry_tolerance=(
+                diagnostics.objective_symmetry_tolerance
+            ),
+        )
+        audit_adapter.audit_adjoint(
+            adjoint,
+            expected_objective_ao_potential,
+        )
+        self._assert_science_state("Z-vector result audit")
+        self._assert_trusted_force_model_state("Z-vector result audit")
         return descriptor_diagnostics, sensitivity, adjoint
 
     def _validate_response(self, response: RHFResponse) -> RHFResponse:
@@ -633,7 +1026,7 @@ class DeePHF:
         from .zvector import RHFDeePHFZVectorGradients
 
         _validated_backend_options(
-            self.response_options,
+            self.adjoint_options,
             backend_options,
             _ZVECTOR_OPTIONS,
             backend,

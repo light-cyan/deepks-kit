@@ -33,11 +33,45 @@ class RHFDeePHFGradients:
     """Contract the complete relaxed descriptor response with one correction model."""
 
     def __init__(self, method, response_options=None):
-        self.base = method
-        self.mol = method.mol
-        self.backend = "direct"
+        from .method import DeePHF
+
+        if type(method) is not DeePHF:
+            raise TypeError(
+                "the direct gradient driver requires an exact DeePHF method"
+            )
+        self._base = method
+        self._bound_base = method
+        self._mol = method.mol
+        self._bound_mol = method.mol
+        self._backend = "direct"
         self.response_options = dict(response_options or {})
         self._reset_results()
+
+    @property
+    def base(self):
+        return self._base
+
+    @property
+    def mol(self):
+        return self._mol
+
+    @property
+    def backend(self) -> str:
+        return self._backend
+
+    def _validate_driver_binding(self) -> None:
+        from .method import DeePHF
+
+        if (
+            type(self._base) is not DeePHF
+            or self._base is not self._bound_base
+            or self._mol is not self._bound_mol
+            or self._mol is not self._base.mol
+            or self._backend != "direct"
+        ):
+            raise RHFResponseError(
+                "the direct gradient driver binding is invalid"
+            )
 
     def _reset_results(self):
         self.response_result = None
@@ -63,6 +97,7 @@ class RHFDeePHFGradients:
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR for all or selected atoms."""
         self._reset_results()
+        self._validate_driver_binding()
         atom_indices = _validate_atom_indices(self.mol, atmlst)
         self.descriptor_diagnostics = self.base.validate_force_compatibility()
         self.response_result = self.base.response(**self.response_options)

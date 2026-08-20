@@ -1,6 +1,7 @@
 """PySCF projection integrals and the shared atomic descriptor interface."""
 
 from collections.abc import Sequence
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -66,7 +67,7 @@ class AtomicDensityDescriptor:
     """Shared projected-density descriptor bound to one PySCF molecule."""
 
     def __init__(self, mol, projector_basis=None):
-        self.projector_basis = load_basis(projector_basis)
+        self.projector_basis = deepcopy(load_basis(projector_basis))
         self.shell_sizes = tuple(get_shell_sec(self.projector_basis))
         self.n_features = sum(self.shell_sizes)
         self.mol = None

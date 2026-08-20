@@ -13,13 +13,11 @@ from deepks.deephf.pyscf_rhf import (
 )
 
 
-def _sealed_root(root, occupied_coefficients):
+def _resealed_root(root, **changes):
     forged = replace(
         root,
         integrity_fingerprint="",
-        occupied_coefficients=pyscf_rhf._immutable_array(
-            np.asarray(occupied_coefficients, dtype=np.float64)
-        ),
+        **changes,
     )
     return replace(
         forged,
@@ -129,17 +127,17 @@ def test_root_overlap_is_invariant_to_signs_and_occupied_rotations(
         )
     )
     rotation[:, 0] *= -1.0
-    rotated_root = _sealed_root(
-        root,
-        root.occupied_coefficients @ rotation,
+    candidate_reference = deepcopy(reference)
+    occupied = np.asarray(candidate_reference.mo_occ) > 0
+    candidate_reference.mo_coeff = np.asarray(
+        candidate_reference.mo_coeff
+    ).copy()
+    candidate_reference.mo_coeff[:, occupied] = (
+        candidate_reference.mo_coeff[:, occupied] @ rotation
     )
+    minimum_overlap = factory._occupied_overlap(root, candidate_reference)
 
-    _, candidate = factory.build(
-        zvector_algebra_case.coordinates,
-        rotated_root,
-    )
-
-    assert candidate.minimum_occupied_overlap > 1.0 - 1.0e-12
+    assert minimum_overlap > 1.0 - 1.0e-12
 
 
 def test_root_overlap_rejects_an_occupied_virtual_subspace_swap(
@@ -150,12 +148,52 @@ def test_root_overlap_rejects_an_occupied_virtual_subspace_swap(
     root = factory.initial_root
     occupations = np.asarray(reference.mo_occ)
     virtual_coefficients = np.asarray(reference.mo_coeff)[:, occupations == 0]
-    swapped = root.occupied_coefficients.copy()
-    swapped[:, 0] = virtual_coefficients[:, 0]
-    swapped_root = _sealed_root(root, swapped)
+    candidate_reference = deepcopy(reference)
+    candidate_reference.mo_coeff = np.asarray(
+        candidate_reference.mo_coeff
+    ).copy()
+    candidate_reference.mo_coeff[:, occupations > 0] = (
+        root.occupied_coefficients
+    )
+    candidate_reference.mo_coeff[:, 0] = virtual_coefficients[:, 0]
 
     with pytest.raises(RHFScannerReferenceError, match="discontinuous"):
-        factory.build(zvector_algebra_case.coordinates, swapped_root)
+        factory._occupied_overlap(root, candidate_reference)
+
+
+def test_factory_rejects_a_coordinated_resealed_root(zvector_algebra_case):
+    factory = RHFScannerReferenceFactory(zvector_algebra_case.reference)
+    root = factory.initial_root
+    forged = _resealed_root(
+        root,
+        state_fingerprint="f" * 64,
+        parent_state_fingerprint="e" * 64,
+        minimum_occupied_overlap=99.0,
+    )
+
+    with pytest.raises(
+        RHFScannerReferenceError,
+        match="was not issued by this reference factory",
+    ):
+        factory.build(zvector_algebra_case.coordinates, forged)
+
+
+def test_factory_rejects_same_object_root_resealing(zvector_algebra_case):
+    factory = RHFScannerReferenceFactory(zvector_algebra_case.reference)
+    root = factory.initial_root
+    object.__setattr__(root, "state_fingerprint", "f" * 64)
+    object.__setattr__(root, "integrity_fingerprint", "")
+    object.__setattr__(
+        root,
+        "integrity_fingerprint",
+        pyscf_rhf._root_integrity_fingerprint(root),
+    )
+
+    with pytest.raises(
+        RHFScannerReferenceError,
+        match="changed after it was issued",
+    ):
+        factory.build(zvector_algebra_case.coordinates, root)
 
 
 @pytest.mark.parametrize(

@@ -4,9 +4,11 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, replace
 import hashlib
+from numbers import Real
 import operator
 from types import MappingProxyType
 from typing import Any
+import weakref
 
 import numpy as np
 import pyscf
@@ -194,44 +196,70 @@ def _version_series(version: str) -> tuple[int, int]:
 
 
 def validate_pyscf_version() -> None:
-    """Require the PySCF series characterized by the direct oracle."""
+    """Require the PySCF series characterized by the RHF response adapters."""
     series = _version_series(pyscf.__version__)
     if series != SUPPORTED_PYSCF_SERIES:
         raise DeePHFCapabilityError(
-            "the RHF direct-response adapter supports PySCF 2.14; "
+            "the RHF response adapter supports PySCF 2.14; "
             f"found {pyscf.__version__}"
         )
 
 
-def reference_fingerprint(reference) -> str:
-    """Return a deterministic fingerprint of the response-defining RHF state."""
+def molecule_science_fingerprint(molecule) -> str:
+    """Fingerprint stable molecular geometry and AO data, excluding libcint scratch."""
+    if type(molecule) is not gto.mole.Mole:
+        raise DeePHFCapabilityError(
+            "RHF science-state fingerprints require a native pyscf.gto.Mole"
+        )
+    environment = np.asarray(molecule._env).copy()
+    environment[: gto_mole.PTR_ENV_START] = 0.0
     digest = hashlib.sha256()
     digest.update(pyscf.__version__.encode("utf-8"))
-    molecule = reference.mol
-    scalar_state = (
-        molecule.charge,
-        molecule.spin,
-        molecule.cart,
+    values = (
+        f"{type(molecule).__module__}.{type(molecule).__qualname__}",
+        bool(molecule._built),
+        int(molecule.natm),
+        int(molecule.nao),
+        int(molecule.nbas),
+        int(molecule.charge),
+        int(molecule.spin),
+        int(molecule.nelectron),
+        bool(molecule.cart),
         molecule.symmetry,
-        reference.e_tot,
+        getattr(molecule, "symmetry_subgroup", None),
+        float(getattr(molecule, "omega", 0.0)),
+        getattr(molecule, "nucmod", None),
+        tuple(molecule.atom_symbol(index) for index in range(molecule.natm)),
+        np.asarray(molecule.atom_charges()),
+        np.asarray(gto_mole.Mole.atom_coords(molecule, unit="Bohr")),
+        tuple(molecule.ao_labels()),
+        np.asarray(molecule._atm),
+        np.asarray(molecule._bas),
+        environment,
+        molecule._basis,
+        molecule._ecp,
+        getattr(molecule, "_pseudo", None),
     )
-    digest.update(repr(scalar_state).encode("utf-8"))
-    arrays = (
-        molecule._atm,
-        molecule._bas,
-        molecule._env,
-        molecule.atom_coords(unit="Bohr"),
-        molecule.atom_charges(),
+    for value in values:
+        _update_fingerprint_value(digest, value)
+    return digest.hexdigest()
+
+
+def reference_fingerprint(reference) -> str:
+    """Return a scratch-independent fingerprint of the scientific RHF state."""
+    digest = hashlib.sha256()
+    values = (
+        f"{type(reference).__module__}.{type(reference).__qualname__}",
+        bool(reference.converged),
+        molecule_science_fingerprint(reference.mol),
+        float(reference.e_tot),
         reference.mo_coeff,
         reference.mo_energy,
         reference.mo_occ,
         reference.make_rdm1(),
     )
-    for value in arrays:
-        array = np.ascontiguousarray(value)
-        digest.update(array.dtype.str.encode("ascii"))
-        digest.update(repr(array.shape).encode("ascii"))
-        digest.update(array.tobytes())
+    for value in values:
+        _update_fingerprint_value(digest, value)
     return digest.hexdigest()
 
 
@@ -370,6 +398,21 @@ def _molecule_static_fingerprint(molecule) -> str:
     for value in static_values:
         _update_fingerprint_value(digest, value)
     return digest.hexdigest()
+
+
+def _reject_molecule_instance_callables(molecule) -> None:
+    """Reject executable attributes attached directly to a scanner input."""
+    instance_state = object.__getattribute__(molecule, "__dict__")
+    callable_fields = sorted(
+        name if type(name) is str else f"<{type(name).__name__}>"
+        for name, value in instance_state.items()
+        if callable(value)
+    )
+    if callable_fields:
+        raise RHFScannerReferenceError(
+            "scanner molecules cannot contain callable instance hooks; "
+            f"active fields: {', '.join(callable_fields)}"
+        )
 
 
 def _root_integrity_fingerprint(root: RHFRootSnapshot) -> str:
@@ -617,6 +660,7 @@ class RHFScannerReferenceFactory:
         self._ao_count = int(template.nao)
         self._occupations = _immutable_array(np.asarray(reference.mo_occ))
         self._scf_controls = _scanner_scf_controls(reference)
+        self._issued_roots = {}
         self._initial_root = self._root_snapshot(
             reference,
             parent_state_fingerprint=None,
@@ -655,14 +699,52 @@ class RHFScannerReferenceFactory:
             occupations=_immutable_array(occupations),
             _molecule=deepcopy(reference.mol),
         )
-        return replace(
+        root = replace(
             root,
             integrity_fingerprint=_root_integrity_fingerprint(root),
+        )
+        self._register_root(root)
+        return root
+
+    def _register_root(self, root: RHFRootSnapshot) -> None:
+        """Record one factory-issued root without retaining it indefinitely."""
+        identity = id(root)
+        factory_reference = weakref.ref(self)
+
+        def discard(reference, *, identity=identity, factory_reference=factory_reference):
+            factory = factory_reference()
+            if factory is None:
+                return
+            issued = factory._issued_roots.get(identity)
+            if issued is not None and issued[0] is reference:
+                factory._issued_roots.pop(identity, None)
+
+        root_reference = weakref.ref(root, discard)
+        self._issued_roots[identity] = (
+            root_reference,
+            root.integrity_fingerprint,
+            root.state_fingerprint,
+            root.parent_state_fingerprint,
+            root.minimum_occupied_overlap,
         )
 
     def _validate_root(self, root) -> RHFRootSnapshot:
         if type(root) is not RHFRootSnapshot:
             raise TypeError("scanner previous_root must be an RHFRootSnapshot")
+        issued = self._issued_roots.get(id(root))
+        if issued is None or issued[0]() is not root:
+            raise RHFScannerReferenceError(
+                "scanner previous_root was not issued by this reference factory"
+            )
+        if (
+            root.integrity_fingerprint != issued[1]
+            or root.state_fingerprint != issued[2]
+            or root.parent_state_fingerprint != issued[3]
+            or root.minimum_occupied_overlap != issued[4]
+        ):
+            raise RHFScannerReferenceError(
+                "scanner previous_root changed after it was issued"
+            )
         if root.system_fingerprint != self._system_fingerprint:
             raise RHFScannerReferenceError(
                 "scanner previous_root belongs to another molecular system"
@@ -716,22 +798,53 @@ class RHFScannerReferenceFactory:
         if (
             not np.isfinite(root.minimum_occupied_overlap)
             or root.minimum_occupied_overlap < 0.0
+            or root.minimum_occupied_overlap > 1.0 + 1.0e-10
         ):
             raise RHFScannerReferenceError(
                 "scanner previous_root overlap diagnostic is invalid"
+            )
+        fingerprints = (
+            root.system_fingerprint,
+            root.state_fingerprint,
+            root.integrity_fingerprint,
+        )
+        if root.parent_state_fingerprint is not None:
+            fingerprints += (root.parent_state_fingerprint,)
+        if any(
+            type(value) is not str
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in fingerprints
+        ):
+            raise RHFScannerReferenceError(
+                "scanner previous_root fingerprints are invalid"
             )
         return root
 
     def _coordinates(self, mol_or_coordinates) -> np.ndarray:
         if type(mol_or_coordinates) is gto.mole.Mole:
-            if (
-                _molecule_static_fingerprint(mol_or_coordinates)
-                != self._system_fingerprint
-            ):
+            _reject_molecule_instance_callables(mol_or_coordinates)
+            fingerprints_before = (
+                _molecule_static_fingerprint(mol_or_coordinates),
+                molecule_science_fingerprint(mol_or_coordinates),
+            )
+            if fingerprints_before[0] != self._system_fingerprint:
                 raise RHFScannerReferenceError(
                     "scanner molecule static metadata does not match the template"
                 )
-            value = mol_or_coordinates.atom_coords(unit="Bohr")
+            value = gto_mole.Mole.atom_coords(
+                mol_or_coordinates,
+                unit="Bohr",
+            )
+            _reject_molecule_instance_callables(mol_or_coordinates)
+            fingerprints_after = (
+                _molecule_static_fingerprint(mol_or_coordinates),
+                molecule_science_fingerprint(mol_or_coordinates),
+            )
+            if fingerprints_after != fingerprints_before:
+                raise RHFScannerReferenceError(
+                    "scanner molecule state changed while coordinates were read"
+                )
         elif isinstance(mol_or_coordinates, gto.mole.Mole):
             raise TypeError(
                 "scanner molecules must be exact native pyscf.gto.Mole objects"
@@ -924,6 +1037,15 @@ def _cycle_limit(value, name: str) -> int:
         return operator.index(value)
     except TypeError as error:
         raise ValueError(f"response {name} must be an integer") from error
+
+
+def _adjoint_real_control(value, name: str) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise ValueError(f"adjoint {name} must be a real numeric scalar")
+    result = float(value)
+    if not np.isfinite(result):
+        raise ValueError(f"adjoint {name} must be finite")
+    return result
 
 
 def _validated_float64_array(value, expected_shape, name: str) -> np.ndarray:
@@ -1921,34 +2043,34 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
     ):
         validate_pyscf_version()
         self.reference = validate_reference(reference)
-        self.residual_tolerance = float(residual_tolerance)
-        self.orbital_gap_tolerance = float(orbital_gap_tolerance)
-        self.operator_stability_tolerance = float(
-            operator_stability_tolerance
+        self.residual_tolerance = _adjoint_real_control(
+            residual_tolerance,
+            "residual_tolerance",
         )
-        self.operator_condition_tolerance = float(
-            operator_condition_tolerance
+        self.orbital_gap_tolerance = _adjoint_real_control(
+            orbital_gap_tolerance,
+            "orbital_gap_tolerance",
         )
-        self.operator_symmetry_tolerance = float(
-            operator_symmetry_tolerance
+        self.operator_stability_tolerance = _adjoint_real_control(
+            operator_stability_tolerance,
+            "operator_stability_tolerance",
+        )
+        self.operator_condition_tolerance = _adjoint_real_control(
+            operator_condition_tolerance,
+            "operator_condition_tolerance",
+        )
+        self.operator_symmetry_tolerance = _adjoint_real_control(
+            operator_symmetry_tolerance,
+            "operator_symmetry_tolerance",
         )
         self.operator_dimension_limit = _cycle_limit(
             operator_dimension_limit,
             "operator_dimension_limit",
         )
-        self.objective_symmetry_tolerance = float(
-            objective_symmetry_tolerance
+        self.objective_symmetry_tolerance = _adjoint_real_control(
+            objective_symmetry_tolerance,
+            "objective_symmetry_tolerance",
         )
-        tolerance_values = (
-            self.residual_tolerance,
-            self.orbital_gap_tolerance,
-            self.operator_stability_tolerance,
-            self.operator_condition_tolerance,
-            self.operator_symmetry_tolerance,
-            self.objective_symmetry_tolerance,
-        )
-        if not np.isfinite(tolerance_values).all():
-            raise ValueError("adjoint tolerances must be finite")
         if (
             self.residual_tolerance <= 0
             or self.orbital_gap_tolerance <= 0
@@ -1977,6 +2099,458 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
                 f"{self.objective_symmetry_tolerance:.3e}"
             )
         return potential
+
+    @staticmethod
+    def _audited_array(value, expected_shape, name: str) -> np.ndarray:
+        if type(value) is not np.ndarray:
+            raise RHFAdjointError(
+                f"the supplied RHF adjoint field {name} has an invalid type"
+            )
+        if value.shape != expected_shape:
+            raise RHFAdjointError(
+                f"the supplied RHF adjoint field {name} has shape {value.shape}; "
+                f"expected {expected_shape}"
+            )
+        if value.dtype != np.dtype(np.float64) or np.iscomplexobj(value):
+            raise RHFAdjointError(
+                f"the supplied RHF adjoint field {name} must use real numpy.float64"
+            )
+        if not np.isfinite(value).all():
+            raise RHFAdjointError(
+                f"the supplied RHF adjoint field {name} must be finite"
+            )
+        if value.flags.writeable:
+            raise RHFAdjointError(
+                f"the supplied RHF adjoint field {name} must be immutable"
+            )
+        return value
+
+    @staticmethod
+    def _require_close(stored, expected, name: str) -> None:
+        if not np.allclose(stored, expected, rtol=1.0e-11, atol=1.0e-12):
+            raise RHFAdjointError(
+                f"the supplied RHF adjoint {name} is inconsistent"
+            )
+
+    def audit_adjoint(
+        self,
+        adjoint: RHFAdjoint,
+        expected_objective_ao_potential: np.ndarray,
+    ) -> None:
+        """Independently audit one consumed RHF adjoint without another solve."""
+        validate_reference(self.reference)
+        if type(adjoint) is not RHFAdjoint:
+            raise RHFAdjointError("the supplied RHF adjoint has an invalid type")
+        diagnostics = adjoint.diagnostics
+        if type(diagnostics) is not RHFAdjointDiagnostics:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint diagnostics have an invalid type"
+            )
+        if adjoint.reference_identity != id(self.reference):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint belongs to another reference"
+            )
+        if adjoint.state_fingerprint != reference_fingerprint(self.reference):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint does not match the current RHF state"
+            )
+        if adjoint.integrity_fingerprint != adjoint_integrity_fingerprint(adjoint):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint failed its integrity check"
+            )
+        if (
+            type(adjoint.reference_identity) is not int
+            or type(adjoint.state_fingerprint) is not str
+            or type(adjoint.integrity_fingerprint) is not str
+            or type(adjoint.operator_fingerprint) is not str
+        ):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint provenance fields have invalid types"
+            )
+        if diagnostics.pyscf_version != pyscf.__version__:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint PySCF version does not match the runtime"
+            )
+        if diagnostics.solver != "numpy.linalg.solve(A.T, b)":
+            raise RHFAdjointError(
+                "the supplied RHF adjoint solver convention is invalid"
+            )
+        if type(diagnostics.solve_count) is not int or diagnostics.solve_count != 1:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint must contain exactly one scalar solve"
+            )
+        if type(diagnostics.response_dimension) is not int:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint response dimension has an invalid type"
+            )
+        if type(diagnostics.operator_dimension_limit) is not int:
+            raise RHFAdjointError(
+                "the supplied RHF adjoint dimension limit has an invalid type"
+            )
+        diagnostic_reals = (
+            diagnostics.minimum_orbital_gap,
+            diagnostics.residual_tolerance,
+            diagnostics.orbital_gap_tolerance,
+            diagnostics.operator_stability_tolerance,
+            diagnostics.operator_condition_tolerance,
+            diagnostics.operator_symmetry_tolerance,
+            diagnostics.operator_minimum_eigenvalue,
+            diagnostics.operator_maximum_eigenvalue,
+            diagnostics.operator_condition_number,
+            diagnostics.operator_symmetry_residual,
+            diagnostics.objective_symmetry_tolerance,
+            diagnostics.objective_symmetry_residual,
+            diagnostics.adjoint_density_symmetry_residual,
+            diagnostics.adjoint_potential_symmetry_residual,
+            diagnostics.objective_gradient_norm,
+            diagnostics.solution_norm,
+            diagnostics.maximum_solver_residual,
+            diagnostics.solver_residual_rms,
+            diagnostics.maximum_transpose_residual,
+            diagnostics.transpose_residual_rms,
+            diagnostics.maximum_physical_residual,
+            diagnostics.physical_residual_rms,
+        )
+        if any(
+            isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
+            for value in diagnostic_reals
+        ) or not np.isfinite(diagnostic_reals).all():
+            raise RHFAdjointError(
+                "the supplied RHF adjoint diagnostics must be finite real scalars"
+            )
+        if (
+            diagnostics.residual_tolerance <= 0
+            or diagnostics.orbital_gap_tolerance <= 0
+            or diagnostics.operator_stability_tolerance <= 0
+            or diagnostics.operator_condition_tolerance <= 1
+            or diagnostics.operator_symmetry_tolerance <= 0
+            or diagnostics.operator_dimension_limit <= 0
+            or diagnostics.objective_symmetry_tolerance <= 0
+            or diagnostics.response_dimension <= 0
+        ):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint controls are invalid"
+            )
+        accepted_controls = {
+            "residual_tolerance": self.residual_tolerance,
+            "orbital_gap_tolerance": self.orbital_gap_tolerance,
+            "operator_stability_tolerance": (
+                self.operator_stability_tolerance
+            ),
+            "operator_condition_tolerance": (
+                self.operator_condition_tolerance
+            ),
+            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
+            "operator_dimension_limit": self.operator_dimension_limit,
+            "objective_symmetry_tolerance": (
+                self.objective_symmetry_tolerance
+            ),
+        }
+        for name, expected in accepted_controls.items():
+            if getattr(diagnostics, name) != expected:
+                raise RHFAdjointError(
+                    f"the supplied RHF adjoint {name} control is inconsistent"
+                )
+        (
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+            minimum_gap,
+        ) = self._state()
+        nocc = int(np.count_nonzero(occupied))
+        nvir = int(np.count_nonzero(virtual))
+        dimension = nocc * nvir
+        natm = int(self.molecule.natm)
+        nao = int(self.molecule.nao)
+        arrays = {
+            "objective_ao_potential": (nao, nao),
+            "objective_orbital_gradient": (nvir, nocc),
+            "zvector": (nvir, nocc),
+            "solver_residual": (nvir, nocc),
+            "transpose_residual": (nvir, nocc),
+            "physical_residual": (nvir, nocc),
+            "adjoint_ao_density": (nao, nao),
+            "adjoint_ao_potential": (nao, nao),
+            "correction_gradient_metric": (natm, 3),
+            "correction_gradient_adjoint_nuclear": (natm, 3),
+            "correction_gradient_adjoint_metric": (natm, 3),
+            "correction_gradient_occupied_virtual": (natm, 3),
+            "correction_gradient_response": (natm, 3),
+        }
+        for name, shape in arrays.items():
+            self._audited_array(getattr(adjoint, name), shape, name)
+        expected_objective_ao_potential = _validated_float64_array(
+            expected_objective_ao_potential,
+            (nao, nao),
+            "expected correction AO objective potential",
+        )
+        self._require_close(
+            adjoint.objective_ao_potential,
+            expected_objective_ao_potential,
+            "objective AO potential",
+        )
+        objective_mo = (
+            coefficient.T @ expected_objective_ao_potential @ coefficient
+        )
+        expected_objective_gradient = (
+            objective_mo[virtual][:, occupied]
+            + objective_mo.T[virtual][:, occupied]
+        ) * occupation[occupied]
+        self._require_close(
+            adjoint.objective_orbital_gradient,
+            expected_objective_gradient,
+            "bilateral occupied-virtual objective gradient",
+        )
+        (
+            response_operator,
+            response_dimension,
+            minimum_eigenvalue,
+            maximum_eigenvalue,
+            condition_number,
+            symmetry_residual,
+        ) = self._response_operator_matrix_and_diagnostics(
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        operator_digest = hashlib.sha256()
+        operator_array = np.ascontiguousarray(response_operator)
+        operator_digest.update(operator_array.dtype.str.encode("ascii"))
+        operator_digest.update(repr(operator_array.shape).encode("ascii"))
+        operator_digest.update(operator_array.tobytes())
+        if adjoint.operator_fingerprint != operator_digest.hexdigest():
+            raise RHFAdjointError(
+                "the supplied RHF adjoint response operator is inconsistent"
+            )
+        zvector = adjoint.zvector
+        objective_vector = expected_objective_gradient.reshape(dimension)
+        solver_residual = (
+            response_operator.T @ zvector.reshape(dimension) - objective_vector
+        ).reshape(nvir, nocc)
+        physical_residual = (
+            self._apply_occupied_virtual_operator(
+                zvector,
+                coefficient,
+                energy,
+                occupation,
+                occupied,
+                virtual,
+            ).reshape(dimension)
+            - objective_vector
+        ).reshape(nvir, nocc)
+        self._require_close(
+            adjoint.solver_residual,
+            solver_residual,
+            "literal transpose residual",
+        )
+        self._require_close(
+            adjoint.transpose_residual,
+            physical_residual,
+            "independent transpose residual",
+        )
+        self._require_close(
+            adjoint.physical_residual,
+            physical_residual,
+            "physical residual",
+        )
+        occupied_coefficients = coefficient[:, occupied]
+        virtual_coefficients = coefficient[:, virtual]
+        rotated_occupied = virtual_coefficients @ zvector
+        expected_adjoint_density = (
+            rotated_occupied
+            @ (occupied_coefficients * occupation[occupied]).T
+        )
+        expected_adjoint_density = (
+            expected_adjoint_density + expected_adjoint_density.T
+        )
+        self._require_close(
+            adjoint.adjoint_ao_density,
+            expected_adjoint_density,
+            "AO density",
+        )
+        expected_adjoint_potential = self._induced_potential(
+            expected_adjoint_density
+        )
+        self._require_close(
+            adjoint.adjoint_ao_potential,
+            expected_adjoint_potential,
+            "AO potential",
+        )
+        overlap_derivative = self._overlap_derivative()
+        hamiltonian_derivative = self._hamiltonian_derivative(
+            coefficient,
+            occupation,
+        )
+        overlap_mo = np.einsum(
+            "mp,...mn,ni->...pi",
+            coefficient,
+            overlap_derivative,
+            occupied_coefficients,
+        )
+        hamiltonian_mo = np.einsum(
+            "mp,...mn,ni->...pi",
+            coefficient,
+            hamiltonian_derivative,
+            occupied_coefficients,
+        )
+        bare_nuclear_rhs = (
+            hamiltonian_mo[..., virtual, :]
+            - overlap_mo[..., virtual, :] * energy[occupied]
+        )
+        expected_adjoint_nuclear = -np.einsum(
+            "ai,...ai->...",
+            zvector,
+            bare_nuclear_rhs,
+        )
+        objective_occupied = objective_mo[occupied][:, occupied]
+        objective_occupied = 0.5 * (
+            objective_occupied + objective_occupied.T
+        )
+        adjoint_potential_mo = (
+            coefficient.T @ expected_adjoint_potential @ coefficient
+        )
+        adjoint_potential_occupied = adjoint_potential_mo[occupied][
+            :, occupied
+        ]
+        adjoint_potential_occupied = 0.5 * (
+            adjoint_potential_occupied + adjoint_potential_occupied.T
+        )
+        overlap_occupied = overlap_mo[..., occupied, :]
+        expected_metric = np.einsum(
+            "...ij,ij->...",
+            overlap_occupied,
+            -2.0 * objective_occupied,
+        )
+        expected_adjoint_metric = np.einsum(
+            "...ij,ij->...",
+            overlap_occupied,
+            0.5 * adjoint_potential_occupied,
+        )
+        expected_occupied_virtual = (
+            expected_adjoint_nuclear + expected_adjoint_metric
+        )
+        expected_response = expected_metric + expected_occupied_virtual
+        expected_gradients = {
+            "correction_gradient_metric": expected_metric,
+            "correction_gradient_adjoint_nuclear": expected_adjoint_nuclear,
+            "correction_gradient_adjoint_metric": expected_adjoint_metric,
+            "correction_gradient_occupied_virtual": expected_occupied_virtual,
+            "correction_gradient_response": expected_response,
+        }
+        for name, expected in expected_gradients.items():
+            self._require_close(
+                getattr(adjoint, name),
+                expected,
+                name,
+            )
+        self._require_close(
+            adjoint.correction_gradient_occupied_virtual,
+            adjoint.correction_gradient_adjoint_nuclear
+            + adjoint.correction_gradient_adjoint_metric,
+            "occupied-virtual gradient partition",
+        )
+        self._require_close(
+            adjoint.correction_gradient_response,
+            adjoint.correction_gradient_metric
+            + adjoint.correction_gradient_occupied_virtual,
+            "response gradient partition",
+        )
+
+        def residual_statistics(value):
+            return (
+                float(np.max(np.abs(value), initial=0.0)),
+                float(np.sqrt(np.mean(np.square(value)))),
+            )
+
+        maximum_solver_residual, solver_residual_rms = residual_statistics(
+            solver_residual
+        )
+        maximum_physical_residual, physical_residual_rms = residual_statistics(
+            physical_residual
+        )
+        measured = {
+            "minimum_orbital_gap": minimum_gap,
+            "response_dimension": response_dimension,
+            "operator_minimum_eigenvalue": minimum_eigenvalue,
+            "operator_maximum_eigenvalue": maximum_eigenvalue,
+            "operator_condition_number": condition_number,
+            "operator_symmetry_residual": symmetry_residual,
+            "objective_symmetry_residual": float(
+                np.max(
+                    np.abs(
+                        expected_objective_ao_potential
+                        - expected_objective_ao_potential.T
+                    ),
+                    initial=0.0,
+                )
+            ),
+            "adjoint_density_symmetry_residual": float(
+                np.max(
+                    np.abs(
+                        expected_adjoint_density - expected_adjoint_density.T
+                    ),
+                    initial=0.0,
+                )
+            ),
+            "adjoint_potential_symmetry_residual": float(
+                np.max(
+                    np.abs(
+                        expected_adjoint_potential
+                        - expected_adjoint_potential.T
+                    ),
+                    initial=0.0,
+                )
+            ),
+            "objective_gradient_norm": float(
+                np.linalg.norm(expected_objective_gradient)
+            ),
+            "solution_norm": float(np.linalg.norm(zvector)),
+            "maximum_solver_residual": maximum_solver_residual,
+            "solver_residual_rms": solver_residual_rms,
+            "maximum_transpose_residual": maximum_physical_residual,
+            "transpose_residual_rms": physical_residual_rms,
+            "maximum_physical_residual": maximum_physical_residual,
+            "physical_residual_rms": physical_residual_rms,
+        }
+        for name, expected in measured.items():
+            stored = getattr(diagnostics, name)
+            if isinstance(expected, int):
+                matches = stored == expected
+            else:
+                matches = np.isclose(
+                    stored,
+                    expected,
+                    rtol=1.0e-10,
+                    atol=1.0e-12,
+                )
+            if not matches:
+                raise RHFAdjointError(
+                    f"the supplied RHF adjoint {name} diagnostic is inconsistent"
+                )
+        if (
+            maximum_solver_residual > diagnostics.residual_tolerance
+            or maximum_physical_residual > diagnostics.residual_tolerance
+            or minimum_gap <= diagnostics.orbital_gap_tolerance
+            or symmetry_residual > diagnostics.operator_symmetry_tolerance
+            or minimum_eigenvalue
+            <= diagnostics.operator_stability_tolerance
+            or condition_number > diagnostics.operator_condition_tolerance
+            or measured["objective_symmetry_residual"]
+            > diagnostics.objective_symmetry_tolerance
+            or measured["adjoint_density_symmetry_residual"]
+            > diagnostics.objective_symmetry_tolerance
+            or measured["adjoint_potential_symmetry_residual"]
+            > diagnostics.objective_symmetry_tolerance
+            or response_dimension > diagnostics.operator_dimension_limit
+        ):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint exceeds an accepted control"
+            )
+        validate_reference(self.reference)
 
     def solve(self, objective_ao_potential: np.ndarray) -> RHFAdjoint:
         """Return one audited Z-vector and its complete nuclear contraction."""
