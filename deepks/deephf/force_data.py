@@ -227,7 +227,7 @@ def generate_rhf_force_frame(
         "f_target",
     )
 
-    gradient = method.nuc_grad_method(**options)
+    gradient = method.nuc_grad_method(backend="direct", **options)
     gradient.kernel()
     response = gradient.response_result
     if response is None:

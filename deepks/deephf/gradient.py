@@ -7,13 +7,39 @@ import numpy as np
 from .pyscf_rhf import RHFResponseError
 
 
+def _validate_atom_indices(mol, atmlst):
+    """Return validated raw-atom indices before any response calculation."""
+    if atmlst is None:
+        return None
+    try:
+        requested_indices = tuple(atmlst)
+    except TypeError as error:
+        raise TypeError("gradient atmlst must be an iterable of integers") from error
+    validated_indices = []
+    for index in requested_indices:
+        if isinstance(index, (bool, np.bool_)):
+            raise TypeError("gradient atom indices must be integers")
+        try:
+            atom_index = operator.index(index)
+        except TypeError as error:
+            raise TypeError("gradient atom indices must be integers") from error
+        if atom_index < 0 or atom_index >= mol.natm:
+            raise IndexError("gradient atom index is outside the molecule")
+        validated_indices.append(atom_index)
+    return tuple(validated_indices)
+
+
 class RHFDeePHFGradients:
     """Contract the complete relaxed descriptor response with one correction model."""
 
     def __init__(self, method, response_options=None):
         self.base = method
         self.mol = method.mol
+        self.backend = "direct"
         self.response_options = dict(response_options or {})
+        self._reset_results()
+
+    def _reset_results(self):
         self.response_result = None
         self.descriptor_diagnostics = None
         self.reference_gradient = None
@@ -21,6 +47,8 @@ class RHFDeePHFGradients:
         self.dq_dR_response = None
         self.dq_dR_relaxed = None
         self.correction_gradient_explicit = None
+        self.correction_gradient_metric = None
+        self.correction_gradient_occupied_virtual = None
         self.correction_gradient_response = None
         self.correction_gradient = None
         self.de_full = None
@@ -34,24 +62,8 @@ class RHFDeePHFGradients:
 
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR for all or selected atoms."""
-        atom_indices = None
-        if atmlst is not None:
-            try:
-                requested_indices = tuple(atmlst)
-            except TypeError as error:
-                raise TypeError("gradient atmlst must be an iterable of integers") from error
-            validated_indices = []
-            for index in requested_indices:
-                if isinstance(index, (bool, np.bool_)):
-                    raise TypeError("gradient atom indices must be integers")
-                try:
-                    atom_index = operator.index(index)
-                except TypeError as error:
-                    raise TypeError("gradient atom indices must be integers") from error
-                if atom_index < 0 or atom_index >= self.mol.natm:
-                    raise IndexError("gradient atom index is outside the molecule")
-                validated_indices.append(atom_index)
-            atom_indices = tuple(validated_indices)
+        self._reset_results()
+        atom_indices = _validate_atom_indices(self.mol, atmlst)
         self.descriptor_diagnostics = self.base.validate_force_compatibility()
         self.response_result = self.base.response(**self.response_options)
         self.reference_gradient = np.asarray(
@@ -68,11 +80,34 @@ class RHFDeePHFGradients:
             self.dq_dR_explicit,
             sensitivity,
         )
+        objective_ao_potential = self.base._correction_ao_potential(
+            sensitivity
+        )
+        self.correction_gradient_metric = np.einsum(
+            "ij,bxij->bx",
+            objective_ao_potential,
+            self.response_result.density_response_metric,
+        )
+        self.correction_gradient_occupied_virtual = np.einsum(
+            "ij,bxij->bx",
+            objective_ao_potential,
+            self.response_result.density_response_occupied_virtual,
+        )
         self.correction_gradient_response = np.einsum(
             "bxap,ap->bx",
             self.dq_dR_response,
             sensitivity,
         )
+        if not np.allclose(
+            self.correction_gradient_response,
+            self.correction_gradient_metric
+            + self.correction_gradient_occupied_virtual,
+            rtol=0.0,
+            atol=1.0e-12,
+        ):
+            raise RHFResponseError(
+                "the RHF direct response-gradient partitions are inconsistent"
+            )
         self.correction_gradient = (
             self.correction_gradient_explicit
             + self.correction_gradient_response
@@ -94,3 +129,9 @@ class RHFDeePHFGradients:
     def forces(self, atmlst=None) -> np.ndarray:
         """Evaluate nuclear forces as minus the energy gradient."""
         return -self.kernel(atmlst=atmlst)
+
+    def as_scanner(self, **scanner_options):
+        """Build a strict fresh-reference RHF DeePHF gradient scanner."""
+        from .scanner import RHFDeePHFGradientScanner
+
+        return RHFDeePHFGradientScanner(self, **scanner_options)

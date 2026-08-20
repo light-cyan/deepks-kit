@@ -14,6 +14,8 @@ from .capabilities import (
     validate_reference,
 )
 from .pyscf_rhf import (
+    RHFAdjoint,
+    RHFAdjointAdapter,
     RHFResponse,
     RHFResponseAdapter,
     RHFResponseDiagnostics,
@@ -21,6 +23,44 @@ from .pyscf_rhf import (
     reference_fingerprint,
     response_integrity_fingerprint,
 )
+
+
+_DIRECT_RESPONSE_OPTIONS = frozenset(
+    {
+        "cphf_tolerance",
+        "residual_tolerance",
+        "invariant_tolerance",
+        "orbital_gap_tolerance",
+        "max_cycle",
+        "max_refinement_cycles",
+        "level_shift",
+        "operator_stability_tolerance",
+        "operator_condition_tolerance",
+        "operator_symmetry_tolerance",
+        "operator_dimension_limit",
+    }
+)
+_ZVECTOR_OPTIONS = frozenset(
+    {
+        "residual_tolerance",
+        "orbital_gap_tolerance",
+        "operator_stability_tolerance",
+        "operator_condition_tolerance",
+        "operator_symmetry_tolerance",
+        "operator_dimension_limit",
+        "objective_symmetry_tolerance",
+    }
+)
+
+
+def _validated_backend_options(base_options, override_options, allowed, backend):
+    options = {**base_options, **override_options}
+    unknown = sorted(set(options) - allowed)
+    if unknown:
+        raise ValueError(
+            f"unsupported {backend} backend options: {', '.join(unknown)}"
+        )
+    return options
 
 
 class DeePHF:
@@ -123,6 +163,50 @@ class DeePHF:
             )
         return sensitivity.detach().cpu().numpy()
 
+    def _correction_ao_potential(self, sensitivity: np.ndarray) -> np.ndarray:
+        """Contract one validated model sensitivity with dq/dP."""
+        sensitivity = np.asarray(sensitivity)
+        expected_shape = (
+            self.n_descriptor_atoms,
+            self.n_descriptor_features,
+        )
+        if sensitivity.shape != expected_shape:
+            raise DeePHFCapabilityError(
+                "the correction sensitivity shape does not match the descriptor"
+            )
+        if sensitivity.dtype != np.dtype(np.float64) or np.iscomplexobj(
+            sensitivity
+        ):
+            raise DeePHFCapabilityError(
+                "the correction sensitivity must be a real numpy.float64 array"
+            )
+        if not np.isfinite(sensitivity).all():
+            raise DeePHFCapabilityError(
+                "the correction sensitivity must be finite"
+            )
+        potential = np.einsum(
+            "ap,apij->ij",
+            sensitivity,
+            self.dq_dP(),
+        )
+        if potential.shape != (self.mol.nao, self.mol.nao):
+            raise DeePHFCapabilityError(
+                "the correction AO potential has an invalid shape"
+            )
+        if potential.dtype != np.dtype(np.float64) or np.iscomplexobj(potential):
+            raise DeePHFCapabilityError(
+                "the correction AO potential must be a real numpy.float64 array"
+            )
+        if not np.isfinite(potential).all():
+            raise DeePHFCapabilityError(
+                "the correction AO potential must be finite"
+            )
+        return potential
+
+    def correction_ao_potential(self) -> np.ndarray:
+        """Return the complete model derivative d(e_corr)/dP in the AO basis."""
+        return self._correction_ao_potential(self.correction_sensitivity())
+
     def correction_energy(self):
         if self.model is None:
             return 0.0
@@ -154,8 +238,18 @@ class DeePHF:
     def validate_force_compatibility(self, **tolerances):
         """Validate ordered-eigenvalue and model-sensitivity force semantics."""
         validate_reference(self.reference)
-        values = self._descriptor_values_tensor()
         sensitivity = self.correction_sensitivity()
+        return self._validate_force_compatibility_with_sensitivity(
+            sensitivity,
+            **tolerances,
+        )
+
+    def _validate_force_compatibility_with_sensitivity(
+        self,
+        sensitivity,
+        **tolerances,
+    ):
+        values = self._descriptor_values_tensor()
         n_occupied = int(np.count_nonzero(self.reference.mo_occ > 0))
         return validate_differentiability(
             values.detach().cpu().numpy(),
@@ -168,11 +262,41 @@ class DeePHF:
     def response(self, **response_options) -> RHFResponse:
         """Solve the audited complete first-order RHF density response."""
         self.validate_force_compatibility()
-        options = {**self.response_options, **response_options}
+        options = _validated_backend_options(
+            self.response_options,
+            response_options,
+            _DIRECT_RESPONSE_OPTIONS,
+            "direct",
+        )
         response = RHFResponseAdapter(self.reference, **options).solve()
         self._trusted_response = response
         self._trusted_response_integrity = response.integrity_fingerprint
         return response
+
+    def adjoint(self, **adjoint_options) -> RHFAdjoint:
+        """Solve one audited correction-specific RHF scalar adjoint."""
+        _diagnostics, _sensitivity, adjoint = self._zvector_inputs(
+            adjoint_options
+        )
+        return adjoint
+
+    def _zvector_inputs(self, adjoint_options):
+        """Evaluate one internally consistent sensitivity and scalar adjoint."""
+        validate_reference(self.reference)
+        sensitivity = self.correction_sensitivity()
+        descriptor_diagnostics = (
+            self._validate_force_compatibility_with_sensitivity(sensitivity)
+        )
+        options = _validated_backend_options(
+            self.response_options,
+            adjoint_options,
+            _ZVECTOR_OPTIONS,
+            "zvector",
+        )
+        adjoint = RHFAdjointAdapter(self.reference, **options).solve(
+            self._correction_ao_potential(sensitivity)
+        )
+        return descriptor_diagnostics, sensitivity, adjoint
 
     def _validate_response(self, response: RHFResponse) -> RHFResponse:
         """Reject response data that are stale, foreign, mutable, or incomplete."""
@@ -489,19 +613,46 @@ class DeePHF:
             **response_options,
         )
 
-    def nuc_grad_method(self, **response_options):
-        """Build the strict RHF DeePHF analytic nuclear-gradient driver."""
-        from .gradient import RHFDeePHFGradients
+    def nuc_grad_method(self, *, backend="direct", **backend_options):
+        """Build one explicitly selected strict analytic-gradient backend."""
+        if type(backend) is not str or backend not in {"direct", "zvector"}:
+            raise ValueError("gradient backend must be 'direct' or 'zvector'")
+        if backend == "direct":
+            from .gradient import RHFDeePHFGradients
 
-        return RHFDeePHFGradients(self, response_options=response_options)
+            _validated_backend_options(
+                self.response_options,
+                backend_options,
+                _DIRECT_RESPONSE_OPTIONS,
+                backend,
+            )
+            return RHFDeePHFGradients(
+                self,
+                response_options=backend_options,
+            )
+        from .zvector import RHFDeePHFZVectorGradients
 
-    def gradient(self, **response_options) -> np.ndarray:
+        _validated_backend_options(
+            self.response_options,
+            backend_options,
+            _ZVECTOR_OPTIONS,
+            backend,
+        )
+        return RHFDeePHFZVectorGradients(
+            self,
+            adjoint_options=backend_options,
+        )
+
+    def gradient(self, *, backend="direct", **backend_options) -> np.ndarray:
         """Evaluate the strict analytic nuclear energy gradient."""
-        return self.nuc_grad_method(**response_options).kernel()
+        return self.nuc_grad_method(
+            backend=backend,
+            **backend_options,
+        ).kernel()
 
-    def forces(self, **response_options) -> np.ndarray:
+    def forces(self, *, backend="direct", **backend_options) -> np.ndarray:
         """Evaluate nuclear forces as the negative analytic gradient."""
-        return -self.gradient(**response_options)
+        return -self.gradient(backend=backend, **backend_options)
 
     def kernel(self):
         """Evaluate E_base + E_corr while leaving the reference unchanged."""

@@ -67,7 +67,7 @@ def teacher_targets(reference, teacher: CorrNet) -> tuple[np.float64, np.ndarray
         projector_basis=PROJECTOR_BASIS,
     )
     energy = np.float64(method.kernel())
-    gradient = method.nuc_grad_method().run()
+    gradient = method.nuc_grad_method(backend="direct").run()
     force = np.ascontiguousarray(-gradient.de_full, dtype=np.float64)
     return energy, force
 
