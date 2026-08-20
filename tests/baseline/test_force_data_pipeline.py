@@ -4,7 +4,7 @@ from pyscf import gto
 
 from deepks.model.model import CorrNet
 from deepks.model.reader import Reader
-from deepks.model.train import Evaluator, main as train_model
+from deepks.model.train import main as train_model
 from deepks.data.fields import select_fields
 from deepks.data.io import collect_field_results, dump_data, dump_metadata
 from deepks.deepks.run import solve_molecule
@@ -81,7 +81,7 @@ def _write_force_dataset(tmp_path):
     return molecule, model, data_directory
 
 
-def test_scf_export_reader_and_force_evaluator_pipeline(tmp_path):
+def test_deepks_scf_export_keeps_explicit_force_fields(tmp_path):
     _, model, data_directory = _write_force_dataset(tmp_path)
 
     expected_files = {
@@ -108,16 +108,17 @@ def test_scf_export_reader_and_force_evaluator_pipeline(tmp_path):
     reader = Reader(data_directory, batch_size=1)
     sample = reader.sample_all()
 
-    assert set(sample) == {
-        "descriptor",
-        "dq_dR_explicit",
-        "energy",
-        "force",
-    }
+    assert set(sample) == {"descriptor", "energy"}
     assert sample["descriptor"].shape == (1, 2, 1)
-    assert sample["dq_dR_explicit"].shape == (1, 2, 3, 2, 1)
     assert sample["energy"].shape == (1, 1)
-    assert sample["force"].shape == (1, 2, 3)
+    explicit_jacobian = torch.from_numpy(
+        np.load(data_directory / "dq_dR_explicit.npy")
+    )
+    explicit_force = torch.from_numpy(
+        np.load(data_directory / "f_corr_explicit_target.npy")
+    )
+    assert explicit_jacobian.shape == (1, 2, 3, 2, 1)
+    assert explicit_force.shape == (1, 2, 3)
 
     descriptors = sample["descriptor"].clone().requires_grad_(True)
     predicted_energy = model(descriptors)
@@ -128,27 +129,15 @@ def test_scf_export_reader_and_force_evaluator_pipeline(tmp_path):
     )
     predicted_force = -torch.einsum(
         "...bxap,...ap->...bx",
-        sample["dq_dR_explicit"],
+        explicit_jacobian,
         energy_descriptor_gradient,
     )
 
     torch.testing.assert_close(predicted_energy, sample["energy"], atol=1.0e-10, rtol=0.0)
-    torch.testing.assert_close(predicted_force, sample["force"], atol=1.0e-10, rtol=0.0)
-
-    perturbed_sample = dict(sample)
-    perturbed_sample["force"] = sample["force"].clone()
-    perturbed_sample["force"][0, 0, 2] += 1.0e-3
-
-    evaluator = Evaluator(energy_factor=1.0, force_factor=1.0)
-    loss = evaluator(model, perturbed_sample)
-    assert loss.item() > 1.0e-10
-    loss.backward()
-    assert model.linear.weight.grad is not None
-    assert torch.isfinite(model.linear.weight.grad).all()
-    assert torch.linalg.vector_norm(model.linear.weight.grad) > 0
+    torch.testing.assert_close(predicted_force, explicit_force, atol=1.0e-10, rtol=0.0)
 
 
-def test_force_training_checkpoint_can_be_reloaded_for_scf(tmp_path):
+def test_energy_training_checkpoint_can_be_reloaded_for_deepks_scf(tmp_path):
     molecule, _, data_directory = _write_force_dataset(tmp_path)
     checkpoint = tmp_path / "trained-model.pth"
 
@@ -170,7 +159,7 @@ def test_force_training_checkpoint_can_be_reloaded_for_scf(tmp_path):
             "n_epoch": 1,
             "display_epoch": 1,
             "energy_factor": 1.0,
-            "force_factor": 1.0,
+            "force_factor": 0.0,
             "start_lr": 1.0e-4,
         },
         seed=11,

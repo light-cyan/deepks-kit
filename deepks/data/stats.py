@@ -10,12 +10,24 @@ except ImportError as e:
 from deepks.utils import check_list, check_array
 from deepks.utils import load_array, load_yaml
 from deepks.utils import get_sys_name, get_with_prefix
+from deepks.data.force_schema import ForceDataError, SCHEMA_FILENAME
+
+
+def _reject_strict_force_dataset(path, operation):
+    if os.path.isfile(os.path.join(path, SCHEMA_FILENAME)):
+        raise ForceDataError(
+            f"{operation} cannot rewrite a strict force dataset; use the "
+            "force-schema writer to create a new validated dataset"
+        )
 
 
 def concat_data(systems=None, sys_dir=".", dump_dir=".", pattern="*"):
     if systems is None:
         systems = sorted(filter(os.path.isdir, 
             map(os.path.abspath, glob.glob(f"{sys_dir}/{pattern}"))))
+    for system in systems:
+        _reject_strict_force_dataset(system, "concat_data")
+    _reject_strict_force_dataset(dump_dir, "concat_data")
     npy_names = list(map(os.path.basename, glob.glob(f"{systems[0]}/*.npy")))
     os.makedirs(dump_dir, exist_ok=True)
     for nm in npy_names:
@@ -158,6 +170,7 @@ def print_stats_per_sys(err, conv=None, train_idx=None, test_idx=None):
     
 
 def make_label(sys_dir, eref, fref=None):
+    _reject_strict_force_dataset(sys_dir, "make_label")
     eref = eref.reshape(-1,1)
     nmol = eref.shape[0]
     base_energy = np.load(f'{sys_dir}/e_base.npy')
@@ -182,6 +195,8 @@ def collect_data(train_idx, test_idx=None,
     else:
         systems = sorted(map(os.path.abspath, glob.glob(f"{sys_dir}/*")))
     assert nsys == len(systems)
+    for system in systems:
+        _reject_strict_force_dataset(system, "collect_data")
 
     convs = []
     ecfs = []
@@ -212,6 +227,7 @@ def collect_data_grouped(train_idx, test_idx=None,
     eref = check_array(ene_ref).reshape(-1, 1)
     fref = check_array(force_ref)
     nmol = eref.shape[0]
+    _reject_strict_force_dataset(sys_dir, "collect_data_grouped")
     if not os.path.exists(f'{sys_dir}/e_tot.npy'):
         concat_data(sys_dir, dump_dir=sys_dir)    
     ecf = np.load(f'{sys_dir}/e_tot.npy').reshape(-1, 1)

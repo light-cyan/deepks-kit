@@ -93,6 +93,7 @@ def test_package_dependency_directions_are_one_way():
         "deepks": ("deepks.deephf",),
         "deephf": ("deepks.deepks",),
         "data": ("deepks.deepks", "deepks.deephf"),
+        "model": ("deepks.deepks", "deepks.deephf"),
     }
 
     violations = {

@@ -2,6 +2,13 @@ import os,time,sys
 import numpy as np
 import torch
 
+from deepks.data.force_schema import ForceDataError, load_force_dataset
+
+
+FORCE_MODE_NONE = "none"
+FORCE_MODE_DEEPHF_RELAXED = "deephf_relaxed"
+FORCE_DATA_MODES = {FORCE_MODE_NONE, FORCE_MODE_DEEPHF_RELAXED}
+
 
 def concat_batch(tdicts, dim=0):
     keys = tdicts[0].keys()
@@ -24,18 +31,45 @@ def split_batch(tdict, size, dim=0):
 class Reader(object):
     def __init__(self, data_path, batch_size,
                  energy_name="e_corr_target", descriptor_name="descriptor",
-                 force_name="f_corr_explicit_target",
-                 jacobian_name="dq_dR_explicit",
+                 force_name=None, jacobian_name=None,
                  reference_orbital_gradient_name="reference_orbital_gradient",
                  descriptor_orbital_gradient_jacobian_name="descriptor_orbital_gradient_jacobian",
                  coulomb_loss_descriptor_gradient_name="coulomb_loss_descriptor_gradient",
-                 converged_name="converged", atom_name="atom", **kwargs):
+                 converged_name="converged", atom_name="atom",
+                 converged_filter=True, force_mode=FORCE_MODE_NONE, **kwargs):
         self.data_path = data_path
         self.batch_size = batch_size
+        if force_mode not in FORCE_DATA_MODES:
+            raise ValueError(
+                f"force_mode must be one of {sorted(FORCE_DATA_MODES)}"
+            )
+        self.force_mode = force_mode
+        self.converged_filter = converged_filter
+        self.force_contract = None
+        self._force_arrays = None
+        if force_mode == FORCE_MODE_DEEPHF_RELAXED:
+            if energy_name != "e_corr_target" or descriptor_name != "descriptor":
+                raise ForceDataError(
+                    "strict DeePHF force data uses canonical e_corr_target and descriptor fields"
+                )
+            if force_name not in (None, "f_corr_target"):
+                raise ForceDataError(
+                    "strict DeePHF force data uses canonical f_corr_target"
+                )
+            if jacobian_name not in (None, "dq_dR_relaxed"):
+                raise ForceDataError(
+                    "strict DeePHF force data uses canonical dq_dR_relaxed"
+                )
+            self.force_contract, self._force_arrays = load_force_dataset(data_path)
+        elif force_name is not None or jacobian_name is not None:
+            raise ForceDataError(
+                "force field names require force_mode='deephf_relaxed'; "
+                "fixed-density Jacobians are not force-training inputs"
+            )
         self.energy_path = self.check_exist(energy_name + ".npy")
-        self.force_path = self.check_exist(force_name + ".npy")
         self.descriptor_path = self.check_exist(descriptor_name + ".npy")
-        self.jacobian_path = self.check_exist(jacobian_name + ".npy")
+        self.force_path = None
+        self.jacobian_path = None
         self.reference_orbital_gradient_path = self.check_exist(
             reference_orbital_gradient_name + ".npy"
         )
@@ -61,9 +95,19 @@ class Reader(object):
             return fpath
 
     def load_meta(self):
+        if self.force_contract is not None:
+            dimensions = getattr(self.force_contract, "dimensions", None)
+            if dimensions is None:
+                dimensions = self.force_contract.manifest["dimensions"]
+            self.natm = int(dimensions["n_descriptor_atom"])
+            self.nraw = int(dimensions["n_raw_atom"])
+            self.nproj = int(dimensions["n_feature"])
+            self.descriptor_size = self.nproj
+            return
         try:
             sys_meta = np.loadtxt(self.check_exist('system.raw'), dtype = int).reshape([-1])
             self.natm = sys_meta[0]
+            self.nraw = sys_meta[1] if sys_meta.size > 1 else self.natm
             self.nproj = sys_meta[-1]
         except:
             print('#', self.data_path, f"no system.raw, infer meta from data", file=sys.stderr)
@@ -71,17 +115,21 @@ class Reader(object):
             assert len(sys_shape) == 3, \
                 f"descriptor has to be an order-3 array with shape [nframes, natom, nproj]"
             self.natm = sys_shape[1]
+            self.nraw = self.natm
             self.nproj = sys_shape[2]
         self.descriptor_size = self.nproj
 
     def prepare(self):
+        if self.force_contract is not None:
+            self._prepare_force_data()
+            return
         # load energy and check nframes
         energy = np.load(self.energy_path).reshape(-1, 1)
         raw_nframes = energy.shape[0]
         descriptor = np.load(self.descriptor_path).reshape(
             raw_nframes, self.natm, self.descriptor_size
         )
-        if self.converged_path is not None:
+        if self.converged_filter and self.converged_path is not None:
             converged = np.load(self.converged_path).reshape(raw_nframes)
         else:
             converged = np.ones(raw_nframes, dtype=bool)
@@ -103,15 +151,6 @@ class Reader(object):
             "energy": torch.tensor(self.data_energy),
             "descriptor": torch.tensor(self.data_descriptor),
         }
-        if self.force_path is not None and self.jacobian_path is not None:
-            self.tensor_data["force"] = torch.tensor(
-                np.load(self.force_path).reshape(raw_nframes, -1, 3)[converged]
-            )
-            self.tensor_data["dq_dR_explicit"] = torch.tensor(
-                np.load(self.jacobian_path).reshape(
-                    raw_nframes, -1, 3, self.natm, self.descriptor_size
-                )[converged]
-            )
         if (
             self.reference_orbital_gradient_path is not None
             and self.descriptor_orbital_gradient_jacobian_path is not None
@@ -135,6 +174,48 @@ class Reader(object):
                     raw_nframes, self.natm, self.descriptor_size
                 )[converged]
             )
+
+    def _prepare_force_data(self):
+        arrays = self._force_arrays
+        energy = arrays["e_corr_target"]
+        descriptor = arrays["descriptor"]
+        force = arrays["f_corr_target"]
+        jacobian = arrays["dq_dR_relaxed"]
+        atoms = arrays["atom"]
+        self.data_energy = energy
+        self.data_descriptor = descriptor
+        self.nframes = int(energy.shape[0])
+        if self.nframes < self.batch_size:
+            self.batch_size = self.nframes
+            print(
+                '#', self.data_path,
+                f"reset batch size to {self.batch_size}",
+                file=sys.stderr,
+            )
+        self.atom_info = {
+            "elements": atoms[:, :, 0].round().astype(int),
+            "coordinates": atoms[:, :, 1:],
+        }
+        fingerprint = getattr(self.force_contract, "fingerprint", None)
+        if fingerprint is None:
+            fingerprint = getattr(
+                self.force_contract,
+                "compatibility_fingerprint",
+                None,
+            )
+        if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+            raise ForceDataError(
+                "force-data compatibility fingerprint must be a SHA-256 hex digest"
+            )
+        marker = np.frombuffer(bytes.fromhex(fingerprint), dtype=np.uint8)
+        marker = np.repeat(marker.reshape(1, 32), self.nframes, axis=0)
+        self.tensor_data = {
+            "energy": torch.from_numpy(energy.copy()),
+            "descriptor": torch.from_numpy(descriptor.copy()),
+            "force": torch.from_numpy(force.copy()),
+            "dq_dR_relaxed": torch.from_numpy(jacobian.copy()),
+            "force_contract_fingerprint": torch.from_numpy(marker.copy()),
+        }
 
     def sample_train(self):
         if self.batch_size == self.nframes == 1:
@@ -197,6 +278,14 @@ class GroupReader(object) :
         self.path_list = path_list
         self.batch_size = batch_size
         # init system readers
+        force_mode = kwargs.get("force_mode", FORCE_MODE_NONE)
+        if force_mode == FORCE_MODE_DEEPHF_RELAXED and (
+            not extra_label
+            or not isinstance(kwargs.get('descriptor_name', "descriptor"), str)
+        ):
+            raise ForceDataError(
+                "strict DeePHF force data requires the canonical Reader path"
+            )
         Reader_class = (Reader if extra_label
             and isinstance(kwargs.get('descriptor_name', "descriptor"), str)
             else SimpleReader)
@@ -213,9 +302,29 @@ class GroupReader(object) :
             raise RuntimeError("No system is avaliable")
         self.nsystems = len(self.readers)
         data_keys = self.readers[0].sample_all().keys()
+        if any(reader.sample_all().keys() != data_keys for reader in self.readers[1:]):
+            raise ValueError("all grouped datasets must expose the same fields")
         print(f"# load {self.nsystems} systems with fields {set(data_keys)}")
         # probability of each system
         self.descriptor_size = self.readers[0].descriptor_size
+        if any(
+            reader.descriptor_size != self.descriptor_size
+            for reader in self.readers[1:]
+        ):
+            raise ValueError("all grouped datasets must use the same descriptor size")
+        self.force_contract = getattr(self.readers[0], "force_contract", None)
+        if force_mode == FORCE_MODE_DEEPHF_RELAXED:
+            fingerprint = getattr(self.force_contract, "fingerprint", None)
+            if fingerprint is None:
+                fingerprint = self.force_contract.compatibility_fingerprint
+            for reader in self.readers[1:]:
+                other_fingerprint = getattr(reader.force_contract, "fingerprint", None)
+                if other_fingerprint is None:
+                    other_fingerprint = reader.force_contract.compatibility_fingerprint
+                if other_fingerprint != fingerprint:
+                    raise ForceDataError(
+                        "grouped force datasets have incompatible provenance contracts"
+                    )
         self.sys_prob = [float(ii) for ii in self.nframes] / np.sum(self.nframes)
         
         self.group_batch = max(group_batch, 1)
@@ -223,7 +332,11 @@ class GroupReader(object) :
             self.group_dict = {}
             # self.group_index = {}
             for idx, r in enumerate(self.readers):
-                shape = (r.natm, getattr(r, "orbital_gradient_size", None))
+                shape = (
+                    getattr(r, "nraw", r.natm),
+                    r.natm,
+                    getattr(r, "orbital_gradient_size", None),
+                )
                 if shape in self.group_dict:
                     self.group_dict[shape].append(r)
                     # self.group_index[shape].append(idx)
@@ -242,7 +355,7 @@ class GroupReader(object) :
         return self
 
     def __next__(self):
-        if self._sample_used > self.get_train_size():
+        if self._sample_used >= self.get_train_size():
             self._sample_used = 0
             raise StopIteration
         sample = self.sample_train() if self.group_batch == 1 else self.sample_train_group()
