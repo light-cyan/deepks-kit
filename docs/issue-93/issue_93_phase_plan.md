@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, P2, P3A, P3B, P4A, P4B, P4C, and P4D are complete; the coupled UHF scalar-adjoint backend is accepted against the P4A direct oracle, independent AO mathematics, and deterministic total-energy finite differences.
+**Current position:** The Issue #93 delivery roadmap is complete. RHF, UHF, pure-LDA RKS, and pure-LDA UKS analytic DeePHF gradients, the RHF relaxed-force training path, direct and scalar-adjoint inference backends, strict public workflow, documentation, regression suite, and package build are implemented and accepted.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -36,7 +36,7 @@ P3A Force data/training    P3B RHF Z/inference      P4A UHF direct [done]    P4B
                               |---------------------------------------------------> RKS Z [P4C]
                                                         \                         /
                                                          \                       /
-                                                          ---> UKS direct ----> UKS Z
+                                                          ---> UKS direct ----> UKS Z [P4E]
                                                                     |
                                                                     v
                                                      P5 Integration and hardening
@@ -155,9 +155,19 @@ P3 contains two parallel tracks after P2.
 - Retain alpha, beta, objective-metric, adjoint-metric, occupied-virtual, response, correction, native-reference, and total gradient partitions.
 - Preserve the P4A direct oracle as the default backend and as the model-independent coordinate-wise response facility.
 
+### P4E — UKS direct and scalar-adjoint inference
+
+**Status:** Implemented and target-accepted. The strict open-shell pure-LDA UKS validator, complete coupled alpha/beta finite-grid direct response, complete moving-grid native and correction partitions, one-solve coupled scalar adjoint, independent displaced-reference finite differences, and fail-closed public drivers are documented in [P4E UKS DeePHF direct and Z-vector inference](./p4e_uks_inference.md).
+
+- Combine the accepted unrestricted-spin conventions with the accepted finite-grid LibXC LDA conventions while preserving the spin-summed descriptor.
+- Retain alpha, beta, metric, occupied-virtual, fixed-grid, grid-coordinate, grid-weight, native-reference, correction, and total partitions.
+- Preserve direct response as the default model-independent oracle and use one correction-specific coupled transpose solve for scalar-adjoint inference.
+
 ## 8. P5 — Integration and hardening
 
 **Goal:** Turn the validated scientific backends into a maintainable project-wide feature.
+
+**Status:** Complete. Exact-type public method dispatch, strict native-reference construction, direct and Z-vector inference, canonical persisted inference outputs, CLI selection, runnable examples, architecture ownership, compatibility regressions, and release verification are documented in [P5 public integration and release contract](./p5_public_integration.md).
 
 **Major work:**
 

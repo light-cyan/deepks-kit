@@ -68,7 +68,23 @@ from .pyscf_rks import (
     validate_rks_reference,
 )
 from .rks_zvector import RKSDeePHFZVectorGradients
+from .uks_gradient import UKSDeePHFGradients
+from .uks_method import UKSDeePHF
+from .uks_zvector import UKSDeePHFZVectorGradients
+from .pyscf_uks import (
+    UKSAdjoint,
+    UKSAdjointAdapter,
+    UKSAdjointDiagnostics,
+    UKSAdjointError,
+    UKSNativeGradient,
+    UKSResponse,
+    UKSResponseAdapter,
+    UKSResponseDiagnostics,
+    UKSResponseError,
+    validate_uks_reference,
+)
 from .zvector import RHFDeePHFZVectorGradients
+from .workflow import build_reference, evaluate_molecule, make_deephf
 
 __all__ = [
     "DeePHF",
@@ -119,6 +135,18 @@ __all__ = [
     "UHFResponseAdapter",
     "UHFResponseDiagnostics",
     "UHFResponseError",
+    "UKSDeePHF",
+    "UKSDeePHFGradients",
+    "UKSDeePHFZVectorGradients",
+    "UKSAdjoint",
+    "UKSAdjointAdapter",
+    "UKSAdjointDiagnostics",
+    "UKSAdjointError",
+    "UKSNativeGradient",
+    "UKSResponse",
+    "UKSResponseAdapter",
+    "UKSResponseDiagnostics",
+    "UKSResponseError",
     "generate_rhf_force_frame",
     "solve_scalar_adjoint",
     "validate_model",
@@ -127,5 +155,9 @@ __all__ = [
     "validate_reference",
     "validate_rks_reference",
     "validate_uhf_reference",
+    "validate_uks_reference",
     "write_rhf_force_dataset",
+    "build_reference",
+    "evaluate_molecule",
+    "make_deephf",
 ]

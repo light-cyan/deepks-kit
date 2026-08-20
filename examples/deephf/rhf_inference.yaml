@@ -1,0 +1,12 @@
+systems:
+  - examples/deephf/h2.xyz
+reference: rhf
+model_file: NONE
+basis: sto-3g
+projector_basis:
+  - [0, [0.8, 1.0]]
+backend: direct
+dump_dir: examples/deephf/inference_output
+mol_args:
+  unit: Angstrom
+verbose: 0

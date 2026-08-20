@@ -1,2 +1,3 @@
 data/
 model.pth
+inference_output/

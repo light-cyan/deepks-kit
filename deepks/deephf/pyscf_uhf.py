@@ -686,6 +686,14 @@ def _response_real_control(value, name: str) -> float:
 class _UHFLinearResponseCore:
     """Share the strict coupled UHF operator and nuclear perturbation primitives."""
 
+    @staticmethod
+    def _validate_reference(reference):
+        return validate_uhf_reference(reference)
+
+    @staticmethod
+    def _reference_fingerprint(reference) -> str:
+        return uhf_reference_fingerprint(reference)
+
     def __init__(
         self,
         reference,
@@ -703,7 +711,7 @@ class _UHFLinearResponseCore:
         operator_dimension_limit: int = 512,
     ):
         validate_pyscf_version()
-        self.reference = validate_uhf_reference(reference)
+        self.reference = self._validate_reference(reference)
         self.cphf_tolerance = _response_real_control(
             cphf_tolerance,
             "cphf_tolerance",
@@ -1412,7 +1420,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
 
     def solve(self) -> UHFResponse:
         """Return the audited complete spin-resolved AO density response."""
-        validate_uhf_reference(self.reference)
+        self._validate_reference(self.reference)
         coefficient, energy, occupation, occupied, virtual, minimum_gaps = self._state()
         (
             response_dimension,
@@ -1660,7 +1668,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             )
         response = UHFResponse(
             reference_identity=id(self.reference),
-            state_fingerprint=uhf_reference_fingerprint(self.reference),
+            state_fingerprint=self._reference_fingerprint(self.reference),
             integrity_fingerprint="",
             alpha_mo_response=_immutable_array(responses[0]),
             beta_mo_response=_immutable_array(responses[1]),
@@ -1925,7 +1933,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
 
     def audit_response_equations(self, response: UHFResponse) -> None:
         """Rebuild coupled equations and invariants for a supplied response."""
-        validate_uhf_reference(self.reference)
+        self._validate_reference(self.reference)
         if type(response) is not UHFResponse:
             raise UHFResponseError("the supplied UHF response has an invalid type")
         if type(response.diagnostics) is not UHFResponseDiagnostics:
@@ -1936,7 +1944,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         self._validate_supplied_structure(response, occupied, virtual)
         if response.reference_identity != id(self.reference):
             raise UHFResponseError("the supplied UHF response belongs to another reference")
-        if response.state_fingerprint != uhf_reference_fingerprint(self.reference):
+        if response.state_fingerprint != self._reference_fingerprint(self.reference):
             raise UHFResponseError("the supplied UHF response does not match the current state")
         if response.integrity_fingerprint != uhf_response_integrity_fingerprint(response):
             raise UHFResponseError("the supplied UHF response failed its integrity check")
@@ -2317,7 +2325,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         objective_symmetry_tolerance: float = 1.0e-10,
     ):
         validate_pyscf_version()
-        self.reference = validate_uhf_reference(reference)
+        self.reference = self._validate_reference(reference)
         self.residual_tolerance = _response_real_control(
             residual_tolerance,
             "adjoint residual_tolerance",
@@ -2624,7 +2632,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             raise UHFAdjointError(f"UHF adjoint evaluation failed: {error}") from error
 
     def _solve(self, objective_ao_potential: np.ndarray) -> UHFAdjoint:
-        validate_uhf_reference(self.reference)
+        self._validate_reference(self.reference)
         objective = self._validated_objective_potential(objective_ao_potential)
         objective_symmetry_residual = float(
             np.max(np.abs(objective - objective.T), initial=0.0)
@@ -2738,7 +2746,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 else (self.molecule.natm, 3)
             )
             _validated_float64_array(value, expected_shape, f"UHF adjoint {name}")
-        validate_uhf_reference(self.reference)
+        self._validate_reference(self.reference)
         linear_diagnostics = linear_result.diagnostics
         diagnostics = UHFAdjointDiagnostics(
             minimum_alpha_orbital_gap=minimum_gaps[0],
@@ -2782,7 +2790,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         )
         adjoint = UHFAdjoint(
             reference_identity=id(self.reference),
-            state_fingerprint=uhf_reference_fingerprint(self.reference),
+            state_fingerprint=self._reference_fingerprint(self.reference),
             integrity_fingerprint="",
             operator_fingerprint=linear_result.operator_fingerprint,
             objective_ao_potential=_immutable_array(objective),
@@ -2832,7 +2840,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         expected_objective_ao_potential: np.ndarray,
     ) -> None:
         """Independently audit one consumed UHF adjoint without another solve."""
-        validate_uhf_reference(self.reference)
+        self._validate_reference(self.reference)
         if type(adjoint) is not UHFAdjoint:
             raise UHFAdjointError("the supplied UHF adjoint has an invalid type")
         diagnostics = adjoint.diagnostics
@@ -2844,7 +2852,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             raise UHFAdjointError(
                 "the supplied UHF adjoint belongs to another reference"
             )
-        if adjoint.state_fingerprint != uhf_reference_fingerprint(self.reference):
+        if adjoint.state_fingerprint != self._reference_fingerprint(self.reference):
             raise UHFAdjointError(
                 "the supplied UHF adjoint does not match the current UHF state"
             )
@@ -3160,4 +3168,4 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             raise UHFAdjointError(
                 "the supplied UHF adjoint invariant exceeds its tolerance"
             )
-        validate_uhf_reference(self.reference)
+        self._validate_reference(self.reference)

@@ -14,7 +14,7 @@ def main_cli(args=None):
                 description="A program to generate accurate energy functionals.")
     parser.add_argument("command", 
                         help="specify the sub-command to run, possible choices: "
-                             "train, test, scf, stats, iterate")
+                             "train, test, scf, deephf, stats, iterate")
     parser.add_argument("args", nargs=argparse.REMAINDER,
                         help="arguments to be passed to the sub-command")
 
@@ -27,6 +27,8 @@ def main_cli(args=None):
         sub_cli = test_cli
     elif args.command.upper() == "SCF":
         sub_cli = scf_cli
+    elif args.command.upper() == "DEEPHF":
+        sub_cli = deephf_cli
     elif args.command.upper() == "STATS":
         sub_cli = stats_cli
     elif args.command.upper().startswith("ITER"):
@@ -184,6 +186,37 @@ def scf_cli(args=None):
 
     from deepks.deepks.run import main
     main(**argdict)
+
+
+def deephf_cli(args=None):
+    parser = argparse.ArgumentParser(
+                prog="deepks deephf",
+                description="Run strict perturbative DeePHF inference.",
+                argument_default=argparse.SUPPRESS)
+    parser.add_argument("input", nargs="?",
+                        help="YAML input for strict DeePHF inference")
+    parser.add_argument("-s", "--systems", nargs="+",
+                        help="XYZ files or molecular data directories")
+    parser.add_argument("-r", "--reference", choices=("rhf", "uhf", "rks", "uks"),
+                        help="native reference family")
+    parser.add_argument("-m", "--model-file",
+                        help="CorrNet checkpoint or NONE for a zero correction")
+    parser.add_argument("-b", "--backend", choices=("direct", "zvector"),
+                        help="analytic-gradient backend")
+    parser.add_argument("-B", "--basis", help="AO basis")
+    parser.add_argument("-P", "--projector-basis", help="projector basis")
+    parser.add_argument("-D", "--device", help="model device")
+    parser.add_argument("-o", "--dump-dir", help="output directory")
+    parser.add_argument("-v", "--verbose", type=int, choices=range(0, 6))
+    parsed = parser.parse_args(args)
+    if hasattr(parsed, "input"):
+        configuration = load_yaml(parsed.input)
+        del parsed.input
+        configuration.update(vars(parsed))
+    else:
+        configuration = vars(parsed)
+    from deepks.deephf.workflow import main
+    main(**configuration)
 
 
 def stats_cli(args=None):

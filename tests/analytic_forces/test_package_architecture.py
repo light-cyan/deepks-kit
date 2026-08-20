@@ -176,6 +176,10 @@ def _pyscf_response_imports(source_path):
         or module_name.startswith("pyscf.hessian.rks.")
         or module_name == "pyscf.grad.rks"
         or module_name.startswith("pyscf.grad.rks.")
+        or module_name == "pyscf.hessian.uks"
+        or module_name.startswith("pyscf.hessian.uks.")
+        or module_name == "pyscf.grad.uks"
+        or module_name.startswith("pyscf.grad.uks.")
         or module_name == "pyscf.dft.numint"
         or module_name.startswith("pyscf.dft.numint.")
         or module_name == "pyscf.dft.libxc"
@@ -257,6 +261,10 @@ def _pyscf_compatibility_accesses(source_path):
             facilities.add("rks_hessian")
         if _imports_prefix(name, "pyscf.grad.rks"):
             facilities.add("rks_gradient")
+        if _imports_prefix(name, "pyscf.hessian.uks"):
+            facilities.add("uks_hessian")
+        if _imports_prefix(name, "pyscf.grad.uks"):
+            facilities.add("uks_gradient")
         if _imports_prefix(name, "pyscf.dft.numint"):
             facilities.add("rks_numint")
         if _imports_prefix(name, "pyscf.dft.libxc"):
@@ -268,6 +276,8 @@ def _pyscf_compatibility_accesses(source_path):
             facilities.add("rks_grid")
         if _imports_prefix(name, "pyscf.dft.rks"):
             facilities.add("rks_reference")
+        if _imports_prefix(name, "pyscf.dft.uks"):
+            facilities.add("uks_reference")
         if name.startswith("pyscf.") and "intor_cross" in name.split("."):
             facilities.add("cross_overlap")
     return sorted(facilities)
@@ -358,6 +368,8 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
                     "pyscf.dft.libxc",
                     "pyscf.dft.gen_grid",
                     "pyscf.dft.radi",
+                    "pyscf.hessian.uks",
+                    "pyscf.grad.uks",
                 )
             )
             if is_rks_facility and source_path.parent != PACKAGE_ROOT / "deephf":
@@ -378,6 +390,10 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
             facility = "rks_hessian"
         elif _imports_prefix(module_name, "pyscf.grad.rks"):
             facility = "rks_gradient"
+        elif _imports_prefix(module_name, "pyscf.hessian.uks"):
+            facility = "uks_hessian"
+        elif _imports_prefix(module_name, "pyscf.grad.uks"):
+            facility = "uks_gradient"
         elif _imports_prefix(module_name, "pyscf.dft.numint"):
             facility = "rks_numint"
         elif _imports_prefix(module_name, "pyscf.dft.libxc"):
@@ -401,8 +417,10 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
         "uhf_hessian": {"deepks/deephf/pyscf_uhf.py"},
         "rks_hessian": {"deepks/deephf/pyscf_rks.py"},
         "rks_gradient": {"deepks/deephf/pyscf_rks.py"},
-        "rks_numint": {"deepks/deephf/pyscf_rks.py"},
-        "rks_libxc": {"deepks/deephf/pyscf_rks.py"},
+        "uks_hessian": {"deepks/deephf/pyscf_uks.py"},
+        "uks_gradient": {"deepks/deephf/pyscf_uks.py"},
+        "rks_numint": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
+        "rks_libxc": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
         "rks_grid": {"deepks/deephf/pyscf_rks.py"},
     }
     imported_modules = {module_name for _, module_name in response_imports}
@@ -412,6 +430,8 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
     assert "pyscf.hessian.uhf" in imported_modules
     assert "pyscf.hessian.rks" in imported_modules
     assert "pyscf.grad.rks" in imported_modules
+    assert "pyscf.hessian.uks" in imported_modules
+    assert "pyscf.grad.uks" in imported_modules
     assert "pyscf.dft.numint" in imported_modules
     assert "pyscf.dft.libxc" in imported_modules
     assert "pyscf.dft.gen_grid" in imported_modules
@@ -464,10 +484,13 @@ def test_deephf_pyscf_compatibility_facilities_have_one_adapter_owner():
         "uhf_hessian": {"deepks/deephf/pyscf_uhf.py"},
         "rks_hessian": {"deepks/deephf/pyscf_rks.py"},
         "rks_gradient": {"deepks/deephf/pyscf_rks.py"},
-        "rks_numint": {"deepks/deephf/pyscf_rks.py"},
-        "rks_libxc": {"deepks/deephf/pyscf_rks.py"},
+        "uks_hessian": {"deepks/deephf/pyscf_uks.py"},
+        "uks_gradient": {"deepks/deephf/pyscf_uks.py"},
+        "rks_numint": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
+        "rks_libxc": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
         "rks_grid": {"deepks/deephf/pyscf_rks.py"},
-        "rks_reference": {"deepks/deephf/pyscf_rks.py"},
+        "rks_reference": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/workflow.py"},
+        "uks_reference": {"deepks/deephf/pyscf_uks.py", "deepks/deephf/workflow.py"},
     }
 
 
@@ -495,6 +518,9 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
         "rks_method.py",
         "rks_gradient.py",
         "rks_zvector.py",
+        "uks_method.py",
+        "uks_gradient.py",
+        "uks_zvector.py",
     )
     violations = {
         module_name: _private_attribute_accesses(
@@ -529,8 +555,10 @@ def test_rks_semiprivate_pyscf_facilities_have_one_adapter_owner():
             owners[symbol].add(relative_path)
 
     assert owners == {
-        symbol: {"deepks/deephf/pyscf_rks.py"}
-        for symbol in semiprivate_symbols
+        "_CUSTOM_FUNC_R": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
+        "_get_vxc_deriv1": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
+        "_itrf": {"deepks/deephf/pyscf_rks.py"},
+        "grids_response_cc": {"deepks/deephf/pyscf_rks.py"},
     }
 
 
@@ -545,6 +573,7 @@ def test_capabilities_is_pyscf_neutral_and_reference_validation_has_exact_owners
         "validate_reference": [],
         "validate_uhf_reference": [],
         "validate_rks_reference": [],
+        "validate_uks_reference": [],
     }
     for source_path in sorted((PACKAGE_ROOT / "deephf").rglob("*.py")):
         tree = ast.parse(
@@ -565,6 +594,7 @@ def test_capabilities_is_pyscf_neutral_and_reference_validation_has_exact_owners
         "validate_reference": ["deepks/deephf/pyscf_rhf.py"],
         "validate_uhf_reference": ["deepks/deephf/pyscf_uhf.py"],
         "validate_rks_reference": ["deepks/deephf/pyscf_rks.py"],
+        "validate_uks_reference": ["deepks/deephf/pyscf_uks.py"],
     }
 
 
@@ -629,6 +659,15 @@ def test_rhf_zvector_scanner_and_force_data_do_not_access_non_rhf_symbols():
         "RKSResponseAdapter",
         "RKSResponseDiagnostics",
         "validate_rks_reference",
+        "UKSDeePHF",
+        "UKSDeePHFGradients",
+        "UKSDeePHFZVectorGradients",
+        "UKSAdjoint",
+        "UKSAdjointAdapter",
+        "UKSResponse",
+        "UKSResponseAdapter",
+        "UKSResponseDiagnostics",
+        "validate_uks_reference",
     }
 
     def whole_module(tree):
@@ -665,6 +704,14 @@ def test_uhf_paths_do_not_access_other_reference_backends_or_force_data_symbols(
         "RKSResponseAdapter",
         "RKSResponseDiagnostics",
         "validate_rks_reference",
+        "UKSDeePHF",
+        "UKSDeePHFGradients",
+        "UKSDeePHFZVectorGradients",
+        "UKSAdjoint",
+        "UKSAdjointAdapter",
+        "UKSResponse",
+        "UKSResponseAdapter",
+        "validate_uks_reference",
     }
 
     def whole_module(tree):
@@ -704,6 +751,14 @@ def test_rks_paths_do_not_access_other_reference_backends():
         "UHFResponseAdapter",
         "generate_rhf_force_frame",
         "write_rhf_force_dataset",
+        "UKSDeePHF",
+        "UKSDeePHFGradients",
+        "UKSDeePHFZVectorGradients",
+        "UKSAdjoint",
+        "UKSAdjointAdapter",
+        "UKSResponse",
+        "UKSResponseAdapter",
+        "validate_uks_reference",
     }
 
     def whole_module(tree):
@@ -770,6 +825,39 @@ def test_rks_zvector_path_has_no_direct_response_symbol_access():
         ),
     }
 
+    assert violations == {name: [] for name in violations}
+
+
+def test_uks_zvector_path_has_no_direct_response_symbol_access():
+    forbidden_symbols = {
+        "UKSDeePHFGradients",
+        "UKSResponseAdapter",
+        "response",
+        "first_order_density",
+        "first_order_spin_density",
+        "dq_dR_response",
+        "dq_dR_response_spin",
+        "dq_dR_relaxed",
+        "dq_dR_relaxed_spin",
+    }
+
+    def whole_module(tree):
+        return (tree,)
+
+    def method_zvector_nodes(tree):
+        return tuple(
+            node
+            for class_node in tree.body
+            if isinstance(class_node, ast.ClassDef) and class_node.name == "UKSDeePHF"
+            for node in class_node.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {"adjoint", "_zvector_inputs", "_validate_zvector_inputs"}
+        )
+
+    violations = {
+        "deepks/deephf/uks_zvector.py": _symbol_accesses(PACKAGE_ROOT / "deephf" / "uks_zvector.py", whole_module, forbidden_symbols),
+        "deepks/deephf/uks_method.py:adjoint": _symbol_accesses(PACKAGE_ROOT / "deephf" / "uks_method.py", method_zvector_nodes, forbidden_symbols),
+    }
     assert violations == {name: [] for name in violations}
 
 
@@ -955,3 +1043,28 @@ def test_rks_direct_result_symbols_have_one_module_level_owner():
     assert actual_owners == {
         symbol: [owner] for symbol, owner in expected_owners.items()
     }
+
+
+def test_uks_result_symbols_have_one_module_level_owner():
+    expected_owners = {
+        "UKSDeePHF": "deepks/deephf/uks_method.py",
+        "UKSDeePHFGradients": "deepks/deephf/uks_gradient.py",
+        "UKSDeePHFZVectorGradients": "deepks/deephf/uks_zvector.py",
+        "UKSAdjoint": "deepks/deephf/pyscf_uks.py",
+        "UKSAdjointAdapter": "deepks/deephf/pyscf_uks.py",
+        "UKSAdjointDiagnostics": "deepks/deephf/pyscf_uks.py",
+        "UKSAdjointError": "deepks/deephf/pyscf_uks.py",
+        "UKSNativeGradient": "deepks/deephf/pyscf_uks.py",
+        "UKSResponse": "deepks/deephf/pyscf_uks.py",
+        "UKSResponseAdapter": "deepks/deephf/pyscf_uks.py",
+        "UKSResponseDiagnostics": "deepks/deephf/pyscf_uks.py",
+        "UKSResponseError": "deepks/deephf/pyscf_uks.py",
+    }
+    actual_owners = {symbol: [] for symbol in expected_owners}
+    for source_path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        relative_path = str(source_path.relative_to(REPOSITORY_ROOT))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name in actual_owners:
+                actual_owners[node.name].append(relative_path)
+    assert actual_owners == {symbol: [owner] for symbol, owner in expected_owners.items()}

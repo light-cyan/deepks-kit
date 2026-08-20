@@ -2,10 +2,11 @@
 
 DeePKS-kit is a program to generate accurate energy functionals for quantum chemistry systems, for both perturbative scheme (DeePHF) and self-consistent scheme (DeePKS).
 
-The program provides a command line interface `deepks` that contains five sub-commands, 
+The program provides a command line interface `deepks` with these sub-commands:
 - `train`: train an neural network based post-HF energy functional model
 - `test`: test the post-HF model with given data and show statistics
 - `scf`: run self-consistent field calculation with given energy model
+- `deephf`: run strict perturbative RHF, UHF, pure-LDA RKS, or pure-LDA UKS energy and analytic-gradient inference
 - `stats`: collect and print statistics of the SCF the results
 - `iterate`: iteratively train an self-consistent model by combining four commands above
 
@@ -27,7 +28,7 @@ An relatively detailed decrisption of the `deepks-kit` library can be found in [
 
 Please see [`examples`](./examples) folder for the usage of `deepks-kit` library. A detailed example with executable data for single water molecules can be found [here](./examples/water_single). A more complicated one for training water clusters can be found [here](./examples/water_cluster).
 
-The model computes `e_corr` and `f_corr_explicit`, while supervised datasets store the corresponding labels as `e_corr_target` and `f_corr_explicit_target`. Force datasets also distinguish `f_reference_variational`, the variational reference partition of the total force, and provide `dq_dR_explicit` for the model force contraction.
+Strict DeePHF force datasets store `e_corr_target`, `f_corr_target`, and the complete relaxed descriptor Jacobian `dq_dR_relaxed` with machine-checkable RHF direct-response provenance. Inference exposes direct and Z-vector analytic-gradient backends through the public `deepks.deephf` API and `deepks deephf` command.
 
 Check [this input file](./examples/water_cluster/args.yaml) for detailed explanation for possible input parameters, and also [this one](./examples/water_cluster/shell.yaml) if you would like to run on local machine instead of using Slurm scheduler.
 
