@@ -88,6 +88,10 @@ The canonical symbols and identifiers are:
 | `O` | `O` | AO-to-projector overlap tensor, partitioned by projector shell. |
 | `D` | `D` | Projected-density block `D_s = O_s^T P O_s`. |
 | `q` | `q` | Descriptor obtained by concatenating the ascending eigenvalues of every `D_s` block. |
+| `W` | `correction_ao_potential` | Complete correction objective `partial e_corr / partial P`, formed by contracting model sensitivity with `dq_dP`. |
+| `A` | response operator | Physical occupied-virtual reference-response operator in `A X^R = -B^R`. |
+| `b` | `objective_orbital_gradient` | Bilateral occupied-virtual derivative of the scalar correction objective. |
+| `z` | `zvector` | Scalar adjoint satisfying the literal transpose equation `A.T z = b`. |
 | `dq_dR_explicit` | `dq_dR_explicit` | Nuclear derivative of `q` at fixed numerical AO density matrix `P`, including AO-center and projector-center motion. |
 | `dq_dR_response` | `dq_dR_response` | Descriptor derivative caused by the complete first-order reference density, `(partial q / partial P) : P^R`. |
 | `dq_dR_relaxed` | `dq_dR_relaxed` | Complete derivative `dq_dR_explicit + dq_dR_response`. |
@@ -147,6 +151,9 @@ Runtime tensors omit a frame axis; serialized arrays prepend `n_frame` without c
 | `dq_dR_explicit` | `(n_raw_atom, 3, n_descriptor_atom, n_projector)` | `(n_frame, n_raw_atom, 3, n_descriptor_atom, n_projector)` | Runtime `Bohr^-1`; serialized inverse declared molecular length unit. |
 | `dq_dR_response` | `(n_raw_atom, 3, n_descriptor_atom, n_projector)` | Diagnostic storage only. | Runtime `Bohr^-1`; serialized inverse declared molecular length unit. |
 | `dq_dR_relaxed` | `(n_raw_atom, 3, n_descriptor_atom, n_projector)` | `(n_frame, n_raw_atom, 3, n_descriptor_atom, n_projector)` | Runtime `Bohr^-1`; serialized inverse declared molecular length unit. |
+| `W` | `(n_ao, n_ao)` | Scalar-adjoint runtime result. | `Eh`. |
+| `b` | `(n_virtual, n_occupied)` | Scalar-adjoint runtime result. | `Eh`. |
+| `z` | `(n_virtual, n_occupied)` | Scalar-adjoint runtime result. | Dimensionless. |
 | `e_base`, `e_corr`, `e_tot`, `e_corr_target` | scalar | `(n_frame, 1)` | `Eh`. |
 | `f_reference_variational`, `f_corr_explicit`, `f_corr_explicit_target`, `f_tot` | `(n_raw_atom, 3)` | `(n_frame, n_raw_atom, 3)` | Runtime `Eh/Bohr`; serialized `Eh` per declared molecular length unit. |
 
@@ -157,6 +164,18 @@ The shared derivative API returns atomic-unit derivatives, while calculation fie
 For DeePHF, `d(e_corr)/dR[A,x] = sum_I,k (partial e_corr / partial q[I,k]) dq_dR_relaxed[A,x,I,k]`, and the correction-force contribution is the negative of this contraction.
 
 The response component uses a complete basis-aware `P^R`, including occupied-virtual response and occupied-occupied metric response; an occupied-virtual amplitude tensor alone is not `P^R`.
+
+### 7.1 RHF direct and scalar-adjoint identity
+
+For the accepted spin-summed closed-shell convention, occupied orbitals have `n_i = 2`, `W[mu,nu] = sum_I,k (partial e_corr / partial q[I,k]) dq_dP[I,k,mu,nu]`, and `b[a,i] = n_i (W_mo[a,i] + W_mo[i,a]) = 4 W_mo[a,i]` for symmetric `W`.
+
+For a virtual-occupied amplitude `X`, `delta P(X) = C_v X (C_o diag(n_i)).T + C_o diag(n_i) X.T C_v.T`, `G[delta P] = J[delta P] - 0.5 K[delta P]`, and `(A X)[a,i] = (epsilon_a - epsilon_i) X[a,i] + (C_v.T G[delta P(X)] C_o)[a,i]`.
+
+The direct equation is `A X^R = -B^R`, with `B^R = B_bare^R + B_metric^R`, `B_bare^R[a,i] = h^R[a,i] - epsilon_i S^R[a,i]`, and `B_metric^R[a,i] = (C_v.T G[P_metric^R] C_o)[a,i]`.
+
+The scalar adjoint solves `A.T z = b` once. With `D_z = C_v z (C_o diag(n_i)).T + C_o diag(n_i) z.T C_v.T`, `V_z = G[D_z]`, and `Wbar_oo = 0.5 (W_oo + W_oo.T)`, the exact response partitions are `g_metric^R = -2 S_oo^R : Wbar_oo`, `g_adjoint_nuclear^R = -z : B_bare^R`, `g_adjoint_metric^R = 0.5 S_oo^R : V_z,oo`, `g_occupied_virtual^R = g_adjoint_nuclear^R + g_adjoint_metric^R`, and `g_response^R = g_metric^R + g_occupied_virtual^R`.
+
+The complete correction gradient is `g_corr^R = sum_I,k (partial e_corr / partial q[I,k]) dq_dR_explicit[R,I,k] + g_response^R`, and the complete method gradient is `g_tot^R = g_reference^R + g_corr^R`.
 
 ## 8. Descriptor degeneracy contract
 
@@ -196,9 +215,31 @@ The initial DeePHF force capability accepts a finite molecular `pyscf.gto.Mole` 
 
 - The response operator is well conditioned for the configured solver, all response quantities are finite, and the independently calculated residual satisfies the recorded tolerance.
 
+- A scalar-adjoint calculation additionally requires a symmetric finite correction AO objective, an explicitly audited stable occupied-virtual operator, one finite transpose solution, and literal, independently applied transpose, and physical residuals within tolerance.
+
+- Force inference additionally requires a hook-free evaluation-mode model whose complete ordinary and differentiable correction scalars agree, whose autograd sensitivity agrees with deterministic descriptor-coordinate central differences, whose semantic state is fingerprintable and unchanged throughout the transaction, and whose execution consumes no global random-number-generator state.
+
 ROHF, UHF, ROKS, RKS, UKS, complex-orbital, periodic, decorated, unconverged, discontinuous-root, and capability-ambiguous references are outside this initial strict RHF set and fail validation before a force calculation begins.
 
 The capability validator checks the concrete reference state and active decorations; a method label such as `xc="HF"` is not sufficient evidence of RHF capability.
+
+### 9.1 RHF gradient backends
+
+`deepks.deephf` exposes `direct` and `zvector` as distinct RHF analytic-gradient backends, with `direct` remaining the default for `nuc_grad_method`, `gradient`, and `forces`. The direct backend constructs the complete coordinate-wise density and relaxed descriptor responses, while the Z-vector backend evaluates one model-specific scalar correction gradient without constructing either response tensor.
+
+`DeePHF.response_options` configures the direct backend and `DeePHF.adjoint_options` independently configures the Z-vector backend. Each backend validates only its own method-level and driver-level option namespace, and neither backend falls back to the other.
+
+The reference-neutral `ScalarAdjointProblem` contract supplies `dimension`, `dense_operator`, `apply`, and `apply_transpose`; `solve_scalar_adjoint` performs one literal `A.T z = b` solve and retains literal, independent-transpose, and physical residual diagnostics. Reference-specific operator, symmetry, stability, condition, and nuclear-contraction semantics remain inside the corresponding adapter.
+
+The force-data producer always selects the direct backend because persistent `dq_dR_relaxed` is a model-independent coordinate-wise descriptor Jacobian. A scalar `RHFAdjoint` is a model-specific inference result and has no relaxed-Jacobian semantics.
+
+### 9.2 Strict RHF scanner lifecycle
+
+An RHF DeePHF gradient driver creates a fresh-reference scanner with a fixed `direct` or `zvector` backend, independently copied direct, adjoint, and driver option namespaces, a fixed projector definition, and a continuous occupied-subspace root anchor.
+
+Every scanner call validates atom selection before SCF, constructs a new exact native RHF reference with `dm0=None`, rebuilds the DeePHF method, descriptor, backend response state, and gradient driver, and compares the accepted occupied space with the preceding root through the minimum singular value of the cross-geometry occupied overlap.
+
+The scanner publishes energy, gradient, reference, method, and driver state atomically and advances the root anchor only after the entire call succeeds. A failed call clears its current public result and preserves the preceding accepted root anchor, so stale energy, gradient, response, adjoint, or geometry state is never returned.
 
 ## 10. Failure boundaries
 
@@ -209,6 +250,10 @@ Strict DeePHF force evaluation never substitutes `dq_dR_explicit` for a missing 
 Strict DeePHF force training, validation, and saved-data testing require both target force and `dq_dR_relaxed` with matching provenance and never degrade silently to energy-only evaluation.
 
 Response convergence is established by an independently computed residual; successful return from a low-level PySCF solver is not sufficient.
+
+Scalar-adjoint acceptance requires the literal dense transpose residual and an independently applied transpose residual; the RHF symmetry gate additionally requires the independently applied physical residual. A failed adjoint never falls back to direct response or an explicit-only correction gradient.
+
+Scanner acceptance requires an exact hook-free Mole input or a valid coordinate array, static molecular identity, supported copied SCF controls, fresh SCF convergence, unchanged occupations, continuous occupied-subspace overlap, stable model state during a call, finite energy and gradient, and atomic result publication.
 
 A zero or constant correction must reduce `e_tot` and `f_tot` to the native reference values within the declared numerical tolerance.
 
@@ -223,6 +268,10 @@ First-order reference densities must agree with displaced-reference finite diffe
 Relaxed descriptor derivatives must agree with descriptors from independently converged displaced references over a documented step-size sequence.
 
 DeePHF total gradients must agree with central finite differences of the complete `e_base + e_corr` energy.
+
+RHF Z-vector correction partitions must agree with their P2 direct-oracle counterparts, and the complete Z-vector gradient must independently agree with central finite differences of `e_base + e_corr`.
+
+RHF scanner results across repeated and displaced geometry sequences must agree with independently constructed fresh methods, while injected SCF, root, model, response, or adjoint failures leave no publishable current result.
 
 Accepted penalty-free DeePKS total gradients and descriptor values must remain numerically equivalent across the P1 structural refactor.
 

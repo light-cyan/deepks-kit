@@ -18,7 +18,7 @@ The [P0 scientific contract](./p0_scientific_contract.md) remains authoritative 
 
 `deepks.deephf.pyscf_rhf.RHFResponseAdapter` owns the molecular RHF nuclear CPHF solve, complete first-order AO density reconstruction, residual refinement, and independent response audits.
 
-`deepks.deephf.capabilities` owns strict reference, model, projector-metadata, scalar-output, dtype, shape, and finite-value validation.
+`deepks.deephf.pyscf_rhf` owns strict native RHF reference validation and isolates PySCF-specific state inspection, while `deepks.deephf.capabilities` owns PySCF-neutral model, projector-metadata, scalar-output, dtype, shape, and finite-value validation.
 
 Shared projection, descriptor, `dq_dP`, and fixed-density explicit derivative mathematics remain in `deepks.descriptor`; the DeePHF package does not import `deepks.deepks`.
 

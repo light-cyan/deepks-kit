@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, P2, and P3A are complete; strict RHF DeePHF relaxed-force data, force-aware training, validation, saved-data testing, and checkpoint reload are accepted, with the validated P2 direct oracle providing their scientific response semantics.
+**Current position:** P0, P1, P2, P3A, and the P3B implementation are complete; strict RHF DeePHF relaxed-force training and scalar-adjoint inference are implemented on the validated P2 direct oracle, and the P3B target suite passes.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -99,6 +99,8 @@ P3 contains two parallel tracks after P2.
 - Demonstrate a compact RHF energy-and-force training workflow and reject incomplete or ambiguous data.
 
 ### P3B — RHF Z-vector inference
+
+**Status:** Implemented and target-accepted. The strict RHF scalar-adjoint backend, reference-neutral adjoint protocol, fresh-reference direct/Z-vector scanner, deterministic algebra and finite-difference tests, and failure-state checks are implemented and documented in [P3B RHF DeePHF Z-vector inference](./p3b_rhf_zvector_inference.md).
 
 - Implement RHF adjoint response and validate it against the direct oracle and total-energy finite differences.
 - Establish shared adjoint interfaces for later reference classes.
