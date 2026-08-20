@@ -2,6 +2,21 @@ import numpy as np
 import pytest
 
 
+def test_displaced_references_preserve_each_spin_occupied_subspace(
+    uhf_oracle_case,
+):
+    subspace_minima = (
+        uhf_oracle_case.occupied_subspace_minimum_singular_values
+    )
+
+    assert len(subspace_minima) == 54
+    for spin_minima in subspace_minima.values():
+        assert len(spin_minima) == 2
+        for minimum_singular_value in spin_minima:
+            assert np.isfinite(minimum_singular_value)
+            assert minimum_singular_value > 0.99
+
+
 @pytest.mark.parametrize(
     ("step", "absolute_tolerance"),
     [

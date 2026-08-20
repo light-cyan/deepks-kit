@@ -102,6 +102,35 @@ def occupied_virtual_shapes(reference):
     )
 
 
+def occupied_subspace_minimum_singular_values(reference, displaced_reference):
+    cross_overlap = np.asarray(
+        gto.intor_cross(
+            "int1e_ovlp",
+            reference.mol,
+            displaced_reference.mol,
+        )
+    )
+    minimum_singular_values = []
+    for spin in range(2):
+        reference_occupied = np.asarray(reference.mo_occ[spin]) > 0.0
+        displaced_occupied = (
+            np.asarray(displaced_reference.mo_occ[spin]) > 0.0
+        )
+        occupied_overlap = (
+            np.asarray(reference.mo_coeff[spin])[:, reference_occupied].T
+            @ cross_overlap
+            @ np.asarray(displaced_reference.mo_coeff[spin])[
+                :, displaced_occupied
+            ]
+        )
+        singular_values = np.linalg.svd(
+            occupied_overlap,
+            compute_uv=False,
+        )
+        minimum_singular_values.append(float(np.min(singular_values)))
+    return tuple(minimum_singular_values)
+
+
 def independent_coupled_uhf_operator(reference):
     coefficients = np.asarray(reference.mo_coeff)
     occupations = np.asarray(reference.mo_occ)
@@ -391,6 +420,10 @@ class UHFOracleCase:
     gradient: np.ndarray
     state: UHFOracleState
     displaced: dict[tuple[float, int, int, int], UHFOracleState]
+    occupied_subspace_minimum_singular_values: dict[
+        tuple[float, int, int, int],
+        tuple[float, float],
+    ]
     coupled_operator: np.ndarray
     overlap_derivative: np.ndarray
     metric_density_response: np.ndarray
@@ -462,6 +495,7 @@ def uhf_oracle_case():
     assert internally_stable
     assert externally_stable
     displaced = {}
+    occupied_subspace_minima = {}
     minimum_orbital_gaps = np.full(2, np.inf, dtype=np.float64)
     minimum_descriptor_gap = float(
         np.min(np.diff(state.descriptor[:, 1:], axis=-1))
@@ -482,6 +516,24 @@ def uhf_oracle_case():
                     assert (
                         tuple(displaced_reference.mol.ao_labels())
                         == reference_ao_labels
+                    )
+                    displacement_key = (
+                        step,
+                        atom_index,
+                        coordinate_index,
+                        direction,
+                    )
+                    spin_subspace_minima = (
+                        occupied_subspace_minimum_singular_values(
+                            reference,
+                            displaced_reference,
+                        )
+                    )
+                    for minimum_singular_value in spin_subspace_minima:
+                        assert np.isfinite(minimum_singular_value)
+                        assert minimum_singular_value > 0.99
+                    occupied_subspace_minima[displacement_key] = (
+                        spin_subspace_minima
                     )
                     for spin in range(2):
                         occupations = displaced_reference.mo_occ[spin]
@@ -516,9 +568,7 @@ def uhf_oracle_case():
                             )
                         ),
                     )
-                    displaced[
-                        (step, atom_index, coordinate_index, direction)
-                    ] = displaced_state
+                    displaced[displacement_key] = displaced_state
     overlap_derivative = independent_overlap_derivative(reference)
     method = UHFDeePHF(
         reference,
@@ -544,6 +594,9 @@ def uhf_oracle_case():
         gradient=gradient,
         state=state,
         displaced=displaced,
+        occupied_subspace_minimum_singular_values=(
+            occupied_subspace_minima
+        ),
         coupled_operator=independent_coupled_uhf_operator(reference),
         overlap_derivative=overlap_derivative,
         metric_density_response=independent_metric_density_response(
