@@ -9,6 +9,7 @@ import torch
 from deepks.descriptor import (
     AtomicDensityDescriptor,
     DescriptorDiagnostics,
+    spin_summed_ao_density,
     validate_differentiability,
 )
 from deepks.model.model import CorrNet
@@ -127,6 +128,17 @@ def _update_science_digest(digest, value) -> None:
 class DeePHF:
     """Evaluate a perturbative correction without modifying the RHF reference."""
 
+    @staticmethod
+    def _validate_reference_object(reference):
+        return validate_reference(reference)
+
+    @staticmethod
+    def _reference_state_fingerprint(reference) -> str:
+        return reference_fingerprint(reference)
+
+    def _descriptor_rank_bound(self) -> int:
+        return int(np.count_nonzero(self.reference.mo_occ > 0))
+
     def __init__(
         self,
         reference,
@@ -136,7 +148,7 @@ class DeePHF:
         response_options=None,
         adjoint_options=None,
     ):
-        self.reference = validate_reference(reference)
+        self.reference = self._validate_reference_object(reference)
         self.device = device or "cpu"
         if isinstance(model, str):
             model = CorrNet.load(model).double()
@@ -202,7 +214,9 @@ class DeePHF:
 
     def _current_science_state_fingerprint(self) -> str:
         digest = hashlib.sha256()
-        digest.update(reference_fingerprint(self.reference).encode("ascii"))
+        digest.update(
+            self._reference_state_fingerprint(self.reference).encode("ascii")
+        )
         digest.update(self._descriptor_science_fingerprint().encode("ascii"))
         return digest.hexdigest()
 
@@ -234,7 +248,7 @@ class DeePHF:
 
     def _validate_science_state(self, boundary: str) -> str:
         self._assert_science_state(boundary)
-        validate_reference(self.reference)
+        self._validate_reference_object(self.reference)
         return self._assert_science_state(boundary)
 
     def _clear_trusted_adjoint(self) -> None:
@@ -275,7 +289,7 @@ class DeePHF:
 
     def ao_density(self):
         self._assert_science_state("AO density evaluation")
-        density = np.asarray(self.reference.make_rdm1())
+        density = spin_summed_ao_density(self.reference.make_rdm1())
         self._assert_science_state("AO density evaluation")
         return density
 
@@ -648,7 +662,7 @@ class DeePHF:
     def validate_force_compatibility(self, **tolerances):
         """Validate ordered-eigenvalue and model-sensitivity force semantics."""
         validate_force_model(self.model)
-        validate_reference(self.reference)
+        self._validate_reference_object(self.reference)
         sensitivity = self.correction_sensitivity()
         validate_force_model(self.model)
         return self._validate_force_compatibility_with_sensitivity(
@@ -663,7 +677,7 @@ class DeePHF:
     ):
         validate_force_model(self.model)
         values = self._descriptor_values_tensor()
-        n_occupied = int(np.count_nonzero(self.reference.mo_occ > 0))
+        n_occupied = self._descriptor_rank_bound()
         diagnostics = validate_differentiability(
             values.detach().cpu().numpy(),
             self._descriptor.shell_sizes,
@@ -701,7 +715,7 @@ class DeePHF:
         self._assert_science_state("Z-vector input evaluation")
         validate_force_model(self.model)
         model_fingerprint = force_model_fingerprint(self.model)
-        validate_reference(self.reference)
+        self._validate_reference_object(self.reference)
         self._assert_science_state("Z-vector reference validation")
         sensitivity = _immutable_array(self.correction_sensitivity())
         self._assert_force_model_state(
@@ -843,7 +857,7 @@ class DeePHF:
 
     def _validate_response(self, response: RHFResponse) -> RHFResponse:
         """Reject response data that are stale, foreign, mutable, or incomplete."""
-        validate_reference(self.reference)
+        self._validate_reference_object(self.reference)
         if type(response) is not RHFResponse:
             raise RHFResponseError("the supplied RHF response has an invalid type")
         if type(response.diagnostics) is not RHFResponseDiagnostics:
@@ -1199,7 +1213,7 @@ class DeePHF:
 
     def kernel(self):
         """Evaluate E_base + E_corr while leaving the reference unchanged."""
-        validate_reference(self.reference)
+        self._validate_reference_object(self.reference)
         self.e_base = float(self.reference.e_tot)
         self.e_corr = self.correction_energy()
         self.e_tot = self.e_base + self.e_corr
