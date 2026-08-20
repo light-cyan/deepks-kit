@@ -8,7 +8,10 @@ from pyscf import gto, scf
 
 import deepks.deephf.adjoint as adjoint_module
 from deepks.deephf import DeePHF, DeePHFCapabilityError
-from deepks.deephf.capabilities import force_rng_fingerprints
+from deepks.deephf.capabilities import (
+    force_model_fingerprint,
+    force_rng_fingerprints,
+)
 from deepks.deephf.pyscf_rhf import (
     RHFAdjointAdapter,
     RHFAdjointError,
@@ -33,6 +36,7 @@ DRIVER_RESULT_FIELDS = (
     "de_full",
     "de",
 )
+FORCE_TEST_GLOBAL_SCALE = 1.0
 
 
 @pytest.mark.parametrize("backend", [None, "", "Z", "rhf_zvector"])
@@ -532,7 +536,10 @@ def test_model_forward_state_mutation_fails_and_clears_the_driver(
     model.forward = mutating_forward
     with pytest.raises(
         DeePHFCapabilityError,
-        match="scientific state|identity changed|two-electron interaction",
+        match=(
+            "scientific state|identity changed|two-electron interaction|"
+            "force correction model state changed"
+        ),
     ):
         driver.kernel()
     assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
@@ -653,6 +660,267 @@ def test_standalone_zvector_audits_complete_element_constant_transaction(
         match = "consumed global RNG state: Torch CPU"
 
     with pytest.raises(DeePHFCapabilityError, match=match):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_force_transaction_rejects_requires_grad_dependent_energy_branch(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    original_forward = method.model.forward
+
+    def requires_grad_branch(values):
+        scale = 2.0 if values.requires_grad else 1.0
+        return original_forward(values) * scale
+
+    method.model.forward = requires_grad_branch
+    driver = method.nuc_grad_method(backend="zvector")
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="differentiable force-model energy does not match the ordinary energy",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_force_transaction_rejects_detached_descriptor_dependence(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    original_forward = method.model.forward
+
+    def detached_dependence(values):
+        zero_graph = original_forward(values) * 0.0
+        return zero_graph + 0.17 * values.detach().sum()
+
+    method.model.forward = detached_dependence
+    driver = method.nuc_grad_method(backend="zvector")
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="sensitivity does not match deterministic central finite differences",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_force_transaction_rejects_torch_grad_mode_dependent_energy(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    original_forward = method.model.forward
+
+    def grad_mode_branch(values):
+        scale = 1.0 if torch.is_grad_enabled() else 2.0
+        return original_forward(values) * scale
+
+    method.model.forward = grad_mode_branch
+    driver = method.nuc_grad_method(backend="zvector")
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="ordinary force-model energy depends on the Torch grad mode",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_nonlinear_corrnet_descriptor_fd_audit_preserves_one_adjoint_solve(
+    zvector_algebra_case,
+    monkeypatch,
+):
+    method = _fresh_method(zvector_algebra_case)
+    solve_count = 0
+    original_solve = adjoint_module.np.linalg.solve
+
+    def counted_solve(matrix, rhs):
+        nonlocal solve_count
+        solve_count += 1
+        return original_solve(matrix, rhs)
+
+    monkeypatch.setattr(adjoint_module.np.linalg, "solve", counted_solve)
+    with torch.no_grad():
+        gradient = method.gradient(backend="zvector")
+
+    assert np.isfinite(gradient).all()
+    assert solve_count == 1
+
+
+def test_force_model_fingerprint_distinguishes_same_qualname_closure_values(
+    zvector_algebra_case,
+):
+    model = deepcopy(zvector_algebra_case.model)
+    original_forward = model.forward
+
+    def make_forward(scale):
+        def forward(values):
+            return original_forward(values) * scale
+
+        return forward
+
+    first = make_forward(1.0)
+    second = make_forward(2.0)
+    assert first.__qualname__ == second.__qualname__
+    model.forward = first
+    first_fingerprint = force_model_fingerprint(model)
+    model.forward = second
+    second_fingerprint = force_model_fingerprint(model)
+
+    assert first_fingerprint != second_fingerprint
+
+
+def test_force_transaction_rejects_same_qualname_forward_replacement_in_flight(
+    zvector_algebra_case,
+):
+    method = _fresh_method(zvector_algebra_case)
+    driver = method.nuc_grad_method(backend="zvector").run()
+    model = method.model
+    original_forward = model.forward
+
+    def make_forward(scale, replacement=None):
+        def forward(values):
+            if replacement is not None:
+                model.forward = replacement
+            return original_forward(values) * scale
+
+        return forward
+
+    replacement = make_forward(2.0)
+    active = make_forward(1.0, replacement)
+    assert active.__qualname__ == replacement.__qualname__
+    model.forward = active
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="force correction model state changed",
+    ):
+        driver.kernel()
+    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+
+
+def test_force_model_fingerprint_binds_resolved_class_forward(
+    zvector_algebra_case,
+):
+    model = deepcopy(zvector_algebra_case.model)
+    model_type = type(model)
+    original_forward = model_type.forward
+    original_fingerprint = force_model_fingerprint(model)
+
+    def replacement_forward(self, values):
+        return original_forward(self, values)
+
+    model_type.forward = replacement_forward
+    try:
+        replacement_fingerprint = force_model_fingerprint(model)
+    finally:
+        model_type.forward = original_forward
+
+    assert replacement_fingerprint != original_fingerprint
+
+
+def test_force_model_fingerprint_binds_referenced_global_scalar(
+    zvector_algebra_case,
+):
+    global FORCE_TEST_GLOBAL_SCALE
+
+    model = deepcopy(zvector_algebra_case.model)
+    original_forward = model.forward
+
+    def global_scaled_forward(values):
+        return original_forward(values) * FORCE_TEST_GLOBAL_SCALE
+
+    model.forward = global_scaled_forward
+    FORCE_TEST_GLOBAL_SCALE = 1.0
+    first_fingerprint = force_model_fingerprint(model)
+    FORCE_TEST_GLOBAL_SCALE = 2.0
+    try:
+        second_fingerprint = force_model_fingerprint(model)
+    finally:
+        FORCE_TEST_GLOBAL_SCALE = 1.0
+
+    assert second_fingerprint != first_fingerprint
+
+
+def test_force_model_fingerprint_binds_slot_only_semantic_state(
+    zvector_algebra_case,
+):
+    class SlotState:
+        __slots__ = ("value",)
+
+        def __init__(self, value):
+            self.value = value
+
+        def __repr__(self):
+            return "SlotState(<constant>)"
+
+    model = deepcopy(zvector_algebra_case.model)
+    model.slot_state = SlotState(1.0)
+    first_fingerprint = force_model_fingerprint(model)
+    model.slot_state.value = 2.0
+    second_fingerprint = force_model_fingerprint(model)
+
+    assert second_fingerprint != first_fingerprint
+
+
+def test_force_model_fingerprint_structures_object_dtype_arrays(
+    zvector_algebra_case,
+):
+    class SlotState:
+        __slots__ = ("value",)
+
+        def __init__(self, value):
+            self.value = value
+
+        def __repr__(self):
+            return "SlotState(<constant>)"
+
+    model = deepcopy(zvector_algebra_case.model)
+    state = SlotState(1.0)
+    model.object_array_state = np.array([state], dtype=object)
+    first_fingerprint = force_model_fingerprint(model)
+    state.value = 2.0
+    second_fingerprint = force_model_fingerprint(model)
+
+    assert second_fingerprint != first_fingerprint
+
+
+def test_force_model_fingerprint_binds_builtin_method_receiver_state(
+    zvector_algebra_case,
+):
+    model = deepcopy(zvector_algebra_case.model)
+    receiver = torch.tensor([1.0], dtype=torch.float64)
+    model.forward = receiver.inner
+    first_fingerprint = force_model_fingerprint(model)
+    receiver.add_(1.0)
+    second_fingerprint = force_model_fingerprint(model)
+
+    assert second_fingerprint != first_fingerprint
+
+
+@pytest.mark.parametrize(
+    "invalid_constant",
+    [
+        True,
+        np.bool_(False),
+        np.float32(0.2),
+        0.2 + 0.0j,
+        np.array(object(), dtype=object),
+    ],
+)
+def test_element_constant_requires_one_real_float64_scalar(
+    zvector_algebra_case,
+    invalid_constant,
+):
+    method = _fresh_method(zvector_algebra_case)
+    driver = method.nuc_grad_method(backend="zvector").run()
+    if isinstance(invalid_constant, np.ndarray) and invalid_constant.dtype.hasobject:
+        method.model.get_elem_const = lambda _elements: object()
+    else:
+        method.model.get_elem_const = lambda _elements: invalid_constant
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="element constant must use real numpy.float64",
+    ):
         driver.kernel()
     assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
 

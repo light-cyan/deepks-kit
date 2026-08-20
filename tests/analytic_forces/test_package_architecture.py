@@ -369,8 +369,18 @@ def test_deephf_pyscf_compatibility_facilities_have_one_adapter_owner():
 
 
 def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
-    private_state = {"_atm", "_bas", "_env", "_basis", "_ecp", "_eri"}
+    private_state = {
+        "_atm",
+        "_bas",
+        "_env",
+        "_basis",
+        "_ecp",
+        "_eri",
+        "_pseudo",
+        "__dict__",
+    }
     guarded_modules = (
+        "capabilities.py",
         "scanner.py",
         "method.py",
         "zvector.py",
@@ -385,6 +395,30 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
     }
 
     assert violations == {module_name: [] for module_name in guarded_modules}
+
+
+def test_capabilities_is_pyscf_neutral_and_reference_validation_has_one_owner():
+    capabilities_path = PACKAGE_ROOT / "deephf" / "capabilities.py"
+    pyscf_imports = [
+        module_name
+        for module_name in _imported_modules(capabilities_path)
+        if _imports_prefix(module_name, "pyscf")
+    ]
+    owners = []
+    for source_path in sorted((PACKAGE_ROOT / "deephf").rglob("*.py")):
+        tree = ast.parse(
+            source_path.read_text(encoding="utf-8"),
+            filename=str(source_path),
+        )
+        if any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "validate_reference"
+            for node in tree.body
+        ):
+            owners.append(str(source_path.relative_to(REPOSITORY_ROOT)))
+
+    assert pyscf_imports == []
+    assert owners == ["deepks/deephf/pyscf_rhf.py"]
 
 
 def test_zvector_path_has_no_direct_response_symbol_access():

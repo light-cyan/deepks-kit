@@ -23,9 +23,12 @@ import torch
 import deepks
 from deepks.descriptor import DescriptorDifferentiabilityError
 
-from .capabilities import validate_reference
 from .method import DeePHF
-from .pyscf_rhf import RHFResponseError, reference_provenance_snapshot
+from .pyscf_rhf import (
+    RHFResponseError,
+    reference_provenance_snapshot,
+    validate_reference,
+)
 
 
 GENERATOR_NAME = "deepks.deephf.force_data"

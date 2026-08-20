@@ -5,14 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-import hashlib
 import math
 from types import MappingProxyType
-from typing import Any
 
 import numpy as np
-import torch
 
+from .capabilities import (
+    DeePHFCapabilityError,
+    force_model_fingerprint,
+    validate_force_model,
+)
 from .gradient import _validate_atom_indices
 from .method import DeePHF
 from .pyscf_rhf import RHFScannerReferenceFactory
@@ -42,223 +44,24 @@ class _AtomDomain:
     natm: int
 
 
-_MODULE_CONTAINER_FIELDS = frozenset({"_parameters", "_buffers", "_modules"})
-_MODULE_EXECUTION_HOOK_FIELDS = (
-    ("forward-pre", "_forward_pre_hooks"),
-    ("forward", "_forward_hooks"),
-    ("backward-pre", "_backward_pre_hooks"),
-    ("backward", "_backward_hooks"),
-)
-_GLOBAL_MODULE_EXECUTION_HOOK_FIELDS = (
-    ("global-forward-pre", "_global_forward_pre_hooks"),
-    ("global-forward", "_global_forward_hooks"),
-    ("global-backward-pre", "_global_backward_pre_hooks"),
-    ("global-backward", "_global_backward_hooks"),
-)
-
-
-def _qualified_type(value: object) -> str:
-    value_type = type(value)
-    return f"{value_type.__module__}.{value_type.__qualname__}"
-
-
-def _update_tensor_fingerprint(digest, tensor: torch.Tensor) -> None:
-    digest.update(str(tensor.layout).encode("utf-8"))
-    digest.update(str(tensor.dtype).encode("utf-8"))
-    digest.update(repr(tuple(tensor.shape)).encode("ascii"))
-    if tensor.device.type == "meta":
-        raise RHFDeePHFScannerError(
-            "the correction model cannot be fingerprinted on the meta device"
-        )
-    try:
-        value = tensor.detach().cpu()
-        if value.layout != torch.strided:
-            value = value.to_dense()
-        flat_value = torch.empty(value.numel(), dtype=value.dtype, device="cpu")
-        flat_value.copy_(value.reshape(-1))
-        raw_bytes = flat_value.view(torch.uint8).numpy().tobytes()
-    except Exception as error:
-        raise RHFDeePHFScannerError(
-            f"the correction model tensor could not be fingerprinted: {error}"
-        ) from error
-    digest.update(raw_bytes)
-
-
-def _update_metadata_fingerprint(
-    digest,
-    value: Any,
-    active_objects: set[int],
-) -> None:
-    digest.update(_qualified_type(value).encode("utf-8"))
-    if value is None:
-        return
-    if isinstance(value, (bool, int, str, bytes)):
-        digest.update(repr(value).encode("utf-8"))
-        return
-    if isinstance(value, float):
-        digest.update(value.hex().encode("ascii"))
-        return
-    if isinstance(value, np.generic):
-        _update_metadata_fingerprint(digest, value.item(), active_objects)
-        return
-    if isinstance(value, torch.Tensor):
-        _update_tensor_fingerprint(digest, value)
-        return
-    if isinstance(value, np.ndarray):
-        digest.update(value.dtype.str.encode("ascii"))
-        digest.update(repr(value.shape).encode("ascii"))
-        if value.dtype.hasobject:
-            digest.update(repr(value.tolist()).encode("utf-8"))
-        else:
-            digest.update(np.ascontiguousarray(value).tobytes())
-        return
-    if callable(value):
-        digest.update(
-            str(getattr(value, "__module__", "")).encode("utf-8")
-        )
-        digest.update(
-            str(getattr(value, "__qualname__", repr(value))).encode("utf-8")
-        )
-        return
-
-    identity = id(value)
-    if identity in active_objects:
-        digest.update(b"<recursive>")
-        return
-    active_objects.add(identity)
-    try:
-        if isinstance(value, Mapping):
-            ordered_items = sorted(
-                value.items(),
-                key=lambda item: (_qualified_type(item[0]), repr(item[0])),
-            )
-            for key, item in ordered_items:
-                _update_metadata_fingerprint(digest, key, active_objects)
-                _update_metadata_fingerprint(digest, item, active_objects)
-            return
-        if isinstance(value, (tuple, list)):
-            for item in value:
-                _update_metadata_fingerprint(digest, item, active_objects)
-            return
-        if isinstance(value, (set, frozenset)):
-            for item in sorted(value, key=lambda item: (_qualified_type(item), repr(item))):
-                _update_metadata_fingerprint(digest, item, active_objects)
-            return
-        if isinstance(value, torch.nn.Module):
-            digest.update(_qualified_type(value).encode("utf-8"))
-            return
-        attributes = getattr(value, "__dict__", None)
-        if isinstance(attributes, dict):
-            for name, item in sorted(attributes.items()):
-                digest.update(name.encode("utf-8"))
-                _update_metadata_fingerprint(digest, item, active_objects)
-            return
-        digest.update(repr(value).encode("utf-8"))
-    finally:
-        active_objects.remove(identity)
-
-
 def _model_state_fingerprint(model) -> str:
-    """Bind model structure, semantic metadata, parameters, and buffers."""
-    digest = hashlib.sha256()
-    if model is None:
-        digest.update(b"deepks.deephf.none-correction-model")
-        return digest.hexdigest()
-    if not isinstance(model, torch.nn.Module):
-        raise RHFDeePHFScannerError(
-            "the scanner correction model must be a torch.nn.Module or None"
-        )
+    """Return the canonical strict force-model fingerprint for publication."""
     try:
-        modules = tuple(model.named_modules(remove_duplicate=False))
-        parameters = tuple(model.named_parameters(remove_duplicate=False))
-        buffers = tuple(model.named_buffers(remove_duplicate=False))
-        state = model.state_dict()
-    except Exception as error:
+        return force_model_fingerprint(model)
+    except DeePHFCapabilityError as error:
         raise RHFDeePHFScannerError(
-            f"the correction model state could not be enumerated: {error}"
+            f"the scanner correction model is incompatible: {error}"
         ) from error
-    for name, module in modules:
-        digest.update(b"module\0")
-        digest.update(name.encode("utf-8"))
-        digest.update(_qualified_type(module).encode("utf-8"))
-        for attribute_name, value in sorted(module.__dict__.items()):
-            if attribute_name in _MODULE_CONTAINER_FIELDS:
-                continue
-            digest.update(attribute_name.encode("utf-8"))
-            _update_metadata_fingerprint(digest, value, set())
-    for name, parameter in parameters:
-        digest.update(b"parameter\0")
-        digest.update(name.encode("utf-8"))
-        digest.update(repr(bool(parameter.requires_grad)).encode("ascii"))
-        _update_tensor_fingerprint(digest, parameter)
-    for name, buffer in buffers:
-        digest.update(b"buffer\0")
-        digest.update(name.encode("utf-8"))
-        _update_tensor_fingerprint(digest, buffer)
-    if not isinstance(state, Mapping):
-        raise RHFDeePHFScannerError(
-            "the correction model state_dict must be a mapping"
-        )
-    for name, value in sorted(state.items()):
-        digest.update(b"state\0")
-        digest.update(str(name).encode("utf-8"))
-        _update_metadata_fingerprint(digest, value, set())
-    return digest.hexdigest()
-
-
-def _active_hook_registry(owner, field_name: str, context: str) -> bool:
-    try:
-        registry = getattr(owner, field_name)
-    except Exception as error:
-        raise RHFDeePHFScannerError(
-            f"the correction model {context} hooks could not be inspected: {error}"
-        ) from error
-    if not isinstance(registry, Mapping):
-        raise RHFDeePHFScannerError(
-            f"the correction model {context} hook registry is invalid"
-        )
-    return bool(registry)
 
 
 def _validate_model_inference_preflight(model) -> None:
     """Require stable evaluation semantics before constructing a fresh reference."""
-    if model is None:
-        return
-    if not isinstance(model, torch.nn.Module):
-        raise RHFDeePHFScannerError(
-            "the scanner correction model must be a torch.nn.Module or None"
-        )
     try:
-        modules = tuple(model.named_modules(remove_duplicate=False))
-    except Exception as error:
+        validate_force_model(model)
+    except DeePHFCapabilityError as error:
         raise RHFDeePHFScannerError(
-            f"the correction model evaluation mode could not be inspected: {error}"
+            f"the scanner correction model is incompatible: {error}"
         ) from error
-    training_modules = [
-        name or "<root>"
-        for name, module in modules
-        if module.training is not False
-    ]
-    if training_modules:
-        raise RHFDeePHFScannerError(
-            "the scanner correction model must remain in evaluation mode; "
-            f"training modules: {', '.join(training_modules)}"
-        )
-    active_hooks = []
-    for name, module in modules:
-        module_name = name or "<root>"
-        for hook_name, field_name in _MODULE_EXECUTION_HOOK_FIELDS:
-            if _active_hook_registry(module, field_name, f"{module_name} {hook_name}"):
-                active_hooks.append(f"{module_name}:{hook_name}")
-    global_module_hooks = torch.nn.modules.module
-    for hook_name, field_name in _GLOBAL_MODULE_EXECUTION_HOOK_FIELDS:
-        if _active_hook_registry(global_module_hooks, field_name, hook_name):
-            active_hooks.append(hook_name)
-    if active_hooks:
-        raise RHFDeePHFScannerError(
-            "the scanner correction model cannot contain module execution hooks; "
-            f"active hooks: {', '.join(active_hooks)}"
-        )
 
 
 def _validated_root_overlap_tolerance(value) -> float:

@@ -13,7 +13,6 @@ from .capabilities import (
     validate_force_model,
     validate_model,
     validate_model_output,
-    validate_reference,
 )
 from .gradient import RHFDeePHFGradients
 from .force_data import (
@@ -35,6 +34,7 @@ from .pyscf_rhf import (
     RHFRootSnapshot,
     RHFScannerReferenceError,
     RHFScannerReferenceFactory,
+    validate_reference,
 )
 from .scanner import RHFDeePHFGradientScanner, RHFDeePHFScannerError
 from .zvector import RHFDeePHFZVectorGradients

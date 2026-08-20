@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import dataclass
+import random
 
 import numpy as np
 import pytest
@@ -82,6 +83,20 @@ def _model():
         output_layer.bias.fill_(0.019)
         model.energy_const.fill_(0.007)
     return model.eval()
+
+
+class _OwnedRandomStateModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.base = _model()
+        self.input_dim = 1
+        self._pbas = deepcopy(PROJECTOR_BASIS)
+        self.rng = random.Random(1)
+
+    def forward(self, values):
+        state_word = self.rng.getstate()[1][1]
+        scale = 0.8 + float(state_word % 1000) * 1.0e-4
+        return self.base(values) * scale
 
 
 @dataclass(frozen=True)
@@ -523,6 +538,25 @@ def test_scanner_recomputes_after_a_legal_between_call_model_change(scanner_case
         rtol=2.0e-10,
         atol=2.0e-10,
     )
+
+
+def test_scanner_fingerprint_binds_model_owned_random_state():
+    model = _OwnedRandomStateModel().double().eval()
+    method = DeePHF(
+        _fresh_reference(),
+        model,
+        projector_basis=PROJECTOR_BASIS,
+    )
+    scanner = method.nuc_grad_method(backend="zvector").as_scanner()
+
+    first_energy, first_gradient = scanner(REFERENCE_COORDINATES)
+    first_fingerprint = scanner.model_state_fingerprint
+    model.rng.seed(2)
+    second_energy, second_gradient = scanner(REFERENCE_COORDINATES)
+
+    assert scanner.model_state_fingerprint != first_fingerprint
+    assert abs(second_energy - first_energy) > 1.0e-6
+    assert np.max(np.abs(second_gradient - first_gradient)) > 1.0e-7
 
 
 def test_scanner_detects_a_model_change_during_evaluation_and_recovers(

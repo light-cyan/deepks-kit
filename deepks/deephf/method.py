@@ -20,7 +20,6 @@ from .capabilities import (
     validate_force_model,
     validate_model,
     validate_model_output,
-    validate_reference,
 )
 from .pyscf_rhf import (
     RHFAdjoint,
@@ -35,6 +34,7 @@ from .pyscf_rhf import (
     molecule_science_fingerprint,
     reference_fingerprint,
     response_integrity_fingerprint,
+    validate_reference,
 )
 
 
@@ -64,6 +64,9 @@ _ZVECTOR_OPTIONS = frozenset(
         "objective_symmetry_tolerance",
     }
 )
+_FORCE_DESCRIPTOR_FD_STEP = 1.0e-5
+_FORCE_DESCRIPTOR_FD_ATOL = 2.0e-7
+_FORCE_DESCRIPTOR_FD_RTOL = 2.0e-5
 
 
 def _validated_backend_options(base_options, override_options, allowed, backend):
@@ -286,10 +289,12 @@ class DeePHF:
         return self._descriptor.descriptor(self.ao_density())
 
     def dq_dP(self):
-        return self._descriptor.dq_dP(self.ao_density())
+        with torch.enable_grad():
+            return self._descriptor.dq_dP(self.ao_density())
 
     def dq_dR_explicit(self):
-        return self._descriptor.dq_dR_explicit(self.ao_density())
+        with torch.enable_grad():
+            return self._descriptor.dq_dR_explicit(self.ao_density())
 
     def _descriptor_values_tensor(self) -> torch.Tensor:
         self._assert_science_state("descriptor evaluation")
@@ -344,6 +349,29 @@ class DeePHF:
                     "the force correction model descriptor sensitivity is not "
                     "deterministic for one descriptor input"
                 )
+            finite_difference_sensitivity = (
+                self._force_descriptor_finite_difference(
+                    values,
+                    model_fingerprint,
+                )
+            )
+            difference = torch.abs(
+                sensitivity - finite_difference_sensitivity
+            )
+            tolerance = (
+                _FORCE_DESCRIPTOR_FD_ATOL
+                + _FORCE_DESCRIPTOR_FD_RTOL
+                * torch.abs(finite_difference_sensitivity)
+            )
+            if torch.any(difference > tolerance):
+                maximum_residual = float(torch.max(difference).cpu())
+                maximum_tolerance = float(torch.max(tolerance).cpu())
+                raise DeePHFCapabilityError(
+                    "the force correction model descriptor sensitivity does not "
+                    "match deterministic central finite differences: "
+                    f"residual {maximum_residual:.3e} > "
+                    f"tolerance {maximum_tolerance:.3e}"
+                )
         if not torch.isfinite(sensitivity).all():
             raise DeePHFCapabilityError(
                 "the correction model descriptor sensitivity must be finite"
@@ -359,22 +387,23 @@ class DeePHF:
         evaluation_values = values.detach().clone().requires_grad_(True)
         rng_before = force_rng_fingerprints()
         try:
-            energy = validate_model_output(self.model, evaluation_values)
-            if energy.requires_grad:
-                (sensitivity,) = torch.autograd.grad(
-                    energy,
-                    evaluation_values,
-                    torch.ones_like(energy),
-                    allow_unused=True,
-                )
-            else:
-                sensitivity = None
-            element_constant = self._validated_element_constant()
-            complete_energy = energy + energy.new_tensor(element_constant)
-            if not torch.isfinite(complete_energy).all():
-                raise DeePHFCapabilityError(
-                    "the complete correction energy must be finite"
-                )
+            with torch.enable_grad():
+                energy = validate_model_output(self.model, evaluation_values)
+                if energy.requires_grad:
+                    (sensitivity,) = torch.autograd.grad(
+                        energy,
+                        evaluation_values,
+                        torch.ones_like(energy),
+                        allow_unused=True,
+                    )
+                else:
+                    sensitivity = None
+                element_constant = self._validated_element_constant()
+                complete_energy = energy + energy.new_tensor(element_constant)
+                if not torch.isfinite(complete_energy).all():
+                    raise DeePHFCapabilityError(
+                        "the complete correction energy must be finite"
+                    )
         except Exception:
             self._assert_force_rng_state(rng_before)
             raise
@@ -400,7 +429,117 @@ class DeePHF:
             raise DeePHFCapabilityError(
                 "the correction model descriptor sensitivity must be finite"
             )
+        ordinary_energy = self._force_ordinary_energy_invariant(
+            values.detach(),
+            model_fingerprint,
+        )
+        if not torch.equal(complete_energy.detach(), ordinary_energy):
+            raise DeePHFCapabilityError(
+                "the differentiable force-model energy does not match the "
+                "ordinary energy for one descriptor input"
+            )
         return complete_energy.detach().clone(), sensitivity.detach().clone()
+
+    def _force_complete_energy(
+        self,
+        values: torch.Tensor,
+        model_fingerprint: str,
+    ) -> torch.Tensor:
+        ordinary_values = values.detach().clone()
+        rng_before = force_rng_fingerprints()
+        try:
+            energy = validate_model_output(self.model, ordinary_values)
+            element_constant = self._validated_element_constant()
+            complete_energy = energy + energy.new_tensor(element_constant)
+            if not torch.isfinite(complete_energy).all():
+                raise DeePHFCapabilityError(
+                    "the complete correction energy must be finite"
+                )
+        except Exception:
+            self._assert_force_rng_state(rng_before)
+            raise
+        self._assert_force_rng_state(rng_before)
+        self._assert_force_model_state(
+            model_fingerprint,
+            "ordinary force-model energy evaluation",
+        )
+        self._assert_science_state("ordinary force-model energy evaluation")
+        return complete_energy.detach().clone()
+
+    def _force_ordinary_energy_invariant(
+        self,
+        values: torch.Tensor,
+        model_fingerprint: str,
+    ) -> torch.Tensor:
+        with torch.enable_grad():
+            grad_enabled_energy = self._force_complete_energy(
+                values,
+                model_fingerprint,
+            )
+        with torch.no_grad():
+            no_grad_energy = self._force_complete_energy(
+                values,
+                model_fingerprint,
+            )
+        if not torch.equal(grad_enabled_energy, no_grad_energy):
+            raise DeePHFCapabilityError(
+                "the ordinary force-model energy depends on the Torch grad mode"
+            )
+        return grad_enabled_energy
+
+    def _deterministic_force_complete_energy(
+        self,
+        values: torch.Tensor,
+        model_fingerprint: str,
+    ) -> torch.Tensor:
+        first = self._force_ordinary_energy_invariant(
+            values,
+            model_fingerprint,
+        )
+        second = self._force_ordinary_energy_invariant(
+            values,
+            model_fingerprint,
+        )
+        if not torch.equal(first, second):
+            raise DeePHFCapabilityError(
+                "the ordinary force-model energy is not deterministic for one "
+                "descriptor input"
+            )
+        return first
+
+    def _force_descriptor_finite_difference(
+        self,
+        values: torch.Tensor,
+        model_fingerprint: str,
+    ) -> torch.Tensor:
+        values = values.detach().clone()
+        finite_difference = torch.empty_like(values)
+        flat_values = values.reshape(-1)
+        flat_result = finite_difference.reshape(-1)
+        for index in range(flat_values.numel()):
+            magnitude = abs(float(flat_values[index].detach().cpu()))
+            step = _FORCE_DESCRIPTOR_FD_STEP * max(1.0, magnitude)
+            forward_values = values.clone()
+            backward_values = values.clone()
+            forward_values.reshape(-1)[index] += step
+            backward_values.reshape(-1)[index] -= step
+            forward_energy = self._deterministic_force_complete_energy(
+                forward_values,
+                model_fingerprint,
+            )
+            backward_energy = self._deterministic_force_complete_energy(
+                backward_values,
+                model_fingerprint,
+            )
+            flat_result[index] = (
+                float(forward_energy.detach().cpu().item())
+                - float(backward_energy.detach().cpu().item())
+            ) / (2.0 * step)
+        if not torch.isfinite(finite_difference).all():
+            raise DeePHFCapabilityError(
+                "the force correction model descriptor finite difference must be finite"
+            )
+        return finite_difference
 
     @staticmethod
     def _assert_force_rng_state(before) -> None:
@@ -483,17 +622,28 @@ class DeePHF:
             [int(charge) for charge in self.mol.atom_charges()]
         )
         element_constant = np.asarray(element_constant)
-        if element_constant.size != 1:
+        if element_constant.shape != ():
             raise DeePHFCapabilityError(
                 "the correction model element constant must be scalar"
             )
-        if np.iscomplexobj(element_constant) or not np.isfinite(
-            element_constant
-        ).all():
+        if (
+            element_constant.dtype != np.dtype(np.float64)
+            or np.iscomplexobj(element_constant)
+        ):
+            raise DeePHFCapabilityError(
+                "the correction model element constant must use real numpy.float64"
+            )
+        try:
+            finite = bool(np.isfinite(element_constant).item())
+        except (TypeError, ValueError) as error:
+            raise DeePHFCapabilityError(
+                "the correction model element constant must use real numpy.float64"
+            ) from error
+        if not finite:
             raise DeePHFCapabilityError(
                 "the correction model element constant must be real and finite"
             )
-        return float(element_constant.reshape(-1)[0])
+        return float(element_constant.item())
 
     def validate_force_compatibility(self, **tolerances):
         """Validate ordered-eigenvalue and model-sensitivity force semantics."""
