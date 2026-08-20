@@ -85,6 +85,7 @@ The canonical symbols and identifiers are:
 | Symbol | Canonical identifier | Meaning |
 |---|---|---|
 | `P` | `P` | Spin-summed AO one-particle density matrix in the native PySCF AO convention. |
+| `P_alpha`, `P_beta` | `spin_ao_density` components | Alpha and beta AO one-particle densities whose sum is the canonical `P` for UHF. |
 | `O` | `O` | AO-to-projector overlap tensor, partitioned by projector shell. |
 | `D` | `D` | Projected-density block `D_s = O_s^T P O_s`. |
 | `q` | `q` | Descriptor obtained by concatenating the ascending eigenvalues of every `D_s` block. |
@@ -95,6 +96,9 @@ The canonical symbols and identifiers are:
 | `dq_dR_explicit` | `dq_dR_explicit` | Nuclear derivative of `q` at fixed numerical AO density matrix `P`, including AO-center and projector-center motion. |
 | `dq_dR_response` | `dq_dR_response` | Descriptor derivative caused by the complete first-order reference density, `(partial q / partial P) : P^R`. |
 | `dq_dR_relaxed` | `dq_dR_relaxed` | Complete derivative `dq_dR_explicit + dq_dR_response`. |
+| `dq_dR_explicit_spin` | `dq_dR_explicit_spin` | Additive alpha and beta components of fixed-density UHF descriptor motion, evaluated with total-density descriptor eigenvectors. |
+| `dq_dR_response_spin` | `dq_dR_response_spin` | Additive UHF descriptor-response components `(partial q / partial P) : P_sigma^R`. |
+| `dq_dR_relaxed_spin` | `dq_dR_relaxed_spin` | Additive UHF components `dq_dR_explicit_spin + dq_dR_response_spin` whose spin sum is `dq_dR_relaxed`. |
 | `e_base` | `e_base` | Native reference or base-functional energy evaluated at the method state. |
 | `e_corr` | `e_corr` | Learned correction energy evaluated from `q`. |
 | `e_tot` | `e_tot` | Total reported energy `e_base + e_corr`. |
@@ -118,6 +122,8 @@ Let `A` index every raw molecular atom center, `x` index Cartesian components in
 
 For RHF, `P[mu,nu] = sum_i C[mu,i] mo_occ[i] C[nu,i]` with accepted occupations equal to zero or two.
 
+For UHF, `P_sigma[mu,nu] = sum_i C_sigma[mu,i] mo_occ_sigma[i] C_sigma[nu,i]` with accepted occupations equal to zero or one, and the descriptor uses `P = P_alpha + P_beta`.
+
 For each projector shell, `O_s[mu,I,m] = <chi_mu | alpha_sIm>`, `D_s[I,m,n] = sum_mu,nu O_s[mu,I,m] P[mu,nu] O_s[nu,I,n]`, and `q` concatenates `eigvalsh(D_s[I])` in configured shell order and ascending eigenvalue order within each block.
 
 The raw-atom-to-descriptor-atom mapping is explicit, stable for a geometry, and stored with results that contain a descriptor atom axis.
@@ -136,7 +142,7 @@ Elemental correction constants exclude ghosts through the same nuclear-charge pr
 
 A ghost coordinate therefore retains a row in every nuclear derivative and force tensor even though the ghost has no descriptor-atom entry of its own.
 
-The shared descriptor accepts a ghost-containing molecular input when its AO slices and descriptor mapping satisfy these rules and the explicit derivative checks pass; the initial DeePHF reference validator admits real-atom RHF references only.
+The shared descriptor accepts a ghost-containing molecular input when its AO slices and descriptor mapping satisfy these rules and the explicit derivative checks pass; the strict RHF and UHF DeePHF reference validators admit real-atom molecular references.
 
 ## 7. Tensor axes, signs, dtypes, and units
 
@@ -145,17 +151,21 @@ Runtime tensors omit a frame axis; serialized arrays prepend `n_frame` without c
 | Quantity | Runtime axes | Serialized axes | Unit |
 |---|---|---|---|
 | `P` | `(n_ao, n_ao)` | `(n_frame, n_ao, n_ao)` | Native dimensionless AO density convention. |
+| `P_alpha`, `P_beta`; stacked `spin_ao_density` | `(n_ao, n_ao)` each; `(2, n_ao, n_ao)` stacked | Diagnostic runtime only. | Native dimensionless AO density convention. |
 | `O_s` | `(n_ao, n_descriptor_atom, n_projector_s)` | Not a required public field. | Dimensionless overlap. |
 | `D_s` | `(n_descriptor_atom, n_projector_s, n_projector_s)` | Shell-aware storage only. | Dimensionless. |
 | `q` | `(n_descriptor_atom, n_projector)` | `(n_frame, n_descriptor_atom, n_projector)` | Dimensionless. |
 | `dq_dR_explicit` | `(n_raw_atom, 3, n_descriptor_atom, n_projector)` | `(n_frame, n_raw_atom, 3, n_descriptor_atom, n_projector)` | Runtime `Bohr^-1`; serialized inverse declared molecular length unit. |
 | `dq_dR_response` | `(n_raw_atom, 3, n_descriptor_atom, n_projector)` | Diagnostic storage only. | Runtime `Bohr^-1`; serialized inverse declared molecular length unit. |
 | `dq_dR_relaxed` | `(n_raw_atom, 3, n_descriptor_atom, n_projector)` | `(n_frame, n_raw_atom, 3, n_descriptor_atom, n_projector)` | Runtime `Bohr^-1`; serialized inverse declared molecular length unit. |
-| `W` | `(n_ao, n_ao)` | Scalar-adjoint runtime result. | `Eh`. |
-| `b` | `(n_virtual, n_occupied)` | Scalar-adjoint runtime result. | `Eh`. |
-| `z` | `(n_virtual, n_occupied)` | Scalar-adjoint runtime result. | Dimensionless. |
+| UHF `dq_dR_explicit_spin`, `dq_dR_response_spin`, `dq_dR_relaxed_spin` | `(2, n_raw_atom, 3, n_descriptor_atom, n_projector)` | Diagnostic runtime only. | `Bohr^-1`. |
+| UHF `first_order_spin_density` | `(2, n_raw_atom, 3, n_ao, n_ao)` | Diagnostic runtime only. | `Bohr^-1` in the numerical AO representation. |
+| `W` | `(n_ao, n_ao)` | Direct- or scalar-inference runtime result. | `Eh`. |
+| `b` | `(n_virtual, n_occupied)` | RHF scalar-adjoint runtime result. | `Eh`. |
+| `z` | `(n_virtual, n_occupied)` | RHF scalar-adjoint runtime result. | Dimensionless. |
 | `e_base`, `e_corr`, `e_tot`, `e_corr_target` | scalar | `(n_frame, 1)` | `Eh`. |
 | `f_reference_variational`, `f_corr_explicit`, `f_corr_explicit_target`, `f_tot` | `(n_raw_atom, 3)` | `(n_frame, n_raw_atom, 3)` | Runtime `Eh/Bohr`; serialized `Eh` per declared molecular length unit. |
+| UHF spin-resolved correction-gradient partitions | `(2, n_raw_atom, 3)` | Diagnostic runtime only. | `Eh/Bohr`. |
 
 Scientific calculations use real double precision; a different dtype is outside strict capability unless independently characterized and declared.
 
@@ -176,6 +186,20 @@ The direct equation is `A X^R = -B^R`, with `B^R = B_bare^R + B_metric^R`, `B_ba
 The scalar adjoint solves `A.T z = b` once. With `D_z = C_v z (C_o diag(n_i)).T + C_o diag(n_i) z.T C_v.T`, `V_z = G[D_z]`, and `Wbar_oo = 0.5 (W_oo + W_oo.T)`, the exact response partitions are `g_metric^R = -2 S_oo^R : Wbar_oo`, `g_adjoint_nuclear^R = -z : B_bare^R`, `g_adjoint_metric^R = 0.5 S_oo^R : V_z,oo`, `g_occupied_virtual^R = g_adjoint_nuclear^R + g_adjoint_metric^R`, and `g_response^R = g_metric^R + g_occupied_virtual^R`.
 
 The complete correction gradient is `g_corr^R = sum_I,k (partial e_corr / partial q[I,k]) dq_dR_explicit[R,I,k] + g_response^R`, and the complete method gradient is `g_tot^R = g_reference^R + g_corr^R`.
+
+### 7.2 UHF direct-response identity
+
+For `sigma` in `{alpha, beta}`, `P_sigma = C_sigma,o C_sigma,o.T`, `P = P_alpha + P_beta`, and an occupied-virtual trial amplitude gives `delta P_sigma(X_sigma) = C_sigma,v X_sigma C_sigma,o.T + C_sigma,o X_sigma.T C_sigma,v.T`.
+
+The coupled induced potentials are `delta V_alpha = J[delta P_alpha + delta P_beta] - K[delta P_alpha]` and `delta V_beta = J[delta P_alpha + delta P_beta] - K[delta P_beta]`, so `(A X)_sigma = (epsilon_sigma,v - epsilon_sigma,o) X_sigma + C_sigma,v.T delta V_sigma C_sigma,o` acts on the combined alpha/beta occupied-virtual space.
+
+For coordinate `R`, `U_sigma,oo^R + (U_sigma,oo^R).T = -S_sigma,oo^R`, `P_sigma,metric^R = -P_sigma S^R P_sigma`, and the coupled direct equation is `A X^R = -B^R` with `B_sigma^R = C_sigma,v.T (H_sigma^R + delta V_sigma[P_alpha,metric^R, P_beta,metric^R]) C_sigma,o - S_sigma,vo^R epsilon_sigma,o`.
+
+The complete spin density derivative is `P_sigma^R = P_sigma,metric^R + C_sigma,v X_sigma^R C_sigma,o.T + C_sigma,o (X_sigma^R).T C_sigma,v.T`, and the canonical density derivative is `P^R = P_alpha^R + P_beta^R`.
+
+The UHF descriptor identities are `dq_dR_response_spin[sigma] = (partial q / partial P) : P_sigma^R`, `dq_dR_relaxed_spin = dq_dR_explicit_spin + dq_dR_response_spin`, and `dq_dR_relaxed = sum_sigma dq_dR_relaxed_spin[sigma]`.
+
+The common total-density objective `W = partial e_corr / partial P` contracts each spin response, and `g_tot^R = g_UHF^R + sum_sigma W : P_sigma^R + sum_I,k (partial e_corr / partial q[I,k]) dq_dR_explicit^R[I,k]`.
 
 ## 8. Descriptor degeneracy contract
 
@@ -199,41 +223,49 @@ A contracted energy derivative that happens to be finite does not authorize stor
 
 Differentiability diagnostics, tolerances, block classification, and the displacement sequence are part of the calculation provenance.
 
-## 9. Initial strict RHF capability
+## 9. Strict reference capabilities
 
-The initial DeePHF force capability accepts a finite molecular `pyscf.gto.Mole` reference evaluated by the locked PySCF 2.14 RHF implementation when all of the following conditions hold:
+The current strict DeePHF facilities are:
 
-- The reference is a native, undecorated RHF object with real orbitals and integrals.
+| Reference family | Current facility | Public entry point | Scientific result |
+|---|---|---|---|
+| Native RHF | Coordinate-wise direct oracle | `DeePHF.response()` and `RHFDeePHFGradients` | Complete RHF `P^R`, `dq_dR_relaxed`, and exact `e_base + e_corr` gradient. |
+| Native RHF | Scalar-adjoint inference | `DeePHF.adjoint()` and `RHFDeePHFZVectorGradients` | One correction-specific transpose solve and exact scalar correction gradient. |
+| Native RHF | Fresh-reference scanning | `RHFDeePHFGradientScanner` | Atomic fresh-reference energy and direct or Z-vector gradient publication across accepted geometries. |
+| Native RHF | Relaxed-force data and training | `generate_rhf_force_frame`, `write_rhf_force_dataset`, and strict force-data consumers | Persisted model-independent RHF `dq_dR_relaxed` with force provenance. |
+| Native UHF | Coordinate-wise direct oracle | `UHFDeePHF.response()` and `UHFDeePHFGradients` | Complete alpha/beta and total `P^R`, additive spin descriptor partitions, and exact `e_base + e_corr` gradient. |
 
-- The reference is converged, closed shell, integer occupied with values zero or two, and follows a continuous SCF root for the validated nuclear displacements.
+Every strict force facility requires a fixed compatible projector, one real scalar correction, real double-precision finite model state, deterministic and finite complete model sensitivity, accepted ordered-spectrum differentiability, and an unchanged fingerprintable scientific state throughout the transaction.
 
-- The molecule is nonperiodic, all-electron, real-atom, uses spherical molecular Gaussian AO functions, and has stable atom and AO ordering.
+### 9.1 Strict RHF reference
 
-- Density fitting, solvent, QM/MM, external fields, smearing, fractional occupations, symmetry-constrained special occupations, penalty potentials, custom SCF wrappers, and scanner subclasses are absent.
+The RHF validator accepts an exact converged `pyscf.scf.hf.RHF` attached to an exact molecular `pyscf.gto.mole.Mole`, with spin zero, complete real canonical orbitals, occupations exactly zero or two in the Aufbau ground-state root, both occupied and virtual spaces, and an internally consistent AO density, Fock state, electron count, canonical residual, and total energy.
 
-- The correction model produces one real scalar `e_corr`, is evaluated in double precision with fixed projector parameters, and passes the descriptor differentiability and model-compatibility checks.
+The accepted molecule is finite, symmetry-disabled, nonperiodic, all-electron, point-nuclear, and real-atom; it uses spherical molecular Gaussian AOs and the full Coulomb interaction, and its reference and molecule have no active decoration or callable instance-hook state.
 
-- The response operator is well conditioned for the configured solver, all response quantities are finite, and the independently calculated residual satisfies the recorded tolerance.
+The RHF direct and scalar-adjoint operators independently pass their configured gap, dimension, symmetry, stability, condition, finite-value, and residual gates under the PySCF 2.14 RHF adapter.
 
-- A scalar-adjoint calculation additionally requires a symmetric finite correction AO objective, an explicitly audited stable occupied-virtual operator, one finite transpose solution, and literal, independently applied transpose, and physical residuals within tolerance.
+### 9.2 Strict UHF direct reference
 
-- Force inference additionally requires a hook-free evaluation-mode model whose complete ordinary and differentiable correction scalars agree, whose autograd sensitivity agrees with deterministic descriptor-coordinate central differences, whose semantic state is fingerprintable and unchanged throughout the transaction, and whose execution consumes no global random-number-generator state.
+The UHF validator accepts an exact converged `pyscf.scf.uhf.UHF` attached to an exact molecular `pyscf.gto.mole.Mole`, with complete real canonical alpha and beta orbitals, occupations exactly zero or one in each Aufbau ground-state spin root, electron counts matching `mol.nelec` and `mol.spin`, occupied and virtual spaces in both channels, and internally consistent spin AO densities, effective potentials, canonical residuals, and total energy.
 
-ROHF, UHF, ROKS, RKS, UKS, complex-orbital, periodic, decorated, unconverged, discontinuous-root, and capability-ambiguous references are outside this initial strict RHF set and fail validation before a force calculation begins.
+The accepted molecule has the same finite molecular, spherical, symmetry-disabled, all-electron, point-nuclear, real-atom, full-Coulomb, undecorated, and hook-free properties as the strict RHF molecule.
 
-The capability validator checks the concrete reference state and active decorations; a method label such as `xc="HF"` is not sufficient evidence of RHF capability.
+The complete combined alpha/beta occupied-virtual operator independently passes its configured spin-gap, dimension, symmetry, stability, and condition gates, and the coordinate-wise coupled response passes alpha, beta, joint, metric, idempotency, particle-number, reconstruction, and translation audits under the PySCF 2.14 UHF adapter.
 
-### 9.1 RHF gradient backends
+### 9.3 Backend and data boundaries
 
-`deepks.deephf` exposes `direct` and `zvector` as distinct RHF analytic-gradient backends, with `direct` remaining the default for `nuc_grad_method`, `gradient`, and `forces`. The direct backend constructs the complete coordinate-wise density and relaxed descriptor responses, while the Z-vector backend evaluates one model-specific scalar correction gradient without constructing either response tensor.
+`deepks.deephf` exposes `direct` and `zvector` as distinct RHF analytic-gradient backends, with `direct` remaining the default for `nuc_grad_method`, `gradient`, and `forces`. The RHF direct backend constructs complete coordinate-wise density and relaxed descriptor responses, while the RHF Z-vector backend evaluates one model-specific scalar correction gradient without constructing either response tensor.
 
-`DeePHF.response_options` configures the direct backend and `DeePHF.adjoint_options` independently configures the Z-vector backend. Each backend validates only its own method-level and driver-level option namespace, and neither backend falls back to the other.
+`UHFDeePHF` exposes the distinct `direct` backend through `UHFDeePHFGradients`, which constructs the complete coupled alpha/beta coordinate-wise response and retains its spin and motion partitions.
 
-The reference-neutral `ScalarAdjointProblem` contract supplies `dimension`, `dense_operator`, `apply`, and `apply_transpose`; `solve_scalar_adjoint` performs one literal `A.T z = b` solve and retains literal, independent-transpose, and physical residual diagnostics. Reference-specific operator, symmetry, stability, condition, and nuclear-contraction semantics remain inside the corresponding adapter.
+`DeePHF.response_options` and `UHFDeePHF.response_options` configure their direct adapters, while RHF `DeePHF.adjoint_options` independently configures the Z-vector backend; each option namespace is validated at its own method and driver boundary.
 
-The force-data producer always selects the direct backend because persistent `dq_dR_relaxed` is a model-independent coordinate-wise descriptor Jacobian. A scalar `RHFAdjoint` is a model-specific inference result and has no relaxed-Jacobian semantics.
+The reference-neutral `ScalarAdjointProblem` contract supplies `dimension`, `dense_operator`, `apply`, and `apply_transpose`; `solve_scalar_adjoint` performs one literal `A.T z = b` solve and retains literal, independent-transpose, and physical residual diagnostics, while reference-specific semantics remain inside the RHF adapter.
 
-### 9.2 Strict RHF scanner lifecycle
+The force-data producer selects the RHF direct backend because persistent `dq_dR_relaxed` is a model-independent coordinate-wise RHF descriptor Jacobian. A scalar `RHFAdjoint` is a model-specific inference result and has no relaxed-Jacobian semantics, and UHF direct runtime objects remain outside the RHF force-data contract.
+
+### 9.4 Strict RHF scanner lifecycle
 
 An RHF DeePHF gradient driver creates a fresh-reference scanner with a fixed `direct` or `zvector` backend, independently copied direct, adjoint, and driver option namespaces, a fixed projector definition, and a continuous occupied-subspace root anchor.
 
@@ -249,13 +281,17 @@ Strict DeePHF force evaluation never substitutes `dq_dR_explicit` for a missing 
 
 Strict DeePHF force training, validation, and saved-data testing require both target force and `dq_dR_relaxed` with matching provenance and never degrade silently to energy-only evaluation.
 
-Response convergence is established by an independently computed residual; successful return from a low-level PySCF solver is not sufficient.
+RHF CPHF and UHF UC-PHF convergence are established by independently computed physical response residuals; successful return from a low-level PySCF solver is not sufficient.
+
+The UHF direct response additionally requires independent alpha and beta occupied-space metric, first-order idempotency, particle-number, density-reconstruction, translation, and complete coupled-operator checks.
 
 Scalar-adjoint acceptance requires the literal dense transpose residual and an independently applied transpose residual; the RHF symmetry gate additionally requires the independently applied physical residual. A failed adjoint never falls back to direct response or an explicit-only correction gradient.
 
-Scanner acceptance requires an exact hook-free Mole input or a valid coordinate array, static molecular identity, supported copied SCF controls, fresh SCF convergence, unchanged occupations, continuous occupied-subspace overlap, stable model state during a call, finite energy and gradient, and atomic result publication.
+RHF scanner acceptance requires an exact hook-free Mole input or a valid coordinate array, static molecular identity, supported copied SCF controls, fresh SCF convergence, unchanged occupations, continuous occupied-subspace overlap, stable model state during a call, finite energy and gradient, and atomic result publication.
 
-A zero or constant correction must reduce `e_tot` and `f_tot` to the native reference values within the declared numerical tolerance.
+A zero correction must reproduce the native reference energy and gradient, while a coordinate-independent constant correction must retain its constant energy offset and reproduce the native reference gradient and force within the declared numerical tolerance.
+
+The UHF direct gradient driver clears all public response and gradient results at the start of a call and after any failure, so a failed transaction cannot publish stale state.
 
 Every failure reports the violated contract category, the relevant reference or tensor identity, and the numerical diagnostic needed to reproduce the decision.
 
@@ -263,15 +299,21 @@ Every failure reports the violated contract category, the relevant reference or 
 
 Explicit descriptor derivatives must agree with fixed-`P` central finite differences, including ordinary atoms, ghost AO centers, and the translational sum rule within the fixture tolerance.
 
-First-order reference densities must agree with displaced-reference finite differences through a basis-aware, gauge-invariant comparison.
+RHF first-order reference densities and UHF alpha, beta, and total first-order reference densities must agree with independently converged displaced-reference finite differences through basis-aware, gauge-invariant comparisons.
 
 Relaxed descriptor derivatives must agree with descriptors from independently converged displaced references over a documented step-size sequence.
 
-DeePHF total gradients must agree with central finite differences of the complete `e_base + e_corr` energy.
+RHF and UHF direct DeePHF total gradients must agree with central finite differences of the complete `e_base + e_corr` energy.
+
+The UHF coupled occupied-virtual operator, per-spin AO metric response, and complete physical response residual must agree with independent AO-integral reconstructions, and omission of either spin, metric, or occupied-virtual contributions must be detectably inconsistent.
+
+UHF explicit, response, and relaxed descriptor derivatives and their additive spin partitions must satisfy their exact sum identities and translational invariants.
 
 RHF Z-vector correction partitions must agree with their P2 direct-oracle counterparts, and the complete Z-vector gradient must independently agree with central finite differences of `e_base + e_corr`.
 
 RHF scanner results across repeated and displaced geometry sequences must agree with independently constructed fresh methods, while injected SCF, root, model, response, or adjoint failures leave no publishable current result.
+
+Zero and constant corrections must reproduce the native RHF or UHF gradient under the corresponding accepted direct contract.
 
 Accepted penalty-free DeePKS total gradients and descriptor values must remain numerically equivalent across the P1 structural refactor.
 

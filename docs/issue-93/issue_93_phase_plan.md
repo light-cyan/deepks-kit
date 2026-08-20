@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, P2, P3A, and the P3B implementation are complete; strict RHF DeePHF relaxed-force training and scalar-adjoint inference are implemented on the validated P2 direct oracle, and the P3B target suite passes.
+**Current position:** P0, P1, P2, P3A, P3B, and P4A are complete; strict RHF relaxed-force training and scalar-adjoint inference remain based on the P2 RHF direct oracle, and the accepted P4A UHF direct oracle provides complete coupled spin-resolved density response and exact analytic perturbative gradients for its declared UHF domain.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -30,7 +30,7 @@ P1 Shared descriptor core and method separation
 P2 RHF DeePHF direct oracle
  |-------------------------|-------------------------|-------------------------|
  v                         v                         v                         v
-P3A Force data/training    P3B RHF Z/inference      P4A UHF direct           P4B RKS direct
+P3A Force data/training    P3B RHF Z/inference      P4A UHF direct [done]    P4B RKS direct
                               |                         |                         |
                               |-------------------------|--> UHF Z                |
                               |---------------------------------------------------> RKS Z
@@ -114,12 +114,20 @@ P3 contains two parallel tracks after P2.
 
 **Major work:**
 
-- Develop UHF direct and RKS direct as parallel tracks after P2, validating spin and grid/XC conventions independently.
+- Use the accepted UHF direct oracle as the unrestricted-spin correctness reference while validating each separate reference family under its own scientific conventions.
 - Add UHF and RKS Z-vector backends after their direct oracles and the P3B adjoint foundation are accepted.
 - Add UKS direct after the UHF and RKS conventions are stable, then add UKS Z-vector.
 - Maintain and test an explicit capability matrix for every advertised reference and XC tier.
 
 **Exit gate:** Every advertised UHF, RKS, and UKS tier passes total-energy finite differences, direct-versus-Z agreement, and capability checks.
+
+### P4A — UHF direct oracle
+
+**Status:** Implemented and target-accepted. The exact native UHF validator, complete coupled alpha/beta UC-PHF density response, additive spin/metric/occupied-virtual descriptor and gradient partitions, strict response audits, deterministic finite-difference oracle, and package-isolation guards are implemented and documented in [P4A UHF DeePHF direct oracle](./p4a_uhf_direct_oracle.md).
+
+- Preserve the canonical spin-summed descriptor while exposing additive alpha and beta density, descriptor-response, and correction-gradient partitions.
+- Retain the complete coupled occupied-virtual and AO-metric response as an auditable direct oracle.
+- Keep the RHF force-data, scalar-adjoint, and scanner implementations isolated from the UHF direct object graph.
 
 ## 8. P5 — Integration and hardening
 
