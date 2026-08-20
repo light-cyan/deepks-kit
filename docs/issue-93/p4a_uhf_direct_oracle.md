@@ -157,7 +157,7 @@ That module is the unique owner of `pyscf.hessian.uhf.Hessian.make_h1`, `pyscf.s
 
 The adapter converts PySCF-specific values into immutable `UHFResponse` and frozen `UHFResponseDiagnostics` records before the method or gradient layer consumes them.
 
-Architecture tests bind each PySCF facility to its exact RHF or UHF adapter owner, prohibit private PySCF state in non-adapter method modules, enforce unique ownership of the exported UHF symbols, and preserve the separation of UHF direct code from RHF force-data and scalar-adjoint modules.
+Architecture tests bind each PySCF facility to its exact RHF or UHF adapter owner, prohibit private PySCF state in non-adapter method modules, enforce unique ownership of the exported UHF direct and scalar-adjoint symbols, and preserve the separation of UHF code from RHF force-data and RKS scalar-adjoint modules.
 
 ## 10. Failure behavior and state safety
 
@@ -169,12 +169,12 @@ Architecture tests bind each PySCF facility to its exact RHF or UHF adapter owne
 | Supplied response with a foreign identity, stale state, invalid exact type, changed integrity digest, mutable/non-double/nonfinite array, inconsistent partition, forged diagnostic, changed controls, or failed equation audit | `UHFResponseError` is raised before the response is consumed. |
 | Invalid response-control scalar, tolerance, or cycle limit | `ValueError` is raised while constructing the adapter. |
 | A supplied response combined with response-option keywords | `ValueError` is raised before either input can be ignored. |
-| A backend name other than `direct`, a nonempty UHF adjoint option set, an adjoint request, or UHF gradient-scanner construction | A capability or response error is raised at the requested boundary. |
+| A backend name other than `direct` or `zvector`, an option from the other backend namespace, or UHF gradient-scanner construction | A capability, response, or adjoint error is raised at the requested boundary. |
 | Invalid atom selection or corrupted method-driver binding | The selection or binding error is raised before response publication. |
 
 `UHFDeePHFGradients.kernel` clears every public result before evaluation and clears them again on any failure, so an unsuccessful call cannot expose a preceding response, partition, or gradient.
 
-The UHF path never substitutes `dq_dR_explicit`, an RHF direct response, or an RHF scalar adjoint for a missing or failed coupled UHF response.
+The UHF direct path never substitutes `dq_dR_explicit`, an RHF response, or a scalar adjoint for a missing or failed coupled coordinate-wise UHF response.
 
 ## 11. P3A and P3B boundaries
 
@@ -182,7 +182,7 @@ The P3A persistence API is explicitly RHF: `generate_rhf_force_frame` and `write
 
 The P3B scalar-adjoint classes, Z-vector gradient driver, and fresh-reference scanner are explicitly RHF and accept exact RHF method state under their existing contracts.
 
-`UHFDeePHF`, `UHFResponse`, and `UHFDeePHFGradients` are distinct direct-inference types; they do not enter the RHF force-data producer or RHF adjoint/scanner object graph.
+`UHFDeePHF`, `UHFResponse`, `UHFDeePHFGradients`, `UHFAdjoint`, and `UHFDeePHFZVectorGradients` are distinct UHF inference types; they do not enter the RHF force-data producer or RHF adjoint/scanner object graph. The UHF scalar-adjoint contract is documented in [P4D UHF DeePHF Z-vector inference](./p4d_uhf_zvector_inference.md).
 
 Architecture and runtime tests enforce these type and dependency boundaries in both directions.
 

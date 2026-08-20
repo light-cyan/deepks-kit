@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, P2, P3A, P3B, P4A, P4B, and P4C are complete; the finite-grid closed-shell pure-LDA RKS scalar-adjoint backend is accepted against the P4B direct oracle and deterministic finite differences.
+**Current position:** P0, P1, P2, P3A, P3B, P4A, P4B, P4C, and P4D are complete; the coupled UHF scalar-adjoint backend is accepted against the P4A direct oracle, independent AO mathematics, and deterministic total-energy finite differences.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -32,7 +32,7 @@ P2 RHF DeePHF direct oracle
  v                         v                         v                         v
 P3A Force data/training    P3B RHF Z/inference      P4A UHF direct [done]    P4B RKS direct [done]
                               |                         |                         |
-                              |-------------------------|--> UHF Z                |
+                              |-------------------------|--> UHF Z [P4D]          |
                               |---------------------------------------------------> RKS Z [P4C]
                                                         \                         /
                                                          \                       /
@@ -146,6 +146,14 @@ P3 contains two parallel tracks after P2.
 - Reuse the P3B reference-neutral transpose convention and the P4B physical Coulomb plus dense-LDA-`f_xc` operator without constructing a coordinate-wise density response.
 - Retain objective-metric, fixed-grid, grid-coordinate, grid-weight, adjoint-metric, occupied-virtual, response, correction, native-reference, and total gradient partitions.
 - Preserve the P4B direct oracle as the default backend and as the model-independent coordinate-wise response facility.
+
+### P4D — UHF scalar-adjoint inference
+
+**Status:** Implemented and target-accepted. The correction-specific coupled alpha/beta transpose solve, complete spin-resolved metric and occupied-virtual contractions, fail-closed inference driver, independent AO-integral oracle, and strict fault matrix are documented in [P4D UHF DeePHF Z-vector inference](./p4d_uhf_zvector_inference.md).
+
+- Reuse the P3B reference-neutral transpose convention and the complete P4A coupled alpha/beta physical operator without constructing coordinate-wise density responses.
+- Retain alpha, beta, objective-metric, adjoint-metric, occupied-virtual, response, correction, native-reference, and total gradient partitions.
+- Preserve the P4A direct oracle as the default backend and as the model-independent coordinate-wise response facility.
 
 ## 8. P5 — Integration and hardening
 

@@ -166,7 +166,7 @@ The P4B direct backend remains the correctness oracle and the sole RKS facility 
 
 The strict RHF force-data producer continues to select its RHF direct backend and persistent relaxed-Jacobian schema. An RKS scalar adjoint contains only one model-specific correction contraction and cannot be consumed as a force-training Jacobian.
 
-The RHF direct and scalar-adjoint paths, RHF scanner, UHF direct path, RKS direct path, force-training workflow, and energy-only method behavior retain their established package and numerical contracts.
+The RHF direct and scalar-adjoint paths, RHF scanner, UHF direct and scalar-adjoint paths, RKS direct path, force-training workflow, and energy-only method behavior retain their established package and numerical contracts.
 
 ## 10. Deterministic acceptance
 
