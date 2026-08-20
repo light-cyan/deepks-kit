@@ -49,6 +49,10 @@ from .pyscf_uhf import (
 from .rks_gradient import RKSDeePHFGradients
 from .rks_method import RKSDeePHF
 from .pyscf_rks import (
+    RKSAdjoint,
+    RKSAdjointAdapter,
+    RKSAdjointDiagnostics,
+    RKSAdjointError,
     RKSFunctionalProvenance,
     RKSGridProvenance,
     RKSNativeGradient,
@@ -58,6 +62,7 @@ from .pyscf_rks import (
     RKSResponseError,
     validate_rks_reference,
 )
+from .rks_zvector import RKSDeePHFZVectorGradients
 from .zvector import RHFDeePHFZVectorGradients
 
 __all__ = [
@@ -85,6 +90,11 @@ __all__ = [
     "RHFScannerReferenceFactory",
     "RKSDeePHF",
     "RKSDeePHFGradients",
+    "RKSDeePHFZVectorGradients",
+    "RKSAdjoint",
+    "RKSAdjointAdapter",
+    "RKSAdjointDiagnostics",
+    "RKSAdjointError",
     "RKSFunctionalProvenance",
     "RKSGridProvenance",
     "RKSNativeGradient",

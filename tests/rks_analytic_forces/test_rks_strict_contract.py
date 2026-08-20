@@ -14,6 +14,7 @@ from deepks.deephf import (
     RHFDeePHFZVectorGradients,
     RKSDeePHF,
     RKSDeePHFGradients,
+    RKSDeePHFZVectorGradients,
     RKSNativeGradient,
     RKSResponse,
     RKSResponseAdapter,
@@ -1062,7 +1063,7 @@ def test_rks_response_and_options_are_mutually_exclusive(rks_oracle_case):
             function(response=response, cphf_tolerance=1.0e-10)
 
 
-def test_rks_direct_backend_rejects_adjoint_scanner_and_force_data_paths(
+def test_rks_direct_backend_remains_default_and_rejects_scanner_and_force_data_paths(
     rks_oracle_case,
 ):
     reference = rks_oracle_case.reference
@@ -1071,17 +1072,9 @@ def test_rks_direct_backend_rejects_adjoint_scanner_and_force_data_paths(
 
     assert type(driver) is RKSDeePHFGradients
     assert driver.backend == "direct"
-    with pytest.raises(DeePHFCapabilityError, match="backend must be 'direct'"):
-        method.nuc_grad_method(backend="zvector")
-    with pytest.raises(DeePHFCapabilityError, match="adjoint backend"):
-        method.adjoint()
-    with pytest.raises(DeePHFCapabilityError, match="adjoint backend"):
-        RKSDeePHF(
-            reference,
-            None,
-            projector_basis=ORACLE_PROJECTOR_BASIS,
-            adjoint_options={"residual_tolerance": 1.0e-9},
-        )
+    zvector_driver = method.nuc_grad_method(backend="zvector")
+    assert type(zvector_driver) is RKSDeePHFZVectorGradients
+    assert zvector_driver.backend == "zvector"
     with pytest.raises(RKSResponseError, match="gradient scanner"):
         driver.as_scanner()
     with pytest.raises(ValueError, match="unsupported direct backend options"):

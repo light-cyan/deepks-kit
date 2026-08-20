@@ -493,6 +493,7 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
         "uhf_gradient.py",
         "rks_method.py",
         "rks_gradient.py",
+        "rks_zvector.py",
     )
     violations = {
         module_name: _private_attribute_accesses(
@@ -617,6 +618,9 @@ def test_rhf_zvector_scanner_and_force_data_do_not_access_non_rhf_symbols():
         "validate_uhf_reference",
         "RKSDeePHF",
         "RKSDeePHFGradients",
+        "RKSDeePHFZVectorGradients",
+        "RKSAdjoint",
+        "RKSAdjointAdapter",
         "RKSResponse",
         "RKSResponseAdapter",
         "RKSResponseDiagnostics",
@@ -650,6 +654,9 @@ def test_uhf_direct_path_does_not_access_rhf_adjoint_scanner_or_force_data_symbo
         "write_rhf_force_dataset",
         "RKSDeePHF",
         "RKSDeePHFGradients",
+        "RKSDeePHFZVectorGradients",
+        "RKSAdjoint",
+        "RKSAdjointAdapter",
         "RKSResponse",
         "RKSResponseAdapter",
         "RKSResponseDiagnostics",
@@ -672,7 +679,7 @@ def test_uhf_direct_path_does_not_access_rhf_adjoint_scanner_or_force_data_symbo
     assert violations == {module_name: [] for module_name in guarded_modules}
 
 
-def test_rks_direct_path_does_not_access_other_reference_backends():
+def test_rks_paths_do_not_access_other_reference_backends():
     forbidden_symbols = {
         "RHFAdjoint",
         "RHFAdjointAdapter",
@@ -684,14 +691,18 @@ def test_rks_direct_path_does_not_access_other_reference_backends():
         "UHFResponse",
         "UHFResponseAdapter",
         "generate_rhf_force_frame",
-        "solve_scalar_adjoint",
         "write_rhf_force_dataset",
     }
 
     def whole_module(tree):
         return (tree,)
 
-    guarded_modules = ("pyscf_rks.py", "rks_method.py", "rks_gradient.py")
+    guarded_modules = (
+        "pyscf_rks.py",
+        "rks_method.py",
+        "rks_gradient.py",
+        "rks_zvector.py",
+    )
     violations = {
         module_name: _symbol_accesses(
             PACKAGE_ROOT / "deephf" / module_name,
@@ -702,6 +713,52 @@ def test_rks_direct_path_does_not_access_other_reference_backends():
     }
 
     assert violations == {module_name: [] for module_name in guarded_modules}
+
+
+def test_rks_zvector_path_has_no_direct_response_symbol_access():
+    forbidden_symbols = {
+        "RKSDeePHFGradients",
+        "RKSResponseAdapter",
+        "response",
+        "first_order_density",
+        "dq_dR_response",
+        "dq_dR_relaxed",
+    }
+    zvector_path = PACKAGE_ROOT / "deephf" / "rks_zvector.py"
+    method_path = PACKAGE_ROOT / "deephf" / "rks_method.py"
+
+    def whole_module(tree):
+        return (tree,)
+
+    def method_zvector_nodes(tree):
+        return tuple(
+            node
+            for class_node in tree.body
+            if isinstance(class_node, ast.ClassDef)
+            and class_node.name == "RKSDeePHF"
+            for node in class_node.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {
+                "adjoint",
+                "_zvector_inputs",
+                "_validate_zvector_inputs",
+            }
+        )
+
+    violations = {
+        "deepks/deephf/rks_zvector.py": _symbol_accesses(
+            zvector_path,
+            whole_module,
+            forbidden_symbols,
+        ),
+        "deepks/deephf/rks_method.py:adjoint": _symbol_accesses(
+            method_path,
+            method_zvector_nodes,
+            forbidden_symbols,
+        ),
+    }
+
+    assert violations == {name: [] for name in violations}
 
 
 def test_force_data_does_not_access_pyscf_private_basis_metadata():
@@ -800,6 +857,10 @@ def test_rks_direct_result_symbols_have_one_module_level_owner():
     expected_owners = {
         "RKSDeePHF": "deepks/deephf/rks_method.py",
         "RKSDeePHFGradients": "deepks/deephf/rks_gradient.py",
+        "RKSDeePHFZVectorGradients": "deepks/deephf/rks_zvector.py",
+        "RKSAdjoint": "deepks/deephf/pyscf_rks.py",
+        "RKSAdjointAdapter": "deepks/deephf/pyscf_rks.py",
+        "RKSAdjointDiagnostics": "deepks/deephf/pyscf_rks.py",
         "RKSFunctionalProvenance": "deepks/deephf/pyscf_rks.py",
         "RKSGridProvenance": "deepks/deephf/pyscf_rks.py",
         "RKSNativeGradient": "deepks/deephf/pyscf_rks.py",
@@ -808,6 +869,7 @@ def test_rks_direct_result_symbols_have_one_module_level_owner():
         "RKSResponseDiagnostics": "deepks/deephf/pyscf_rks.py",
         "RKSResponseError": "deepks/deephf/pyscf_rks.py",
         "native_rks_gradient": "deepks/deephf/pyscf_rks.py",
+        "rks_adjoint_integrity_fingerprint": "deepks/deephf/pyscf_rks.py",
         "rks_reference_fingerprint": "deepks/deephf/pyscf_rks.py",
         "rks_response_integrity_fingerprint": "deepks/deephf/pyscf_rks.py",
     }

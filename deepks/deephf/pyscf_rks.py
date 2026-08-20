@@ -18,7 +18,7 @@ from pyscf.scf import cphf, hf as scf_hf
 
 from deepks.descriptor import is_ghost_atom
 
-from .adjoint import ScalarAdjointProblem
+from .adjoint import AdjointError, ScalarAdjointProblem, solve_scalar_adjoint
 from .capabilities import DeePHFCapabilityError
 
 
@@ -43,6 +43,10 @@ _GRID_RESPONSE_WEIGHT_ATOL = 1.0e-180
 
 class RKSResponseError(RuntimeError):
     """Raised when the strict RKS response contract fails."""
+
+
+class RKSAdjointError(AdjointError):
+    """Raised when the strict RKS scalar-adjoint contract fails."""
 
 
 @dataclass(frozen=True)
@@ -167,6 +171,77 @@ class RKSNativeGradient:
     xc_grid_coordinate: np.ndarray
     xc_grid_weight: np.ndarray
     reconstruction_residual: float
+
+
+@dataclass(frozen=True)
+class RKSAdjointDiagnostics:
+    """Independent diagnostics for one correction-specific RKS adjoint."""
+
+    minimum_orbital_gap: float
+    pyscf_version: str
+    libxc_version: str
+    functional_components: tuple[tuple[int, float], ...]
+    grid_point_count: int
+    grid_coordinates_fingerprint: str
+    grid_weights_fingerprint: str
+    residual_tolerance: float
+    invariant_tolerance: float
+    orbital_gap_tolerance: float
+    response_dimension: int
+    operator_stability_tolerance: float
+    operator_condition_tolerance: float
+    operator_symmetry_tolerance: float
+    operator_dimension_limit: int
+    operator_minimum_eigenvalue: float
+    operator_maximum_eigenvalue: float
+    operator_condition_number: float
+    operator_symmetry_residual: float
+    induced_potential_reconstruction_residual: float
+    fixed_grid_xc_reconstruction_residual: float
+    hamiltonian_reconstruction_residual: float
+    objective_symmetry_tolerance: float
+    objective_symmetry_residual: float
+    adjoint_density_symmetry_residual: float
+    adjoint_potential_symmetry_residual: float
+    solver: str
+    solve_count: int
+    objective_gradient_norm: float
+    solution_norm: float
+    maximum_solver_residual: float
+    solver_residual_rms: float
+    maximum_transpose_residual: float
+    transpose_residual_rms: float
+    maximum_physical_residual: float
+    physical_residual_rms: float
+
+
+@dataclass(frozen=True)
+class RKSAdjoint:
+    """Immutable RKS Z-vector and its finite-grid nuclear contractions."""
+
+    reference_identity: int
+    state_fingerprint: str
+    integrity_fingerprint: str
+    operator_fingerprint: str
+    functional_provenance: RKSFunctionalProvenance
+    grid_provenance: RKSGridProvenance
+    objective_ao_potential: np.ndarray
+    objective_orbital_gradient: np.ndarray
+    zvector: np.ndarray
+    solver_residual: np.ndarray
+    transpose_residual: np.ndarray
+    physical_residual: np.ndarray
+    adjoint_ao_density: np.ndarray
+    adjoint_ao_potential: np.ndarray
+    correction_gradient_metric: np.ndarray
+    correction_gradient_adjoint_fixed_grid: np.ndarray
+    correction_gradient_adjoint_grid_coordinate: np.ndarray
+    correction_gradient_adjoint_grid_weight: np.ndarray
+    correction_gradient_adjoint_nuclear: np.ndarray
+    correction_gradient_adjoint_metric: np.ndarray
+    correction_gradient_occupied_virtual: np.ndarray
+    correction_gradient_response: np.ndarray
+    diagnostics: RKSAdjointDiagnostics
 
 
 def _version_series(version: str) -> tuple[int, int]:
@@ -1205,10 +1280,22 @@ def rks_response_integrity_fingerprint(response: RKSResponse) -> str:
     return digest.hexdigest()
 
 
+def rks_adjoint_integrity_fingerprint(adjoint: RKSAdjoint) -> str:
+    """Return a digest covering every RKS adjoint field except itself."""
+    digest = hashlib.sha256()
+    for adjoint_field in fields(adjoint):
+        if adjoint_field.name == "integrity_fingerprint":
+            continue
+        value = getattr(adjoint, adjoint_field.name)
+        digest.update(adjoint_field.name.encode("utf-8"))
+        _update_fingerprint_value(digest, value)
+    return digest.hexdigest()
+
+
 class _RKSLinearResponseProblem:
     """Bind one audited RKS operator to the reference-neutral protocol."""
 
-    def __init__(self, adapter: "RKSResponseAdapter", matrix: np.ndarray):
+    def __init__(self, adapter: "_RKSLinearResponseCore", matrix: np.ndarray):
         self._adapter = adapter
         self._matrix = _immutable_array(matrix)
         self._state_fingerprint = rks_reference_fingerprint(adapter.reference)
@@ -1258,11 +1345,11 @@ class _RKSLinearResponseProblem:
             (self.dimension,),
             "RKS transpose linear-response vector",
         )
-        return self._matrix.T @ vector
+        return self.apply(vector)
 
 
-class RKSResponseAdapter:
-    """Solve and independently audit molecular pure-LDA RKS nuclear CPKS."""
+class _RKSLinearResponseCore:
+    """Provide shared pure-LDA RKS operator and nuclear perturbation primitives."""
 
     def __init__(
         self,
@@ -1935,6 +2022,10 @@ class RKSResponseAdapter:
                 "the RKS linear-response problem violates the neutral adjoint protocol"
             )
         return problem
+
+
+class RKSResponseAdapter(_RKSLinearResponseCore):
+    """Solve and independently audit molecular pure-LDA RKS nuclear CPKS."""
 
     def _orbital_residual(
         self,
@@ -2800,6 +2891,956 @@ class RKSResponseAdapter:
         if max(measured[name] for name in invariant_names) > self.invariant_tolerance:
             raise RKSResponseError(
                 "the supplied RKS response invariant exceeds tolerance"
+            )
+
+
+class RKSAdjointAdapter(_RKSLinearResponseCore):
+    """Solve one correction-specific pure-LDA RKS scalar adjoint."""
+
+    def __init__(
+        self,
+        reference,
+        *,
+        residual_tolerance: float = 1.0e-9,
+        invariant_tolerance: float = 1.0e-9,
+        orbital_gap_tolerance: float = 1.0e-7,
+        operator_stability_tolerance: float = 1.0e-6,
+        operator_condition_tolerance: float = 1.0e8,
+        operator_symmetry_tolerance: float = 1.0e-10,
+        operator_dimension_limit: int = 512,
+        objective_symmetry_tolerance: float = 1.0e-10,
+    ):
+        super().__init__(
+            reference,
+            residual_tolerance=residual_tolerance,
+            invariant_tolerance=invariant_tolerance,
+            orbital_gap_tolerance=orbital_gap_tolerance,
+            operator_stability_tolerance=operator_stability_tolerance,
+            operator_condition_tolerance=operator_condition_tolerance,
+            operator_symmetry_tolerance=operator_symmetry_tolerance,
+            operator_dimension_limit=operator_dimension_limit,
+        )
+        self.objective_symmetry_tolerance = _response_real_control(
+            objective_symmetry_tolerance,
+            "objective_symmetry_tolerance",
+        )
+        if self.objective_symmetry_tolerance <= 0.0:
+            raise ValueError("adjoint objective_symmetry_tolerance must be positive")
+
+    def _validated_objective_potential(self, value) -> np.ndarray:
+        potential = _validated_float64_array(
+            value,
+            (self.molecule.nao, self.molecule.nao),
+            "correction AO objective potential",
+        )
+        symmetry_residual = float(
+            np.max(np.abs(potential - potential.T), initial=0.0)
+        )
+        if symmetry_residual > self.objective_symmetry_tolerance:
+            raise RKSAdjointError(
+                "the correction AO objective potential violates symmetry: "
+                f"{symmetry_residual:.3e} > "
+                f"{self.objective_symmetry_tolerance:.3e}"
+            )
+        return potential
+
+    @staticmethod
+    def _audited_array(value, expected_shape, name: str) -> np.ndarray:
+        if type(value) is not np.ndarray:
+            raise RKSAdjointError(
+                f"the supplied RKS adjoint field {name} has an invalid type"
+            )
+        if value.shape != expected_shape:
+            raise RKSAdjointError(
+                f"the supplied RKS adjoint field {name} has shape {value.shape}; "
+                f"expected {expected_shape}"
+            )
+        if value.dtype != np.dtype(np.float64) or np.iscomplexobj(value):
+            raise RKSAdjointError(
+                f"the supplied RKS adjoint field {name} must use real numpy.float64"
+            )
+        if not np.isfinite(value).all():
+            raise RKSAdjointError(
+                f"the supplied RKS adjoint field {name} must be finite"
+            )
+        if value.flags.writeable:
+            raise RKSAdjointError(
+                f"the supplied RKS adjoint field {name} must be immutable"
+            )
+        return value
+
+    @staticmethod
+    def _require_close(stored, expected, name: str) -> None:
+        if not np.allclose(stored, expected, rtol=1.0e-11, atol=1.0e-12):
+            maximum_residual = float(
+                np.max(np.abs(np.asarray(stored) - np.asarray(expected)), initial=0.0)
+            )
+            raise RKSAdjointError(
+                f"the supplied RKS adjoint {name} is inconsistent: "
+                f"residual {maximum_residual:.3e}"
+            )
+
+    @staticmethod
+    def _residual_statistics(value: np.ndarray) -> tuple[float, float]:
+        return (
+            float(np.max(np.abs(value), initial=0.0)),
+            float(np.sqrt(np.mean(np.square(value)))),
+        )
+
+    def _adjoint_density(
+        self,
+        zvector: np.ndarray,
+        coefficient: np.ndarray,
+        occupation: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> np.ndarray:
+        occupied_coefficients = coefficient[:, occupied]
+        virtual_coefficients = coefficient[:, virtual]
+        rotated_occupied = virtual_coefficients @ zvector
+        one_sided = rotated_occupied @ (
+            occupied_coefficients * occupation[occupied]
+        ).T
+        density = one_sided + one_sided.T
+        return _validated_float64_array(
+            density,
+            (self.molecule.nao, self.molecule.nao),
+            "RKS adjoint AO density",
+        )
+
+    def _gradient_partitions(
+        self,
+        objective_ao_potential: np.ndarray,
+        zvector: np.ndarray,
+        adjoint_ao_potential: np.ndarray,
+        coefficient: np.ndarray,
+        energy: np.ndarray,
+        occupation: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> tuple[dict[str, np.ndarray], float, float]:
+        overlap_derivative = self._overlap_derivative()
+        (
+            hamiltonian_derivative,
+            hamiltonian_fixed_grid,
+            _xc_ao_motion,
+            hamiltonian_grid_coordinate,
+            hamiltonian_grid_weight,
+            fixed_grid_xc_reconstruction_residual,
+        ) = self._hamiltonian_derivative(coefficient, occupation)
+        hamiltonian_reconstruction_residual = float(
+            np.max(
+                np.abs(
+                    hamiltonian_derivative
+                    - hamiltonian_fixed_grid
+                    - hamiltonian_grid_coordinate
+                    - hamiltonian_grid_weight
+                ),
+                initial=0.0,
+            )
+        )
+        occupied_coefficients = coefficient[:, occupied]
+
+        def occupied_mo(value):
+            return np.einsum(
+                "mp,...mn,ni->...pi",
+                coefficient,
+                value,
+                occupied_coefficients,
+            )
+
+        overlap_mo = occupied_mo(overlap_derivative)
+        fixed_grid_mo = occupied_mo(hamiltonian_fixed_grid)
+        grid_coordinate_mo = occupied_mo(hamiltonian_grid_coordinate)
+        grid_weight_mo = occupied_mo(hamiltonian_grid_weight)
+        fixed_grid_rhs = (
+            fixed_grid_mo[..., virtual, :]
+            - overlap_mo[..., virtual, :] * energy[occupied]
+        )
+        correction_gradient_adjoint_fixed_grid = -np.einsum(
+            "ai,...ai->...",
+            zvector,
+            fixed_grid_rhs,
+        )
+        correction_gradient_adjoint_grid_coordinate = -np.einsum(
+            "ai,...ai->...",
+            zvector,
+            grid_coordinate_mo[..., virtual, :],
+        )
+        correction_gradient_adjoint_grid_weight = -np.einsum(
+            "ai,...ai->...",
+            zvector,
+            grid_weight_mo[..., virtual, :],
+        )
+        correction_gradient_adjoint_nuclear = (
+            correction_gradient_adjoint_fixed_grid
+            + correction_gradient_adjoint_grid_coordinate
+            + correction_gradient_adjoint_grid_weight
+        )
+        objective_mo = coefficient.T @ objective_ao_potential @ coefficient
+        objective_occupied = objective_mo[occupied][:, occupied]
+        objective_occupied = 0.5 * (
+            objective_occupied + objective_occupied.T
+        )
+        adjoint_potential_mo = (
+            coefficient.T @ adjoint_ao_potential @ coefficient
+        )
+        adjoint_potential_occupied = adjoint_potential_mo[occupied][
+            :, occupied
+        ]
+        adjoint_potential_occupied = 0.5 * (
+            adjoint_potential_occupied
+            + adjoint_potential_occupied.T
+        )
+        overlap_occupied = overlap_mo[..., occupied, :]
+        correction_gradient_metric = np.einsum(
+            "...ij,ij->...",
+            overlap_occupied,
+            -2.0 * objective_occupied,
+        )
+        correction_gradient_adjoint_metric = np.einsum(
+            "...ij,ij->...",
+            overlap_occupied,
+            0.5 * adjoint_potential_occupied,
+        )
+        correction_gradient_occupied_virtual = (
+            correction_gradient_adjoint_nuclear
+            + correction_gradient_adjoint_metric
+        )
+        correction_gradient_response = (
+            correction_gradient_metric
+            + correction_gradient_occupied_virtual
+        )
+        partitions = {
+            "correction_gradient_metric": correction_gradient_metric,
+            "correction_gradient_adjoint_fixed_grid": (
+                correction_gradient_adjoint_fixed_grid
+            ),
+            "correction_gradient_adjoint_grid_coordinate": (
+                correction_gradient_adjoint_grid_coordinate
+            ),
+            "correction_gradient_adjoint_grid_weight": (
+                correction_gradient_adjoint_grid_weight
+            ),
+            "correction_gradient_adjoint_nuclear": (
+                correction_gradient_adjoint_nuclear
+            ),
+            "correction_gradient_adjoint_metric": (
+                correction_gradient_adjoint_metric
+            ),
+            "correction_gradient_occupied_virtual": (
+                correction_gradient_occupied_virtual
+            ),
+            "correction_gradient_response": correction_gradient_response,
+        }
+        expected_shape = (self.molecule.natm, 3)
+        for name, value in partitions.items():
+            _validated_float64_array(value, expected_shape, f"RKS {name}")
+        return (
+            partitions,
+            fixed_grid_xc_reconstruction_residual,
+            hamiltonian_reconstruction_residual,
+        )
+
+    def _expected_objective_gradient(
+        self,
+        objective_ao_potential: np.ndarray,
+        coefficient: np.ndarray,
+        occupation: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> np.ndarray:
+        objective_mo = coefficient.T @ objective_ao_potential @ coefficient
+        objective_gradient = (
+            objective_mo[virtual][:, occupied]
+            + objective_mo.T[virtual][:, occupied]
+        ) * occupation[occupied]
+        return _validated_float64_array(
+            objective_gradient,
+            (
+                int(np.count_nonzero(virtual)),
+                int(np.count_nonzero(occupied)),
+            ),
+            "correction occupied-virtual objective gradient",
+        )
+
+    def solve(self, objective_ao_potential: np.ndarray) -> RKSAdjoint:
+        """Return one audited RKS Z-vector and its complete nuclear contraction."""
+        try:
+            return self._solve(objective_ao_potential)
+        except DeePHFCapabilityError:
+            raise
+        except RKSAdjointError:
+            raise
+        except (AdjointError, RKSResponseError) as error:
+            raise RKSAdjointError(
+                f"RKS adjoint evaluation failed: {error}"
+            ) from error
+
+    def _solve(self, objective_ao_potential: np.ndarray) -> RKSAdjoint:
+        validate_rks_reference(self.reference)
+        initial_fingerprint = rks_reference_fingerprint(self.reference)
+        functional_provenance = _functional_provenance(self.reference)
+        grid_provenance = _grid_provenance(self.reference)
+        objective_ao_potential = self._validated_objective_potential(
+            objective_ao_potential
+        )
+        objective_symmetry_residual = float(
+            np.max(
+                np.abs(objective_ao_potential - objective_ao_potential.T),
+                initial=0.0,
+            )
+        )
+        (
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+            minimum_gap,
+        ) = self._state()
+        (
+            response_operator,
+            response_dimension,
+            operator_minimum_eigenvalue,
+            operator_maximum_eigenvalue,
+            operator_condition_number,
+            operator_symmetry_residual,
+            induced_potential_reconstruction_residual,
+        ) = self._response_operator_matrix_and_diagnostics(
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        objective_orbital_gradient = self._expected_objective_gradient(
+            objective_ao_potential,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        problem = _RKSLinearResponseProblem(self, response_operator)
+        if not isinstance(problem, ScalarAdjointProblem):
+            raise RKSAdjointError(
+                "the RKS adjoint operator violates the neutral scalar protocol"
+            )
+        linear_result = solve_scalar_adjoint(
+            problem,
+            objective_orbital_gradient.reshape(response_dimension),
+            residual_tolerance=self.residual_tolerance,
+            require_physical_residual=True,
+        )
+        nocc = int(np.count_nonzero(occupied))
+        nvir = int(np.count_nonzero(virtual))
+        zvector = linear_result.solution.reshape(nvir, nocc)
+        adjoint_ao_density = self._adjoint_density(
+            zvector,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        adjoint_density_symmetry_residual = float(
+            np.max(
+                np.abs(adjoint_ao_density - adjoint_ao_density.T),
+                initial=0.0,
+            )
+        )
+        if adjoint_density_symmetry_residual > self.objective_symmetry_tolerance:
+            raise RKSAdjointError(
+                "the RKS adjoint AO density violates symmetry: "
+                f"{adjoint_density_symmetry_residual:.3e} > "
+                f"{self.objective_symmetry_tolerance:.3e}"
+            )
+        adjoint_ao_potential = _validated_float64_array(
+            self._induced_potential(adjoint_ao_density),
+            (self.molecule.nao, self.molecule.nao),
+            "RKS adjoint AO potential",
+        )
+        adjoint_potential_symmetry_residual = float(
+            np.max(
+                np.abs(adjoint_ao_potential - adjoint_ao_potential.T),
+                initial=0.0,
+            )
+        )
+        if adjoint_potential_symmetry_residual > self.objective_symmetry_tolerance:
+            raise RKSAdjointError(
+                "the RKS adjoint AO potential violates symmetry: "
+                f"{adjoint_potential_symmetry_residual:.3e} > "
+                f"{self.objective_symmetry_tolerance:.3e}"
+            )
+        (
+            partitions,
+            fixed_grid_xc_reconstruction_residual,
+            hamiltonian_reconstruction_residual,
+        ) = self._gradient_partitions(
+            objective_ao_potential,
+            zvector,
+            adjoint_ao_potential,
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        self._require_close(
+            partitions["correction_gradient_adjoint_nuclear"],
+            partitions["correction_gradient_adjoint_fixed_grid"]
+            + partitions["correction_gradient_adjoint_grid_coordinate"]
+            + partitions["correction_gradient_adjoint_grid_weight"],
+            "nuclear gradient partition",
+        )
+        self._require_close(
+            partitions["correction_gradient_occupied_virtual"],
+            partitions["correction_gradient_adjoint_nuclear"]
+            + partitions["correction_gradient_adjoint_metric"],
+            "occupied-virtual gradient partition",
+        )
+        self._require_close(
+            partitions["correction_gradient_response"],
+            partitions["correction_gradient_metric"]
+            + partitions["correction_gradient_occupied_virtual"],
+            "response gradient partition",
+        )
+        if fixed_grid_xc_reconstruction_residual > self.invariant_tolerance:
+            raise RKSAdjointError(
+                "the RKS adjoint fixed-grid XC reconstruction exceeds tolerance"
+            )
+        if hamiltonian_reconstruction_residual > self.invariant_tolerance:
+            raise RKSAdjointError(
+                "the RKS adjoint Hamiltonian reconstruction exceeds tolerance"
+            )
+        validate_rks_reference(self.reference)
+        if rks_reference_fingerprint(self.reference) != initial_fingerprint:
+            raise RKSAdjointError(
+                "the RKS reference changed during the scalar-adjoint evaluation"
+            )
+        linear_diagnostics = linear_result.diagnostics
+        diagnostics = RKSAdjointDiagnostics(
+            minimum_orbital_gap=minimum_gap,
+            pyscf_version=pyscf.__version__,
+            libxc_version=str(libxc.__version__),
+            functional_components=functional_provenance.components,
+            grid_point_count=grid_provenance.point_count,
+            grid_coordinates_fingerprint=grid_provenance.coordinates_fingerprint,
+            grid_weights_fingerprint=grid_provenance.weights_fingerprint,
+            residual_tolerance=self.residual_tolerance,
+            invariant_tolerance=self.invariant_tolerance,
+            orbital_gap_tolerance=self.orbital_gap_tolerance,
+            response_dimension=response_dimension,
+            operator_stability_tolerance=self.operator_stability_tolerance,
+            operator_condition_tolerance=self.operator_condition_tolerance,
+            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
+            operator_dimension_limit=self.operator_dimension_limit,
+            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
+            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
+            operator_condition_number=operator_condition_number,
+            operator_symmetry_residual=operator_symmetry_residual,
+            induced_potential_reconstruction_residual=(
+                induced_potential_reconstruction_residual
+            ),
+            fixed_grid_xc_reconstruction_residual=(
+                fixed_grid_xc_reconstruction_residual
+            ),
+            hamiltonian_reconstruction_residual=(
+                hamiltonian_reconstruction_residual
+            ),
+            objective_symmetry_tolerance=self.objective_symmetry_tolerance,
+            objective_symmetry_residual=objective_symmetry_residual,
+            adjoint_density_symmetry_residual=(
+                adjoint_density_symmetry_residual
+            ),
+            adjoint_potential_symmetry_residual=(
+                adjoint_potential_symmetry_residual
+            ),
+            solver=linear_diagnostics.solver,
+            solve_count=linear_diagnostics.solve_count,
+            objective_gradient_norm=linear_diagnostics.objective_gradient_norm,
+            solution_norm=linear_diagnostics.solution_norm,
+            maximum_solver_residual=(
+                linear_diagnostics.maximum_solver_residual
+            ),
+            solver_residual_rms=linear_diagnostics.solver_residual_rms,
+            maximum_transpose_residual=(
+                linear_diagnostics.maximum_transpose_residual
+            ),
+            transpose_residual_rms=(
+                linear_diagnostics.transpose_residual_rms
+            ),
+            maximum_physical_residual=(
+                linear_diagnostics.maximum_physical_residual
+            ),
+            physical_residual_rms=(
+                linear_diagnostics.physical_residual_rms
+            ),
+        )
+        adjoint = RKSAdjoint(
+            reference_identity=id(self.reference),
+            state_fingerprint=initial_fingerprint,
+            integrity_fingerprint="",
+            operator_fingerprint=linear_result.operator_fingerprint,
+            functional_provenance=functional_provenance,
+            grid_provenance=grid_provenance,
+            objective_ao_potential=_immutable_array(objective_ao_potential),
+            objective_orbital_gradient=_immutable_array(
+                objective_orbital_gradient
+            ),
+            zvector=_immutable_array(zvector),
+            solver_residual=_immutable_array(
+                linear_result.solver_residual.reshape(nvir, nocc)
+            ),
+            transpose_residual=_immutable_array(
+                linear_result.transpose_residual.reshape(nvir, nocc)
+            ),
+            physical_residual=_immutable_array(
+                linear_result.physical_residual.reshape(nvir, nocc)
+            ),
+            adjoint_ao_density=_immutable_array(adjoint_ao_density),
+            adjoint_ao_potential=_immutable_array(adjoint_ao_potential),
+            **{
+                name: _immutable_array(value)
+                for name, value in partitions.items()
+            },
+            diagnostics=diagnostics,
+        )
+        return replace(
+            adjoint,
+            integrity_fingerprint=rks_adjoint_integrity_fingerprint(adjoint),
+        )
+
+    def audit_adjoint(
+        self,
+        adjoint: RKSAdjoint,
+        expected_objective_ao_potential: np.ndarray,
+    ) -> None:
+        """Independently audit one consumed RKS adjoint without another solve."""
+        try:
+            self._audit_adjoint(adjoint, expected_objective_ao_potential)
+        except DeePHFCapabilityError:
+            raise
+        except RKSAdjointError:
+            raise
+        except (AdjointError, RKSResponseError) as error:
+            raise RKSAdjointError(
+                f"RKS adjoint audit failed: {error}"
+            ) from error
+
+    def _audit_adjoint(
+        self,
+        adjoint: RKSAdjoint,
+        expected_objective_ao_potential: np.ndarray,
+    ) -> None:
+        validate_rks_reference(self.reference)
+        if type(adjoint) is not RKSAdjoint:
+            raise RKSAdjointError("the supplied RKS adjoint has an invalid type")
+        diagnostics = adjoint.diagnostics
+        if type(diagnostics) is not RKSAdjointDiagnostics:
+            raise RKSAdjointError(
+                "the supplied RKS adjoint diagnostics have an invalid type"
+            )
+        current_fingerprint = rks_reference_fingerprint(self.reference)
+        if adjoint.reference_identity != id(self.reference):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint belongs to another reference"
+            )
+        if adjoint.state_fingerprint != current_fingerprint:
+            raise RKSAdjointError(
+                "the supplied RKS adjoint does not match the current RKS state"
+            )
+        if adjoint.integrity_fingerprint != rks_adjoint_integrity_fingerprint(
+            adjoint
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint failed its integrity check"
+            )
+        provenance_values = (
+            adjoint.reference_identity,
+            adjoint.state_fingerprint,
+            adjoint.integrity_fingerprint,
+            adjoint.operator_fingerprint,
+        )
+        if (
+            type(provenance_values[0]) is not int
+            or any(type(value) is not str for value in provenance_values[1:])
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint provenance fields have invalid types"
+            )
+        functional_provenance = _functional_provenance(self.reference)
+        grid_provenance = _grid_provenance(self.reference)
+        if (
+            type(adjoint.functional_provenance) is not RKSFunctionalProvenance
+            or adjoint.functional_provenance != functional_provenance
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint functional provenance is invalid"
+            )
+        if (
+            type(adjoint.grid_provenance) is not RKSGridProvenance
+            or adjoint.grid_provenance != grid_provenance
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint grid provenance is invalid"
+            )
+        if diagnostics.solver != "numpy.linalg.solve(A.T, b)":
+            raise RKSAdjointError(
+                "the supplied RKS adjoint solver convention is invalid"
+            )
+        if type(diagnostics.solve_count) is not int or diagnostics.solve_count != 1:
+            raise RKSAdjointError(
+                "the supplied RKS adjoint must contain exactly one scalar solve"
+            )
+        integer_diagnostics = (
+            diagnostics.grid_point_count,
+            diagnostics.response_dimension,
+            diagnostics.operator_dimension_limit,
+        )
+        if any(type(value) is not int or value <= 0 for value in integer_diagnostics):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint integer diagnostics are invalid"
+            )
+        diagnostic_reals = (
+            diagnostics.minimum_orbital_gap,
+            diagnostics.residual_tolerance,
+            diagnostics.invariant_tolerance,
+            diagnostics.orbital_gap_tolerance,
+            diagnostics.operator_stability_tolerance,
+            diagnostics.operator_condition_tolerance,
+            diagnostics.operator_symmetry_tolerance,
+            diagnostics.operator_minimum_eigenvalue,
+            diagnostics.operator_maximum_eigenvalue,
+            diagnostics.operator_condition_number,
+            diagnostics.operator_symmetry_residual,
+            diagnostics.induced_potential_reconstruction_residual,
+            diagnostics.fixed_grid_xc_reconstruction_residual,
+            diagnostics.hamiltonian_reconstruction_residual,
+            diagnostics.objective_symmetry_tolerance,
+            diagnostics.objective_symmetry_residual,
+            diagnostics.adjoint_density_symmetry_residual,
+            diagnostics.adjoint_potential_symmetry_residual,
+            diagnostics.objective_gradient_norm,
+            diagnostics.solution_norm,
+            diagnostics.maximum_solver_residual,
+            diagnostics.solver_residual_rms,
+            diagnostics.maximum_transpose_residual,
+            diagnostics.transpose_residual_rms,
+            diagnostics.maximum_physical_residual,
+            diagnostics.physical_residual_rms,
+        )
+        if any(
+            isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
+            for value in diagnostic_reals
+        ) or not np.isfinite(diagnostic_reals).all():
+            raise RKSAdjointError(
+                "the supplied RKS adjoint diagnostics must be finite real scalars"
+            )
+        controls = {
+            "residual_tolerance": self.residual_tolerance,
+            "invariant_tolerance": self.invariant_tolerance,
+            "orbital_gap_tolerance": self.orbital_gap_tolerance,
+            "operator_stability_tolerance": self.operator_stability_tolerance,
+            "operator_condition_tolerance": self.operator_condition_tolerance,
+            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
+            "operator_dimension_limit": self.operator_dimension_limit,
+            "objective_symmetry_tolerance": self.objective_symmetry_tolerance,
+        }
+        for name, expected in controls.items():
+            if getattr(diagnostics, name) != expected:
+                raise RKSAdjointError(
+                    f"the supplied RKS adjoint {name} control is inconsistent"
+                )
+        if (
+            diagnostics.residual_tolerance <= 0.0
+            or diagnostics.invariant_tolerance <= 0.0
+            or diagnostics.orbital_gap_tolerance <= 0.0
+            or diagnostics.operator_stability_tolerance <= 0.0
+            or diagnostics.operator_condition_tolerance <= 1.0
+            or diagnostics.operator_symmetry_tolerance <= 0.0
+            or diagnostics.objective_symmetry_tolerance <= 0.0
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint controls are invalid"
+            )
+        exact_diagnostics = {
+            "pyscf_version": pyscf.__version__,
+            "libxc_version": str(libxc.__version__),
+            "functional_components": functional_provenance.components,
+            "grid_point_count": grid_provenance.point_count,
+            "grid_coordinates_fingerprint": (
+                grid_provenance.coordinates_fingerprint
+            ),
+            "grid_weights_fingerprint": grid_provenance.weights_fingerprint,
+        }
+        for name, expected in exact_diagnostics.items():
+            if getattr(diagnostics, name) != expected:
+                raise RKSAdjointError(
+                    f"the supplied RKS adjoint diagnostic {name} is invalid"
+                )
+        (
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+            minimum_gap,
+        ) = self._state()
+        nocc = int(np.count_nonzero(occupied))
+        nvir = int(np.count_nonzero(virtual))
+        dimension = nocc * nvir
+        natm = int(self.molecule.natm)
+        nao = int(self.molecule.nao)
+        array_shapes = {
+            "objective_ao_potential": (nao, nao),
+            "objective_orbital_gradient": (nvir, nocc),
+            "zvector": (nvir, nocc),
+            "solver_residual": (nvir, nocc),
+            "transpose_residual": (nvir, nocc),
+            "physical_residual": (nvir, nocc),
+            "adjoint_ao_density": (nao, nao),
+            "adjoint_ao_potential": (nao, nao),
+            "correction_gradient_metric": (natm, 3),
+            "correction_gradient_adjoint_fixed_grid": (natm, 3),
+            "correction_gradient_adjoint_grid_coordinate": (natm, 3),
+            "correction_gradient_adjoint_grid_weight": (natm, 3),
+            "correction_gradient_adjoint_nuclear": (natm, 3),
+            "correction_gradient_adjoint_metric": (natm, 3),
+            "correction_gradient_occupied_virtual": (natm, 3),
+            "correction_gradient_response": (natm, 3),
+        }
+        for name, shape in array_shapes.items():
+            self._audited_array(getattr(adjoint, name), shape, name)
+        expected_objective_ao_potential = self._validated_objective_potential(
+            expected_objective_ao_potential
+        )
+        self._require_close(
+            adjoint.objective_ao_potential,
+            expected_objective_ao_potential,
+            "objective AO potential",
+        )
+        expected_objective_gradient = self._expected_objective_gradient(
+            expected_objective_ao_potential,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        self._require_close(
+            adjoint.objective_orbital_gradient,
+            expected_objective_gradient,
+            "bilateral occupied-virtual objective gradient",
+        )
+        (
+            response_operator,
+            response_dimension,
+            minimum_eigenvalue,
+            maximum_eigenvalue,
+            condition_number,
+            symmetry_residual,
+            induced_potential_reconstruction_residual,
+        ) = self._response_operator_matrix_and_diagnostics(
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        if adjoint.operator_fingerprint != _array_fingerprint(response_operator):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint response operator is inconsistent"
+            )
+        objective_vector = expected_objective_gradient.reshape(dimension)
+        zvector = adjoint.zvector
+        solver_residual = (
+            response_operator.T @ zvector.reshape(dimension) - objective_vector
+        ).reshape(nvir, nocc)
+        physical_residual = (
+            self._apply_occupied_virtual_operator(
+                zvector,
+                coefficient,
+                energy,
+                occupation,
+                occupied,
+                virtual,
+            ).reshape(dimension)
+            - objective_vector
+        ).reshape(nvir, nocc)
+        self._require_close(
+            adjoint.solver_residual,
+            solver_residual,
+            "literal transpose residual",
+        )
+        self._require_close(
+            adjoint.transpose_residual,
+            physical_residual,
+            "independent transpose-action residual",
+        )
+        self._require_close(
+            adjoint.physical_residual,
+            physical_residual,
+            "physical operator residual",
+        )
+        expected_adjoint_density = self._adjoint_density(
+            zvector,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        self._require_close(
+            adjoint.adjoint_ao_density,
+            expected_adjoint_density,
+            "AO density",
+        )
+        expected_adjoint_potential = _validated_float64_array(
+            self._induced_potential(expected_adjoint_density),
+            (nao, nao),
+            "independently rebuilt RKS adjoint AO potential",
+        )
+        self._require_close(
+            adjoint.adjoint_ao_potential,
+            expected_adjoint_potential,
+            "AO potential",
+        )
+        (
+            expected_partitions,
+            fixed_grid_xc_reconstruction_residual,
+            hamiltonian_reconstruction_residual,
+        ) = self._gradient_partitions(
+            expected_objective_ao_potential,
+            zvector,
+            expected_adjoint_potential,
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        for name, expected in expected_partitions.items():
+            self._require_close(getattr(adjoint, name), expected, name)
+        self._require_close(
+            adjoint.correction_gradient_adjoint_nuclear,
+            adjoint.correction_gradient_adjoint_fixed_grid
+            + adjoint.correction_gradient_adjoint_grid_coordinate
+            + adjoint.correction_gradient_adjoint_grid_weight,
+            "nuclear gradient partition",
+        )
+        self._require_close(
+            adjoint.correction_gradient_occupied_virtual,
+            adjoint.correction_gradient_adjoint_nuclear
+            + adjoint.correction_gradient_adjoint_metric,
+            "occupied-virtual gradient partition",
+        )
+        self._require_close(
+            adjoint.correction_gradient_response,
+            adjoint.correction_gradient_metric
+            + adjoint.correction_gradient_occupied_virtual,
+            "response gradient partition",
+        )
+        maximum_solver_residual, solver_residual_rms = (
+            self._residual_statistics(solver_residual)
+        )
+        maximum_physical_residual, physical_residual_rms = (
+            self._residual_statistics(physical_residual)
+        )
+        objective_symmetry_residual = float(
+            np.max(
+                np.abs(
+                    expected_objective_ao_potential
+                    - expected_objective_ao_potential.T
+                ),
+                initial=0.0,
+            )
+        )
+        density_symmetry_residual = float(
+            np.max(
+                np.abs(expected_adjoint_density - expected_adjoint_density.T),
+                initial=0.0,
+            )
+        )
+        potential_symmetry_residual = float(
+            np.max(
+                np.abs(
+                    expected_adjoint_potential
+                    - expected_adjoint_potential.T
+                ),
+                initial=0.0,
+            )
+        )
+        measured = {
+            "minimum_orbital_gap": minimum_gap,
+            "response_dimension": response_dimension,
+            "operator_minimum_eigenvalue": minimum_eigenvalue,
+            "operator_maximum_eigenvalue": maximum_eigenvalue,
+            "operator_condition_number": condition_number,
+            "operator_symmetry_residual": symmetry_residual,
+            "induced_potential_reconstruction_residual": (
+                induced_potential_reconstruction_residual
+            ),
+            "fixed_grid_xc_reconstruction_residual": (
+                fixed_grid_xc_reconstruction_residual
+            ),
+            "hamiltonian_reconstruction_residual": (
+                hamiltonian_reconstruction_residual
+            ),
+            "objective_symmetry_residual": objective_symmetry_residual,
+            "adjoint_density_symmetry_residual": density_symmetry_residual,
+            "adjoint_potential_symmetry_residual": potential_symmetry_residual,
+            "objective_gradient_norm": float(
+                np.linalg.norm(expected_objective_gradient)
+            ),
+            "solution_norm": float(np.linalg.norm(zvector)),
+            "maximum_solver_residual": maximum_solver_residual,
+            "solver_residual_rms": solver_residual_rms,
+            "maximum_transpose_residual": maximum_physical_residual,
+            "transpose_residual_rms": physical_residual_rms,
+            "maximum_physical_residual": maximum_physical_residual,
+            "physical_residual_rms": physical_residual_rms,
+        }
+        for name, expected in measured.items():
+            stored = getattr(diagnostics, name)
+            if isinstance(expected, int):
+                matches = stored == expected
+            else:
+                matches = np.isclose(
+                    stored,
+                    expected,
+                    rtol=1.0e-10,
+                    atol=1.0e-12,
+                )
+            if not matches:
+                raise RKSAdjointError(
+                    f"the supplied RKS adjoint {name} diagnostic is inconsistent"
+                )
+        if (
+            maximum_solver_residual > diagnostics.residual_tolerance
+            or maximum_physical_residual > diagnostics.residual_tolerance
+            or minimum_gap <= diagnostics.orbital_gap_tolerance
+            or symmetry_residual > diagnostics.operator_symmetry_tolerance
+            or minimum_eigenvalue <= diagnostics.operator_stability_tolerance
+            or condition_number > diagnostics.operator_condition_tolerance
+            or induced_potential_reconstruction_residual
+            > diagnostics.invariant_tolerance
+            or fixed_grid_xc_reconstruction_residual
+            > diagnostics.invariant_tolerance
+            or hamiltonian_reconstruction_residual
+            > diagnostics.invariant_tolerance
+            or objective_symmetry_residual
+            > diagnostics.objective_symmetry_tolerance
+            or density_symmetry_residual
+            > diagnostics.objective_symmetry_tolerance
+            or potential_symmetry_residual
+            > diagnostics.objective_symmetry_tolerance
+            or response_dimension > diagnostics.operator_dimension_limit
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint exceeds an accepted control"
+            )
+        validate_rks_reference(self.reference)
+        if rks_reference_fingerprint(self.reference) != current_fingerprint:
+            raise RKSAdjointError(
+                "the RKS reference changed during the scalar-adjoint audit"
             )
 
 
