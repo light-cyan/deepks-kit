@@ -1,4 +1,4 @@
-"""Perturbative DeePHF energy and strict RHF analytic-gradient methods."""
+"""Perturbative DeePHF energy and strict molecular analytic gradients."""
 
 from .adjoint import (
     AdjointDiagnostics,
@@ -37,6 +37,15 @@ from .pyscf_rhf import (
     validate_reference,
 )
 from .scanner import RHFDeePHFGradientScanner, RHFDeePHFScannerError
+from .uhf_gradient import UHFDeePHFGradients
+from .uhf_method import UHFDeePHF
+from .pyscf_uhf import (
+    UHFResponse,
+    UHFResponseAdapter,
+    UHFResponseDiagnostics,
+    UHFResponseError,
+    validate_uhf_reference,
+)
 from .zvector import RHFDeePHFZVectorGradients
 
 __all__ = [
@@ -63,11 +72,18 @@ __all__ = [
     "RHFScannerReferenceError",
     "RHFScannerReferenceFactory",
     "ScalarAdjointProblem",
+    "UHFDeePHF",
+    "UHFDeePHFGradients",
+    "UHFResponse",
+    "UHFResponseAdapter",
+    "UHFResponseDiagnostics",
+    "UHFResponseError",
     "generate_rhf_force_frame",
     "solve_scalar_adjoint",
     "validate_model",
     "validate_force_model",
     "validate_model_output",
     "validate_reference",
+    "validate_uhf_reference",
     "write_rhf_force_dataset",
 ]
