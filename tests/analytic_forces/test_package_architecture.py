@@ -166,8 +166,12 @@ def _pyscf_response_imports(source_path):
         for module_name in _imported_modules(source_path)
         if module_name == "pyscf.scf.cphf"
         or module_name.startswith("pyscf.scf.cphf.")
-        or module_name == "pyscf.hessian"
-        or module_name.startswith("pyscf.hessian.")
+        or module_name == "pyscf.scf.ucphf"
+        or module_name.startswith("pyscf.scf.ucphf.")
+        or module_name == "pyscf.hessian.rhf"
+        or module_name.startswith("pyscf.hessian.rhf.")
+        or module_name == "pyscf.hessian.uhf"
+        or module_name.startswith("pyscf.hessian.uhf.")
     ]
 
 
@@ -231,8 +235,12 @@ def _pyscf_compatibility_accesses(source_path):
     for name in names:
         if _imports_prefix(name, "pyscf.scf.cphf"):
             facilities.add("cphf")
-        if _imports_prefix(name, "pyscf.hessian"):
-            facilities.add("hessian")
+        if _imports_prefix(name, "pyscf.scf.ucphf"):
+            facilities.add("ucphf")
+        if _imports_prefix(name, "pyscf.hessian.rhf"):
+            facilities.add("rhf_hessian")
+        if _imports_prefix(name, "pyscf.hessian.uhf"):
+            facilities.add("uhf_hessian")
         if name.startswith("pyscf.") and "intor_cross" in name.split("."):
             facilities.add("cross_overlap")
     return sorted(facilities)
@@ -318,13 +326,31 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
             for module_name in _pyscf_response_imports(source_path)
         )
 
-    assert response_imports
-    assert {source_path for source_path, _ in response_imports} == {
-        "deepks/deephf/pyscf_rhf.py"
+    owners = {}
+    for source_path, module_name in response_imports:
+        if _imports_prefix(module_name, "pyscf.scf.cphf"):
+            facility = "cphf"
+        elif _imports_prefix(module_name, "pyscf.scf.ucphf"):
+            facility = "ucphf"
+        elif _imports_prefix(module_name, "pyscf.hessian.rhf"):
+            facility = "rhf_hessian"
+        elif _imports_prefix(module_name, "pyscf.hessian.uhf"):
+            facility = "uhf_hessian"
+        else:
+            raise AssertionError(f"unclassified response import {module_name}")
+        owners.setdefault(facility, set()).add(source_path)
+
+    assert owners == {
+        "cphf": {"deepks/deephf/pyscf_rhf.py"},
+        "rhf_hessian": {"deepks/deephf/pyscf_rhf.py"},
+        "ucphf": {"deepks/deephf/pyscf_uhf.py"},
+        "uhf_hessian": {"deepks/deephf/pyscf_uhf.py"},
     }
     imported_modules = {module_name for _, module_name in response_imports}
     assert "pyscf.scf.cphf" in imported_modules
     assert "pyscf.hessian.rhf" in imported_modules
+    assert "pyscf.scf.ucphf" in imported_modules
+    assert "pyscf.hessian.uhf" in imported_modules
 
 
 def test_reference_neutral_adjoint_has_no_reference_or_application_imports():
@@ -358,13 +384,16 @@ def test_deephf_pyscf_compatibility_facilities_have_one_adapter_owner():
             for facility in _pyscf_compatibility_accesses(source_path)
         )
 
-    assert {facility for _, facility in accesses} == {
-        "cphf",
-        "cross_overlap",
-        "hessian",
-    }
-    assert {source_path for source_path, _ in accesses} == {
-        "deepks/deephf/pyscf_rhf.py"
+    owners = {}
+    for source_path, facility in accesses:
+        owners.setdefault(facility, set()).add(source_path)
+
+    assert owners == {
+        "cphf": {"deepks/deephf/pyscf_rhf.py"},
+        "cross_overlap": {"deepks/deephf/pyscf_rhf.py"},
+        "rhf_hessian": {"deepks/deephf/pyscf_rhf.py"},
+        "ucphf": {"deepks/deephf/pyscf_uhf.py"},
+        "uhf_hessian": {"deepks/deephf/pyscf_uhf.py"},
     }
 
 
@@ -385,6 +414,8 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
         "method.py",
         "zvector.py",
         "force_data.py",
+        "uhf_method.py",
+        "uhf_gradient.py",
     )
     violations = {
         module_name: _private_attribute_accesses(
@@ -397,28 +428,33 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
     assert violations == {module_name: [] for module_name in guarded_modules}
 
 
-def test_capabilities_is_pyscf_neutral_and_reference_validation_has_one_owner():
+def test_capabilities_is_pyscf_neutral_and_reference_validation_has_exact_owners():
     capabilities_path = PACKAGE_ROOT / "deephf" / "capabilities.py"
     pyscf_imports = [
         module_name
         for module_name in _imported_modules(capabilities_path)
         if _imports_prefix(module_name, "pyscf")
     ]
-    owners = []
+    owners = {"validate_reference": [], "validate_uhf_reference": []}
     for source_path in sorted((PACKAGE_ROOT / "deephf").rglob("*.py")):
         tree = ast.parse(
             source_path.read_text(encoding="utf-8"),
             filename=str(source_path),
         )
-        if any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "validate_reference"
-            for node in tree.body
-        ):
-            owners.append(str(source_path.relative_to(REPOSITORY_ROOT)))
+        for node in tree.body:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in owners
+            ):
+                owners[node.name].append(
+                    str(source_path.relative_to(REPOSITORY_ROOT))
+                )
 
     assert pyscf_imports == []
-    assert owners == ["deepks/deephf/pyscf_rhf.py"]
+    assert owners == {
+        "validate_reference": ["deepks/deephf/pyscf_rhf.py"],
+        "validate_uhf_reference": ["deepks/deephf/pyscf_uhf.py"],
+    }
 
 
 def test_zvector_path_has_no_direct_response_symbol_access():
@@ -460,6 +496,59 @@ def test_zvector_path_has_no_direct_response_symbol_access():
     }
 
     assert violations == {name: [] for name in violations}
+
+
+def test_rhf_zvector_scanner_and_force_data_do_not_access_uhf_symbols():
+    forbidden_symbols = {
+        "UHFDeePHF",
+        "UHFDeePHFGradients",
+        "UHFResponse",
+        "UHFResponseAdapter",
+        "UHFResponseDiagnostics",
+        "validate_uhf_reference",
+    }
+
+    def whole_module(tree):
+        return (tree,)
+
+    guarded_modules = ("zvector.py", "scanner.py", "force_data.py")
+    violations = {
+        module_name: _symbol_accesses(
+            PACKAGE_ROOT / "deephf" / module_name,
+            whole_module,
+            forbidden_symbols,
+        )
+        for module_name in guarded_modules
+    }
+
+    assert violations == {module_name: [] for module_name in guarded_modules}
+
+
+def test_uhf_direct_path_does_not_access_rhf_adjoint_scanner_or_force_data_symbols():
+    forbidden_symbols = {
+        "RHFAdjoint",
+        "RHFAdjointAdapter",
+        "RHFDeePHFGradientScanner",
+        "RHFDeePHFZVectorGradients",
+        "RHFForceFrame",
+        "generate_rhf_force_frame",
+        "write_rhf_force_dataset",
+    }
+
+    def whole_module(tree):
+        return (tree,)
+
+    guarded_modules = ("pyscf_uhf.py", "uhf_method.py", "uhf_gradient.py")
+    violations = {
+        module_name: _symbol_accesses(
+            PACKAGE_ROOT / "deephf" / module_name,
+            whole_module,
+            forbidden_symbols,
+        )
+        for module_name in guarded_modules
+    }
+
+    assert violations == {module_name: [] for module_name in guarded_modules}
 
 
 def test_force_data_does_not_access_pyscf_private_basis_metadata():
@@ -508,6 +597,33 @@ def test_zvector_result_symbols_have_one_module_level_owner():
         "RHFAdjointDiagnostics": "deepks/deephf/pyscf_rhf.py",
         "RHFAdjoint": "deepks/deephf/pyscf_rhf.py",
         "RHFDeePHFZVectorGradients": "deepks/deephf/zvector.py",
+    }
+    actual_owners = {symbol: [] for symbol in expected_owners}
+
+    for source_path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        tree = ast.parse(
+            source_path.read_text(encoding="utf-8"),
+            filename=str(source_path),
+        )
+        relative_path = str(source_path.relative_to(REPOSITORY_ROOT))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name in actual_owners:
+                    actual_owners[node.name].append(relative_path)
+
+    assert actual_owners == {
+        symbol: [owner] for symbol, owner in expected_owners.items()
+    }
+
+
+def test_uhf_direct_result_symbols_have_one_module_level_owner():
+    expected_owners = {
+        "UHFDeePHF": "deepks/deephf/uhf_method.py",
+        "UHFDeePHFGradients": "deepks/deephf/uhf_gradient.py",
+        "UHFResponse": "deepks/deephf/pyscf_uhf.py",
+        "UHFResponseAdapter": "deepks/deephf/pyscf_uhf.py",
+        "UHFResponseDiagnostics": "deepks/deephf/pyscf_uhf.py",
+        "UHFResponseError": "deepks/deephf/pyscf_uhf.py",
     }
     actual_owners = {symbol: [] for symbol in expected_owners}
 

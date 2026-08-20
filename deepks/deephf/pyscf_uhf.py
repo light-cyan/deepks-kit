@@ -161,13 +161,13 @@ def validate_uhf_reference(reference):
         raise DeePHFCapabilityError(
             "the initial UHF force contract requires spherical AO functions"
         )
-    if getattr(molecule, "_ecp", None) or molecule.has_ecp():
-        raise DeePHFCapabilityError(
-            "the initial UHF force contract requires an all-electron reference"
-        )
     if getattr(molecule, "_pseudo", None):
         raise DeePHFCapabilityError(
             "the initial UHF force contract does not support pseudopotentials"
+        )
+    if getattr(molecule, "_ecp", None) or molecule.has_ecp():
+        raise DeePHFCapabilityError(
+            "the initial UHF force contract requires an all-electron reference"
         )
     if float(getattr(molecule, "omega", 0.0)) != 0.0:
         raise DeePHFCapabilityError(
