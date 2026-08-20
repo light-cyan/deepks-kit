@@ -1,4 +1,6 @@
 from copy import deepcopy
+import hashlib
+import json
 
 import numpy as np
 import pytest
@@ -13,18 +15,30 @@ from deepks.model.train import (
     Evaluator,
     ForceTrainingError,
 )
+from force_contract_helpers import write_force_contract_sample
 
 
 CONTRACT_FINGERPRINT = bytes(range(32)).hex()
-FORCE_CONTRACT = {
-    "jacobian_semantics": "dq_dR_relaxed",
-    "fingerprint": CONTRACT_FINGERPRINT,
-}
 ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
+TEST_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [0, [0.3, 1.0]]]
+
+
+def _canonical_digest(value):
+    encoded = json.dumps(
+        value,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _linear_model():
-    model = CorrNet(input_dim=2, hidden_sizes=(2,)).double().eval()
+    model = CorrNet(
+        input_dim=2,
+        hidden_sizes=(2,),
+        proj_basis=TEST_PROJECTOR_BASIS,
+    ).double().eval()
     with torch.no_grad():
         model.linear.weight[:] = torch.tensor(
             [[0.25, -0.4]],
@@ -47,9 +61,9 @@ def _force_case():
         dtype=torch.float64,
     )
     dq_dR_relaxed = torch.arange(
-        2 * 3 * 3 * 2 * 2,
+        2 * 2 * 3 * 2 * 2,
         dtype=torch.float64,
-    ).reshape(2, 3, 3, 2, 2) / 100.0
+    ).reshape(2, 2, 3, 2, 2) / 100.0
     differentiable_descriptor = descriptor.clone().requires_grad_(True)
     sensitivity = torch.autograd.grad(
         model(differentiable_descriptor).sum(),
@@ -63,14 +77,6 @@ def _force_case():
     return model, descriptor, dq_dR_relaxed, sensitivity, expected_force
 
 
-def _contract_marker(frame_count):
-    fingerprint = torch.tensor(
-        list(bytes.fromhex(CONTRACT_FINGERPRINT)),
-        dtype=torch.uint8,
-    )
-    return fingerprint.expand(frame_count, -1).clone()
-
-
 def _force_checkpoint_metadata():
     return {
         "schema_id": "deepks.deephf.rhf-force-data",
@@ -78,12 +84,12 @@ def _force_checkpoint_metadata():
         "compatibility_fingerprint": CONTRACT_FINGERPRINT,
         "jacobian_semantics": "dq_dR_relaxed",
         "n_feature": 2,
-        "descriptor_definition": "test",
+        "descriptor_definition": "ordered_projected_density_eigenvalues",
         "descriptor_spin_semantics": "spin_summed",
-        "descriptor_shell_sizes": [2],
-        "projector_sha256": "1" * 64,
+        "descriptor_shell_sizes": [1, 1],
+        "projector_sha256": _canonical_digest(TEST_PROJECTOR_BASIS),
         "reference_family": "RHF",
-        "response_backend": "pyscf-2.14-rhf-direct",
+        "response_backend": "rhf_direct",
     }
 
 
@@ -219,20 +225,24 @@ def test_predict_correction_rejects_nonfinite_descriptor_and_jacobian():
         predict_correction(model, descriptor, bad_jacobian)
 
 
-def test_force_evaluator_requires_target_relaxed_jacobian_and_matching_contract():
+def test_force_evaluator_requires_target_relaxed_jacobian_and_matching_contract(
+    tmp_path,
+):
     model, descriptor, jacobian, _, expected_force = _force_case()
     expected_energy = model(descriptor).detach()
-    sample = {
-        "energy": expected_energy,
-        "descriptor": descriptor,
-        "force": expected_force,
-        "dq_dR_relaxed": jacobian,
-        "force_contract_fingerprint": _contract_marker(descriptor.shape[0]),
-    }
+    contract, sample = write_force_contract_sample(
+        tmp_path / "strict-sample",
+        energy=expected_energy,
+        descriptor=descriptor,
+        force=expected_force,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
     evaluator = Evaluator(
         energy_factor=1.0,
         force_factor=1.0,
-        force_contract=FORCE_CONTRACT,
+        force_contract=contract,
     )
 
     result = evaluator.evaluate(model, sample)
@@ -244,6 +254,7 @@ def test_force_evaluator_requires_target_relaxed_jacobian_and_matching_contract(
         "force",
         "dq_dR_relaxed",
         "force_contract_fingerprint",
+        "force_sample_fingerprint",
     ):
         incomplete = dict(sample)
         incomplete.pop(required_name)
@@ -264,39 +275,61 @@ def test_force_evaluator_requires_target_relaxed_jacobian_and_matching_contract(
     with pytest.raises(ForceTrainingError, match="does not match"):
         evaluator(model, foreign)
 
+    tampered = dict(sample)
+    tampered["dq_dR_relaxed"] = sample["dq_dR_relaxed"].clone()
+    tampered["dq_dR_relaxed"][0, 0, 0, 0, 0] += 1.0e-5
+    with pytest.raises(ForceTrainingError, match="does not belong"):
+        evaluator(model, tampered)
 
-def test_force_evaluator_reports_nonzero_component_losses_and_metrics():
+    wrong_projector_model = CorrNet(
+        input_dim=2,
+        hidden_sizes=(2,),
+        proj_basis=[[0, [0.7, 1.0]], [0, [0.3, 1.0]]],
+    ).double()
+    with pytest.raises(ForceTrainingError, match="projector metadata"):
+        evaluator(wrong_projector_model, sample)
+
+    with pytest.raises(ForceTrainingError, match="validated ForceDataContract"):
+        Evaluator(
+            force_factor=1.0,
+            force_contract={
+                "jacobian_semantics": "dq_dR_relaxed",
+                "fingerprint": contract.compatibility_fingerprint,
+            },
+        )
+
+    with pytest.raises(ForceTrainingError, match="requires force_factor"):
+        Evaluator(force_factor=0.0, force_contract=contract)
+    with pytest.raises(ForceTrainingError, match="energy-only path"):
+        Evaluator(force_factor=0.0).evaluate(model, sample)
+
+
+def test_force_evaluator_reports_nonzero_component_losses_and_metrics(tmp_path):
     model, descriptor, jacobian, _, predicted_force = _force_case()
     predicted_energy = model(descriptor).detach()
     energy_offset = torch.tensor([[0.2], [-0.4]], dtype=torch.float64)
     force_offset = torch.tensor(
         [
-            [
-                [0.1, -0.2, 0.3],
-                [-0.4, 0.5, -0.6],
-                [0.7, -0.8, 0.9],
-            ],
-            [
-                [-1.0, 1.1, -1.2],
-                [1.3, -1.4, 1.5],
-                [-1.6, 1.7, -1.8],
-            ],
+            [[0.1, -0.2, 0.3], [-0.4, 0.5, -0.6]],
+            [[-1.0, 1.1, -1.2], [1.3, -1.4, 1.5]],
         ],
         dtype=torch.float64,
     )
     energy_factor = 2.5
     force_factor = 0.4
-    sample = {
-        "energy": predicted_energy + energy_offset,
-        "descriptor": descriptor,
-        "force": predicted_force + force_offset,
-        "dq_dR_relaxed": jacobian,
-        "force_contract_fingerprint": _contract_marker(descriptor.shape[0]),
-    }
+    contract, sample = write_force_contract_sample(
+        tmp_path / "strict-offset-sample",
+        energy=predicted_energy + energy_offset,
+        descriptor=descriptor,
+        force=predicted_force + force_offset,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
     evaluator = Evaluator(
         energy_factor=energy_factor,
         force_factor=force_factor,
-        force_contract=FORCE_CONTRACT,
+        force_contract=contract,
     )
 
     result = evaluator.evaluate(model, sample)
@@ -326,6 +359,53 @@ def test_force_evaluator_reports_nonzero_component_losses_and_metrics():
         result.force_metrics.rmse,
         force_offset.square().mean().sqrt(),
     )
+
+
+def test_grouped_evaluator_uses_each_validated_sample_contract(tmp_path):
+    model, descriptor, jacobian, _, expected_force = _force_case()
+    first_energy = model(descriptor).detach()
+    first_contract, _ = write_force_contract_sample(
+        tmp_path / "first",
+        energy=first_energy,
+        descriptor=descriptor,
+        force=expected_force,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
+    second_descriptor = descriptor + 0.031
+    second_prediction = predict_correction(
+        model,
+        second_descriptor,
+        dq_dR_relaxed=jacobian,
+        require_force=True,
+    )
+    second_contract, _ = write_force_contract_sample(
+        tmp_path / "second",
+        energy=second_prediction.energy.detach(),
+        descriptor=second_descriptor,
+        force=second_prediction.force.detach(),
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
+    grouped = GroupReader(
+        [tmp_path / "first", tmp_path / "second"],
+        batch_size=2,
+        force_mode="deephf_relaxed",
+    )
+    assert first_contract.compatibility_fingerprint == (
+        second_contract.compatibility_fingerprint
+    )
+    evaluator = Evaluator(
+        force_factor=1.0,
+        force_contract=grouped.force_contracts,
+    )
+
+    for system_index in range(2):
+        result = evaluator.evaluate(model, grouped.sample_all(system_index))
+        assert result.energy_metrics.rmse.item() < 1.0e-14
+        assert result.force_metrics.rmse.item() < 1.0e-14
 
 
 def test_energy_only_evaluator_keeps_legacy_checkpoint_path_valid(tmp_path):
@@ -377,8 +457,103 @@ def test_force_checkpoint_requires_matching_metadata_and_strict_state(tmp_path):
     )
     corrupted = deepcopy(checkpoint)
     corrupted["state_dict"].pop("linear.weight")
-    with pytest.raises(RuntimeError, match="Missing key"):
+    with pytest.raises(ValueError, match="missing linear.weight"):
         CorrNet.load_dict(corrupted)
+
+    corrupted = deepcopy(checkpoint)
+    corrupted["state_dict"]["unexpected.weight"] = torch.zeros(
+        1,
+        dtype=torch.float64,
+    )
+    with pytest.raises(ValueError, match="unexpected unexpected.weight"):
+        CorrNet.load_dict(corrupted)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("schema_id", "foreign.schema"),
+        ("schema_version", 2),
+        ("jacobian_semantics", "dq_dR_explicit"),
+        ("descriptor_definition", "unordered_descriptor"),
+        ("descriptor_spin_semantics", "alpha_only"),
+        ("reference_family", "UHF"),
+        ("response_backend", "finite_difference"),
+    ],
+)
+def test_force_checkpoint_rejects_noncanonical_metadata_values(
+    field,
+    replacement,
+):
+    checkpoint = _linear_model().save_dict(
+        force_training=_force_checkpoint_metadata(),
+    )
+    checkpoint["extra_info"]["force_training"][field] = replacement
+
+    with pytest.raises(ValueError, match=field):
+        CorrNet.load_dict(checkpoint)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "match"),
+    [
+        ("n_feature", 3, "n_feature does not match"),
+        ("descriptor_shell_sizes", [2], "descriptor_shell_sizes do not match"),
+        ("projector_sha256", "0" * 64, "projector_sha256 does not match"),
+    ],
+)
+def test_force_checkpoint_rejects_metadata_inconsistent_with_model(
+    field,
+    replacement,
+    match,
+):
+    checkpoint = _linear_model().save_dict(
+        force_training=_force_checkpoint_metadata(),
+    )
+    checkpoint["extra_info"]["force_training"][field] = replacement
+    if field == "n_feature":
+        checkpoint["extra_info"]["force_training"][
+            "descriptor_shell_sizes"
+        ] = [1, 2]
+
+    with pytest.raises(ValueError, match=match):
+        CorrNet.load_dict(checkpoint)
+
+
+@pytest.mark.parametrize("corruption", ["shape", "dtype", "nonfinite"])
+def test_force_checkpoint_rejects_inexact_or_nonfinite_state(corruption):
+    checkpoint = deepcopy(
+        _linear_model().save_dict(force_training=_force_checkpoint_metadata())
+    )
+    parameter = checkpoint["state_dict"]["linear.weight"]
+    if corruption == "shape":
+        checkpoint["state_dict"]["linear.weight"] = parameter[:, :1]
+        error = ValueError
+        match = "has shape"
+    elif corruption == "dtype":
+        checkpoint["state_dict"]["linear.weight"] = parameter.float()
+        error = TypeError
+        match = "has dtype"
+    else:
+        parameter[0, 0] = torch.nan
+        error = ValueError
+        match = "only finite values"
+
+    with pytest.raises(error, match=match):
+        CorrNet.load_dict(checkpoint)
+
+
+def test_force_checkpoint_rejects_external_element_table():
+    model = CorrNet(
+        input_dim=2,
+        hidden_sizes=(2,),
+        proj_basis=TEST_PROJECTOR_BASIS,
+        elem_table=([1], [0.1]),
+    ).double()
+    checkpoint = model.save_dict(force_training=_force_checkpoint_metadata())
+
+    with pytest.raises(ValueError, match="external element table"):
+        CorrNet.load_dict(checkpoint, require_force_metadata=True)
 
 
 def test_real_contract_reader_prediction_and_checkpoint_reload(
@@ -444,7 +619,7 @@ def test_real_contract_reader_prediction_and_checkpoint_reload(
         [0, [0.7, 1.0]],
         [1, [0.3, 1.0]],
     ]
-    with pytest.raises(ValueError, match="projector metadata does not match"):
+    with pytest.raises(ValueError, match="projector_sha256 does not match"):
         CorrNet.load_dict(
             wrong_projector_checkpoint,
             require_force_metadata=True,

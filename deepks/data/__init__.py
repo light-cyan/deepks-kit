@@ -7,8 +7,9 @@ from .force_schema import (
     ForceDataError,
     force_checkpoint_metadata,
     load_force_dataset,
+    validate_force_data_contract,
+    validate_force_sample_arrays,
     validate_force_checkpoint_metadata,
-    write_force_dataset,
 )
 from .io import (
     build_molecule,
@@ -30,6 +31,7 @@ __all__ = [
     "iter_system",
     "load_force_dataset",
     "select_fields",
+    "validate_force_data_contract",
     "validate_force_checkpoint_metadata",
-    "write_force_dataset",
+    "validate_force_sample_arrays",
 ]

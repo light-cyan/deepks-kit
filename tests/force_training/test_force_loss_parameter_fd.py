@@ -14,21 +14,19 @@ from deepks.model.train import (
 )
 
 from conftest import ORACLE_PROJECTOR_BASIS
+from force_contract_helpers import write_force_contract_sample
 
 
-CONTRACT_FINGERPRINT = bytes(range(32, 64)).hex()
-FORCE_CONTRACT = {
-    "jacobian_semantics": "dq_dR_relaxed",
-    "fingerprint": CONTRACT_FINGERPRINT,
-}
+TEST_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [0, [0.3, 1.0]]]
 
 
-def _nonlinear_force_case():
+def _nonlinear_force_case(directory):
     model = CorrNet(
         input_dim=2,
         hidden_sizes=(2,),
         actv_fn="tanh",
         use_resnet=False,
+        proj_basis=TEST_PROJECTOR_BASIS,
     ).double().eval()
     with torch.no_grad():
         model.linear.weight[:] = torch.tensor(
@@ -61,10 +59,6 @@ def _nonlinear_force_case():
         generator=generator,
         dtype=torch.float64,
     )
-    marker = torch.tensor(
-        list(bytes.fromhex(CONTRACT_FINGERPRINT)),
-        dtype=torch.uint8,
-    ).expand(descriptor.shape[0], -1).clone()
     target_force = torch.tensor(
         [
             [[0.04, -0.03, 0.02], [-0.01, 0.05, -0.02]],
@@ -72,14 +66,16 @@ def _nonlinear_force_case():
         ],
         dtype=torch.float64,
     )
-    sample = {
-        "energy": torch.zeros((2, 1), dtype=torch.float64),
-        "descriptor": descriptor,
-        "force": target_force,
-        "dq_dR_relaxed": jacobian,
-        "force_contract_fingerprint": marker,
-    }
-    return model, sample
+    contract, sample = write_force_contract_sample(
+        directory,
+        energy=torch.zeros((2, 1), dtype=torch.float64),
+        descriptor=descriptor,
+        force=target_force,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
+    return model, contract, sample
 
 
 @pytest.mark.parametrize(
@@ -92,12 +88,13 @@ def _nonlinear_force_case():
 def test_force_loss_parameter_gradient_matches_central_finite_difference(
     parameter_name,
     parameter_index,
+    tmp_path,
 ):
-    model, sample = _nonlinear_force_case()
+    model, contract, sample = _nonlinear_force_case(tmp_path / "strict-sample")
     evaluator = Evaluator(
         energy_factor=0.0,
         force_factor=1.0,
-        force_contract=FORCE_CONTRACT,
+        force_contract=contract,
     )
     parameter = (
         model.linear.weight
@@ -163,14 +160,16 @@ def test_single_frame_training_epoch_yields_exactly_one_batch():
     assert reader.sample_count == 1
 
 
-def test_train_returns_separate_energy_and_force_metrics():
-    model, two_frame_sample = _nonlinear_force_case()
+def test_train_returns_separate_energy_and_force_metrics(tmp_path):
+    model, contract, two_frame_sample = _nonlinear_force_case(
+        tmp_path / "strict-sample"
+    )
     reader = _SingleFrameReader()
     reader.sample = {
         name: value[:1].clone()
         for name, value in two_frame_sample.items()
     }
-    reader.force_contract = FORCE_CONTRACT
+    reader.force_contract = contract
 
     result = train(
         model,
@@ -183,7 +182,7 @@ def test_train_returns_separate_energy_and_force_metrics():
         display_epoch=2,
         ckpt_file=None,
         device="cpu",
-        force_contract=FORCE_CONTRACT,
+        force_contract=contract,
     )
 
     assert isinstance(result, TrainingResult)
@@ -192,6 +191,29 @@ def test_train_returns_separate_energy_and_force_metrics():
     assert np.isfinite(result.validation_metrics.energy_rmse)
     assert np.isfinite(result.validation_metrics.force_rmse)
     assert reader.sample_count == 1
+
+
+def test_public_train_rejects_strict_reader_in_energy_only_mode(tmp_path):
+    model, contract, two_frame_sample = _nonlinear_force_case(
+        tmp_path / "strict-sample"
+    )
+    reader = _SingleFrameReader()
+    reader.sample = {
+        name: value[:1].clone()
+        for name, value in two_frame_sample.items()
+    }
+    reader.force_contract = contract
+
+    with pytest.raises(ForceTrainingError, match="energy-only path"):
+        train(
+            model,
+            reader,
+            n_epoch=0,
+            test_reader=reader,
+            force_factor=0.0,
+            ckpt_file=None,
+            device="cpu",
+        )
 
 
 def test_train_main_strict_force_contract_initialization_and_restart(

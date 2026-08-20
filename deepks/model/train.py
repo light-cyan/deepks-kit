@@ -14,7 +14,10 @@ except ImportError as e:
     sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
 from deepks.data.force_schema import (
     ForceDataContract,
+    ForceDataError,
     force_checkpoint_metadata,
+    validate_force_data_contract,
+    validate_force_sample_arrays,
     validate_force_checkpoint_metadata,
 )
 from deepks.model.evaluate import CorrectionPrediction, model_reference, predict_correction
@@ -95,43 +98,47 @@ def _error_metrics(predicted: torch.Tensor, target: torch.Tensor) -> ErrorMetric
     )
 
 
-def _contract_member(contract, *names):
-    if isinstance(contract, Mapping):
-        for name in names:
-            if name in contract:
-                return contract[name]
-    for name in names:
-        if hasattr(contract, name):
-            value = getattr(contract, name)
-            return value() if callable(value) else value
-    return None
-
-
 def force_contract_fingerprint(contract) -> str:
     """Return the normalized SHA-256 fingerprint of a force-data contract."""
-    if contract is None:
-        raise ForceTrainingError("force-aware evaluation requires a force-data contract")
-    semantics = _contract_member(
-        contract,
-        "jacobian_semantics",
-        "derivative_semantics",
-    )
-    if semantics != FORCE_JACOBIAN_SEMANTICS:
+    if not isinstance(contract, ForceDataContract):
+        raise ForceTrainingError(
+            "force-aware evaluation requires a validated ForceDataContract"
+        )
+    try:
+        validate_force_data_contract(contract)
+    except (ForceDataError, TypeError) as error:
+        raise ForceTrainingError(f"invalid force-data contract: {error}") from error
+    if contract.jacobian_semantics != FORCE_JACOBIAN_SEMANTICS:
         raise ForceTrainingError(
             "force-data contract must declare dq_dR_relaxed Jacobian semantics"
         )
-    fingerprint = _contract_member(
-        contract,
-        "fingerprint",
-        "contract_fingerprint",
-        "force_contract_fingerprint",
-    )
-    if fingerprint is None:
-        raise ForceTrainingError("force-data contract is missing its fingerprint")
     try:
-        return normalize_force_contract_fingerprint(fingerprint)
+        return normalize_force_contract_fingerprint(
+            contract.force_contract_fingerprint
+        )
     except (TypeError, ValueError) as error:
         raise ForceTrainingError(f"invalid force-data contract fingerprint: {error}") from error
+
+
+def _force_contract_registry(value) -> tuple[ForceDataContract, ...]:
+    if isinstance(value, ForceDataContract):
+        contracts = (value,)
+    elif isinstance(value, (tuple, list)) and value:
+        contracts = tuple(value)
+    else:
+        raise ForceTrainingError(
+            "force-aware evaluation requires validated ForceDataContract objects"
+        )
+    if any(not isinstance(contract, ForceDataContract) for contract in contracts):
+        raise ForceTrainingError(
+            "force-aware evaluation requires validated ForceDataContract objects"
+        )
+    fingerprint = force_contract_fingerprint(contracts[0])
+    if any(force_contract_fingerprint(contract) != fingerprint for contract in contracts[1:]):
+        raise ForceTrainingError(
+            "force-data contract registry contains incompatible provenance"
+        )
+    return contracts
 
 
 def _metadata_signature(value):
@@ -166,6 +173,11 @@ def validate_model_force_contract(model, contract: ForceDataContract) -> None:
             "model input dimension does not match the force-data contract: "
             f"{getattr(model, 'input_dim', None)} != {expected_features}"
         )
+    if getattr(model, "elem_table", None) is not None:
+        raise ForceTrainingError(
+            "strict force models must encode the complete correction energy "
+            "without an external element table"
+        )
     if _metadata_signature(getattr(model, "_pbas", None)) != _metadata_signature(
         load_basis(projector_basis)
     ):
@@ -198,6 +210,19 @@ def _validate_contract_marker(
         raise ForceTrainingError(
             "sample force contract fingerprint does not match the configured contract"
         )
+
+
+def _sample_ids_from_marker(marker, *, frame_count: int) -> list[str]:
+    if not isinstance(marker, torch.Tensor):
+        raise ForceTrainingError("force_sample_fingerprint must be a torch.Tensor")
+    if marker.dtype != torch.uint8:
+        raise ForceTrainingError("force_sample_fingerprint must use torch.uint8")
+    if marker.shape != (frame_count, 32):
+        raise ForceTrainingError(
+            "force_sample_fingerprint must have shape "
+            f"({frame_count}, 32); received {tuple(marker.shape)}"
+        )
+    return [bytes(row.tolist()).hex() for row in marker.detach().cpu()]
 
 
 def _require_sample_tensor(sample, name: str, *, ndim: int) -> torch.Tensor:
@@ -367,9 +392,18 @@ class Evaluator:
         self.density_factor = density_factor
         # gradient penalty, not very useful
         self.gradient_penalty = grad_penalty
-        self.force_contract = force_contract
+        if self.force_factor == 0 and force_contract is not None:
+            raise ForceTrainingError(
+                "a force-data contract requires force_factor > 0"
+            )
+        self.force_contracts = (
+            _force_contract_registry(force_contract)
+            if self.force_factor > 0
+            else ()
+        )
+        self.force_contract = self.force_contracts[0] if self.force_contracts else None
         self.force_contract_fingerprint = (
-            force_contract_fingerprint(force_contract)
+            force_contract_fingerprint(self.force_contract)
             if self.force_factor > 0
             else None
         )
@@ -383,6 +417,16 @@ class Evaluator:
             raise TypeError("sample must be a mapping")
         if not isinstance(create_graph, bool):
             raise TypeError("create_graph must be bool")
+        strict_sample_fields = {
+            "force",
+            "dq_dR_relaxed",
+            "force_contract_fingerprint",
+            "force_sample_fingerprint",
+        }
+        if self.force_factor == 0 and strict_sample_fields.intersection(sample):
+            raise ForceTrainingError(
+                "strict force samples cannot be evaluated through an energy-only path"
+            )
         reference = model_reference(model)
         energy = _require_sample_tensor(sample, "energy", ndim=2)
         descriptor = _require_sample_tensor(sample, "descriptor", ndim=3)
@@ -397,6 +441,7 @@ class Evaluator:
         target_force = None
         relaxed_jacobian = None
         if self.force_factor > 0:
+            validate_model_force_contract(model, self.force_contract)
             target_force = _require_sample_tensor(sample, "force", ndim=3)
             relaxed_jacobian = _require_sample_tensor(
                 sample,
@@ -413,6 +458,15 @@ class Evaluator:
                 expected_fingerprint=self.force_contract_fingerprint,
                 frame_count=descriptor.shape[0],
             )
+            sample_marker_name = "force_sample_fingerprint"
+            if sample_marker_name not in sample:
+                raise ForceTrainingError(
+                    f"force-aware sample is missing required field {sample_marker_name!r}"
+                )
+            sample_ids = _sample_ids_from_marker(
+                sample[sample_marker_name],
+                frame_count=descriptor.shape[0],
+            )
             expected_force_shape = (
                 descriptor.shape[0],
                 relaxed_jacobian.shape[1],
@@ -423,6 +477,39 @@ class Evaluator:
                     "sample force shape must exactly match the relaxed-Jacobian raw-atom "
                     f"axis; expected {expected_force_shape}, received {tuple(target_force.shape)}"
                 )
+            for frame_index, sample_id in enumerate(sample_ids):
+                sample_contract = next(
+                    (
+                        contract
+                        for contract in self.force_contracts
+                        if any(
+                            frame["sample_id"] == sample_id
+                            for frame in contract.manifest["frames"]
+                        )
+                    ),
+                    None,
+                )
+                if sample_contract is None:
+                    raise ForceTrainingError(
+                        "force-aware sample_id is not present in the configured contracts"
+                    )
+                try:
+                    validate_force_sample_arrays(
+                        sample_contract,
+                        sample_id,
+                        {
+                            "energy": energy[frame_index].detach().cpu().numpy(),
+                            "descriptor": descriptor[frame_index].detach().cpu().numpy(),
+                            "force": target_force[frame_index].detach().cpu().numpy(),
+                            "dq_dR_relaxed": relaxed_jacobian[
+                                frame_index
+                            ].detach().cpu().numpy(),
+                        },
+                    )
+                except (ForceDataError, TypeError) as error:
+                    raise ForceTrainingError(
+                        f"force-aware sample provenance validation failed: {error}"
+                    ) from error
             target_force = target_force.to(
                 device=reference.device,
                 non_blocking=True,
@@ -533,11 +620,20 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
     print("# working on device:", device)
     if test_reader is None:
         test_reader = g_reader
+    training_reader_contract = getattr(g_reader, "force_contract", None)
+    validation_reader_contract = getattr(test_reader, "force_contract", None)
+    if force_factor == 0 and (
+        training_reader_contract is not None
+        or validation_reader_contract is not None
+    ):
+        raise ForceTrainingError(
+            "strict force-data readers cannot be trained through an energy-only path"
+        )
     if force_factor > 0:
         if force_contract is None:
-            force_contract = getattr(g_reader, "force_contract", None)
+            force_contract = training_reader_contract
         training_fingerprint = force_contract_fingerprint(force_contract)
-        test_contract = getattr(test_reader, "force_contract", force_contract)
+        test_contract = validation_reader_contract or force_contract
         test_fingerprint = force_contract_fingerprint(test_contract)
         if test_fingerprint != training_fingerprint:
             raise ForceTrainingError(
@@ -553,6 +649,19 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
                 force_contract,
             )
             validate_model_force_contract(model, force_contract)
+        training_contracts = getattr(
+            g_reader,
+            "force_contracts",
+            (force_contract,),
+        )
+        validation_contracts = getattr(
+            test_reader,
+            "force_contracts",
+            (test_contract,),
+        )
+    else:
+        training_contracts = None
+        validation_contracts = None
     # fix parameters if needed
     if fix_embedding and model.embedder is not None:
         model.embedder.requires_grad_(False)
@@ -567,7 +676,7 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
     evaluator = Evaluator(energy_factor=energy_factor, force_factor=force_factor, 
                           energy_lossfn=energy_loss, force_lossfn=force_loss,
                           density_factor=density_factor, grad_penalty=grad_penalty,
-                          force_contract=force_contract)
+                          force_contract=training_contracts)
     # Validation uses the same energy/relaxed-force predictor and reports each
     # physical metric independently of the training loss weights.
     test_eval = Evaluator(
@@ -577,7 +686,7 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
         force_lossfn=L2LOSS,
         density_factor=0.,
         grad_penalty=0.,
-        force_contract=force_contract,
+        force_contract=validation_contracts,
     )
 
     if force_factor > 0:
@@ -690,6 +799,10 @@ def main(train_paths, test_paths=None,
     force_enabled = train_args.get("force_factor", 0.) > 0
     configured_force_mode = data_args.get("force_mode", FORCE_MODE_NONE)
     if force_enabled:
+        if fit_elem:
+            raise ForceTrainingError(
+                "strict force training does not support external element fitting"
+            )
         if configured_force_mode not in (
             FORCE_MODE_NONE,
             FORCE_MODE_DEEPHF_RELAXED,
@@ -735,10 +848,10 @@ def main(train_paths, test_paths=None,
             expected_force_contract_fingerprint=expected_fingerprint,
             expected_force_contract=force_contract if force_enabled else None,
         )
-        if model.elem_table is not None:
-            fit_elem_const(g_reader, test_reader, model.elem_table)
         if force_enabled:
             validate_model_force_contract(model, force_contract)
+        elif model.elem_table is not None:
+            fit_elem_const(g_reader, test_reader, model.elem_table)
     else:
         input_dim = g_reader.descriptor_size
         if model_args.get("input_dim", input_dim) != input_dim:

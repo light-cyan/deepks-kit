@@ -219,12 +219,20 @@ class Reader(object):
             )
         marker = np.frombuffer(bytes.fromhex(fingerprint), dtype=np.uint8)
         marker = np.repeat(marker.reshape(1, 32), self.nframes, axis=0)
+        sample_markers = np.stack(
+            [
+                np.frombuffer(bytes.fromhex(frame["sample_id"]), dtype=np.uint8)
+                for frame in self.force_contract.manifest["frames"]
+            ],
+            axis=0,
+        )
         self.tensor_data = {
             "energy": torch.from_numpy(energy.copy()),
             "descriptor": torch.from_numpy(descriptor.copy()),
             "force": torch.from_numpy(force.copy()),
             "dq_dR_relaxed": torch.from_numpy(jacobian.copy()),
             "force_contract_fingerprint": torch.from_numpy(marker.copy()),
+            "force_sample_fingerprint": torch.from_numpy(sample_markers.copy()),
         }
 
     def sample_train(self):
@@ -289,6 +297,20 @@ class GroupReader(object) :
         self.batch_size = batch_size
         # init system readers
         force_mode = kwargs.get("force_mode", FORCE_MODE_NONE)
+        if force_mode not in FORCE_DATA_MODES:
+            raise ValueError(
+                f"force_mode must be one of {sorted(FORCE_DATA_MODES)}"
+            )
+        strict_paths = [
+            path
+            for path in self.path_list
+            if os.path.isfile(os.path.join(path, SCHEMA_FILENAME))
+        ]
+        if strict_paths and force_mode != FORCE_MODE_DEEPHF_RELAXED:
+            raise ForceDataError(
+                "strict force datasets must be grouped with "
+                "force_mode='deephf_relaxed'"
+            )
         if force_mode == FORCE_MODE_DEEPHF_RELAXED and (
             not extra_label
             or not isinstance(kwargs.get('descriptor_name', "descriptor"), str)
@@ -323,6 +345,11 @@ class GroupReader(object) :
         ):
             raise ValueError("all grouped datasets must use the same descriptor size")
         self.force_contract = getattr(self.readers[0], "force_contract", None)
+        self.force_contracts = tuple(
+            reader.force_contract
+            for reader in self.readers
+            if reader.force_contract is not None
+        )
         if force_mode == FORCE_MODE_DEEPHF_RELAXED:
             fingerprint = getattr(self.force_contract, "fingerprint", None)
             if fingerprint is None:
@@ -517,10 +544,28 @@ class GroupReader(object) :
 class SimpleReader(object):
     def __init__(self, data_path, batch_size,
                  energy_name="e_corr_target", descriptor_name="descriptor",
-                 converged_filter=True, converged_name="converged", **kwargs):
+                 converged_filter=True, converged_name="converged",
+                 force_mode=FORCE_MODE_NONE, **kwargs):
         # copy from config
         self.data_path = data_path
         self.batch_size = batch_size
+        if force_mode not in FORCE_DATA_MODES:
+            raise ValueError(
+                f"force_mode must be one of {sorted(FORCE_DATA_MODES)}"
+            )
+        if os.path.isfile(os.path.join(data_path, SCHEMA_FILENAME)):
+            if force_mode != FORCE_MODE_DEEPHF_RELAXED:
+                raise ForceDataError(
+                    "a strict force dataset must be read with "
+                    "force_mode='deephf_relaxed'"
+                )
+            raise ForceDataError(
+                "strict DeePHF force data requires the canonical Reader path"
+            )
+        if force_mode == FORCE_MODE_DEEPHF_RELAXED:
+            raise ForceDataError(
+                "strict DeePHF force data requires the canonical Reader path"
+            )
         self.energy_name = energy_name
         self.descriptor_names = (
             descriptor_name

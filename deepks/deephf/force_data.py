@@ -25,11 +25,17 @@ from deepks.descriptor import DescriptorDifferentiabilityError
 
 from .capabilities import validate_reference
 from .method import DeePHF
-from .pyscf_rhf import RHFResponseError, reference_fingerprint
+from .pyscf_rhf import RHFResponseError, reference_provenance_snapshot
 
 
 GENERATOR_NAME = "deepks.deephf.force_data"
 GENERATOR_VERSION = 1
+DESCRIPTOR_DIFFERENTIABILITY_CONTROLS = {
+    "gap_atol": 1.0e-9,
+    "gap_rtol": 1.0e-7,
+    "zero_atol": 1.0e-9,
+    "sensitivity_atol": 1.0e-8,
+}
 
 
 class RHFForceDataError(ValueError):
@@ -139,37 +145,24 @@ def _descriptor_diagnostics_provenance(diagnostics) -> dict[str, Any]:
 
 
 def _reference_provenance(reference) -> dict[str, Any]:
-    molecule = reference.mol
-    controls = {
-        name: _json_safe(getattr(reference, name, None))
-        for name in (
-            "conv_tol",
-            "conv_tol_grad",
-            "conv_tol_cpscf",
-            "max_cycle",
-            "level_shift",
-            "diis_space",
-            "direct_scf",
-            "conv_check",
-        )
-    }
+    snapshot = reference_provenance_snapshot(reference)
     return {
-        "class": f"{type(reference).__module__}.{type(reference).__qualname__}",
+        "class": snapshot.reference_class,
         "method": "RHF",
-        "converged": bool(reference.converged),
-        "state_fingerprint": reference_fingerprint(reference),
-        "charge": int(molecule.charge),
-        "spin": int(molecule.spin),
-        "electron_count": int(molecule.nelectron),
-        "occupations": _json_safe(np.asarray(reference.mo_occ)),
-        "basis": _json_safe(molecule._basis),
-        "basis_fingerprint": _canonical_digest(molecule._basis),
-        "ecp": _json_safe(molecule._ecp),
-        "geometry_bohr": _json_safe(molecule.atom_coords(unit="Bohr")),
-        "atom_charges": _json_safe(molecule.atom_charges()),
-        "ao_count": int(molecule.nao),
-        "ao_labels": list(molecule.ao_labels()),
-        "scf_controls": controls,
+        "converged": snapshot.converged,
+        "state_fingerprint": snapshot.state_fingerprint,
+        "charge": snapshot.charge,
+        "spin": snapshot.spin,
+        "electron_count": snapshot.electron_count,
+        "occupations": _json_safe(snapshot.occupations),
+        "basis": _json_safe(snapshot.basis),
+        "basis_fingerprint": _canonical_digest(snapshot.basis),
+        "ecp": _json_safe(snapshot.ecp),
+        "geometry_bohr": _json_safe(snapshot.geometry_bohr),
+        "atom_charges": _json_safe(snapshot.atom_charges),
+        "ao_count": snapshot.ao_count,
+        "ao_labels": list(snapshot.ao_labels),
+        "scf_controls": _json_safe(snapshot.scf_controls),
     }
 
 
@@ -216,7 +209,9 @@ def generate_rhf_force_frame(
         response_options=options,
     )
     method.kernel()
-    descriptor_diagnostics = method.validate_force_compatibility()
+    descriptor_diagnostics = method.validate_force_compatibility(
+        **DESCRIPTOR_DIFFERENTIABILITY_CONTROLS
+    )
     if descriptor_diagnostics.structural_zero_blocks:
         raise DescriptorDifferentiabilityError(
             "RHF force-data generation does not persist individual relaxed "
@@ -499,6 +494,7 @@ def write_rhf_force_dataset(
             "projector_basis": first_descriptor["projector_basis"],
             "projector_sha256": first_descriptor["projector_fingerprint"],
             "differentiability_controls": {
+                **DESCRIPTOR_DIFFERENTIABILITY_CONTROLS,
                 "structural_zero_blocks": "rejected",
                 "validator": "deepks.descriptor.validate_differentiability",
             },
@@ -541,9 +537,9 @@ def write_rhf_force_dataset(
     # Import locally so the scientific producer remains usable while the
     # method-neutral schema evolves, and so no output path is touched before
     # every direct-response frame has passed validation.
-    from deepks.data.force_schema import write_force_dataset
+    from deepks.data.force_schema import _write_force_dataset
 
-    return write_force_dataset(
+    return _write_force_dataset(
         directory,
         arrays=arrays,
         provenance=_json_safe(provenance),

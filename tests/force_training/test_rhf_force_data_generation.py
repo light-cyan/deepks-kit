@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 import copy
 
 import numpy as np
@@ -12,6 +13,7 @@ from deepks.deephf import (
     write_rhf_force_dataset,
 )
 from deepks.data.force_schema import load_force_dataset
+from deepks.deephf.pyscf_rhf import reference_provenance_snapshot
 from deepks.descriptor import DescriptorDifferentiabilityError
 
 FINITE_DIFFERENCE_ATOM = 0
@@ -26,6 +28,14 @@ def _generate_frame(case):
         e_target=case.target_energy,
         f_target=case.target_force,
     )
+
+
+def _materialize_snapshot(value):
+    if isinstance(value, Mapping):
+        return {key: _materialize_snapshot(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_materialize_snapshot(item) for item in value]
+    return value
 
 
 def test_generated_frame_is_the_direct_relaxed_oracle(
@@ -102,6 +112,34 @@ def test_generated_frame_is_the_direct_relaxed_oracle(
     assert provenance["descriptor"]["differentiability"][
         "structural_zero_blocks"
     ] == []
+
+
+def test_reference_provenance_uses_the_immutable_adapter_snapshot(
+    force_generation_case,
+    generated_force_frame,
+):
+    snapshot = reference_provenance_snapshot(force_generation_case.reference)
+    provenance = generated_force_frame.provenance["reference"]
+
+    assert provenance["class"] == snapshot.reference_class
+    assert provenance["state_fingerprint"] == snapshot.state_fingerprint
+    assert provenance["basis"] == _materialize_snapshot(snapshot.basis)
+    assert provenance["ecp"] == _materialize_snapshot(snapshot.ecp)
+    assert provenance["occupations"] == _materialize_snapshot(
+        snapshot.occupations
+    )
+    assert provenance["geometry_bohr"] == _materialize_snapshot(
+        snapshot.geometry_bohr
+    )
+    assert provenance["atom_charges"] == _materialize_snapshot(
+        snapshot.atom_charges
+    )
+    assert provenance["ao_labels"] == list(snapshot.ao_labels)
+    assert provenance["scf_controls"] == _materialize_snapshot(
+        snapshot.scf_controls
+    )
+    with pytest.raises(TypeError):
+        snapshot.basis["adapter-boundary-test"] = ()
 
 
 def test_relaxed_jacobian_and_target_force_have_finite_difference_sign(

@@ -82,6 +82,29 @@ def _pyscf_response_imports(source_path):
     ]
 
 
+def _private_attribute_accesses(source_path, attribute_names):
+    tree = ast.parse(
+        source_path.read_text(encoding="utf-8"),
+        filename=str(source_path),
+    )
+    direct_accesses = [
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr in attribute_names
+    ]
+    dynamic_accesses = [
+        node.args[1].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value in attribute_names
+    ]
+    return sorted(direct_accesses + dynamic_accesses)
+
+
 def test_package_dependency_directions_are_one_way():
     boundaries = {
         "descriptor": (
@@ -127,6 +150,12 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
     imported_modules = {module_name for _, module_name in response_imports}
     assert "pyscf.scf.cphf" in imported_modules
     assert "pyscf.hessian.rhf" in imported_modules
+
+
+def test_force_data_does_not_access_pyscf_private_basis_metadata():
+    source_path = PACKAGE_ROOT / "deephf" / "force_data.py"
+
+    assert _private_attribute_accesses(source_path, {"_basis", "_ecp"}) == []
 
 
 def test_shared_descriptor_symbols_have_one_module_level_owner():

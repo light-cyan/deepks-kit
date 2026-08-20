@@ -26,6 +26,49 @@ SCHEMA_VERSION = 1
 JACOBIAN_NAME = "dq_dR_relaxed"
 JACOBIAN_SEMANTICS = "complete_relaxed_reference_response"
 TARGET_IDENTITY_TOLERANCE = 1.0e-12
+SUPPORTED_PYSCF_SERIES = (2, 14)
+
+_RESPONSE_CONTROL_NAMES = (
+    "cphf_tolerance",
+    "residual_tolerance",
+    "invariant_tolerance",
+    "orbital_gap_tolerance",
+    "max_cycle",
+    "max_refinement_cycles",
+    "level_shift",
+    "operator_stability_tolerance",
+    "operator_condition_tolerance",
+    "operator_symmetry_tolerance",
+    "operator_dimension_limit",
+)
+
+_RESPONSE_DIAGNOSTIC_NAMES = {
+    "minimum_orbital_gap",
+    "pyscf_version",
+    "cphf_tolerance",
+    "maximum_residual",
+    "residual_rms",
+    "residual_tolerance",
+    "invariant_tolerance",
+    "orbital_gap_tolerance",
+    "max_cycle",
+    "max_refinement_cycles",
+    "level_shift",
+    "response_dimension",
+    "operator_stability_tolerance",
+    "operator_condition_tolerance",
+    "operator_symmetry_tolerance",
+    "operator_dimension_limit",
+    "operator_minimum_eigenvalue",
+    "operator_maximum_eigenvalue",
+    "operator_condition_number",
+    "operator_symmetry_residual",
+    "metric_residual",
+    "idempotency_residual",
+    "particle_number_residual",
+    "refinement_cycles",
+    "residual_history",
+}
 
 
 class ForceDataError(ValueError):
@@ -198,6 +241,13 @@ def _require_keys(value: Mapping[str, Any], keys: set[str], name: str) -> None:
         raise _error(f"{name} is missing required keys: {', '.join(missing)}")
 
 
+def _require_exact_keys(value: Mapping[str, Any], keys: set[str], name: str) -> None:
+    _require_keys(value, keys, name)
+    extra = sorted(set(value) - keys)
+    if extra:
+        raise _error(f"{name} has unexpected keys: {', '.join(extra)}")
+
+
 def _require_bool(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise _error(f"{name} must be boolean")
@@ -224,6 +274,62 @@ def _sha256_string(value: Any, name: str) -> str:
     except ValueError as error:
         raise _error(f"{name} must be a SHA-256 hexadecimal string") from error
     return value.lower()
+
+
+def _projector_shell_sizes(value: Any) -> list[int]:
+    if not isinstance(value, list) or not value:
+        raise _error("descriptor projector_basis must be a nonempty canonical list")
+    shell_sizes = []
+    for shell_index, shell in enumerate(value):
+        if not isinstance(shell, list) or len(shell) < 2:
+            raise _error(
+                f"descriptor projector_basis shell {shell_index} is malformed"
+            )
+        angular_momentum = shell[0]
+        if (
+            isinstance(angular_momentum, bool)
+            or not isinstance(angular_momentum, int)
+            or angular_momentum < 0
+        ):
+            raise _error(
+                "descriptor projector_basis angular momenta must be "
+                "nonnegative integers"
+            )
+        first_row = shell[1]
+        if isinstance(first_row, int) and not isinstance(first_row, bool):
+            contraction_count = first_row
+            primitive_rows = shell[2:]
+        else:
+            primitive_rows = shell[1:]
+            if not isinstance(first_row, list):
+                raise _error(
+                    f"descriptor projector_basis shell {shell_index} is malformed"
+                )
+            contraction_count = len(first_row) - 1
+        if contraction_count <= 0 or not primitive_rows:
+            raise _error(
+                f"descriptor projector_basis shell {shell_index} has no contraction"
+            )
+        for primitive_index, primitive in enumerate(primitive_rows):
+            if not isinstance(primitive, list) or len(primitive) != contraction_count + 1:
+                raise _error(
+                    "descriptor projector_basis primitive rows must contain one "
+                    "exponent and one coefficient per contraction"
+                )
+            exponent = _finite_float(
+                primitive[0],
+                f"descriptor.projector_basis[{shell_index}][{primitive_index}].exponent",
+            )
+            if exponent <= 0:
+                raise _error("descriptor projector exponents must be positive")
+            for coefficient_index, coefficient in enumerate(primitive[1:]):
+                _finite_float(
+                    coefficient,
+                    "descriptor.projector_basis"
+                    f"[{shell_index}][{primitive_index}].coefficient[{coefficient_index}]",
+                )
+        shell_sizes.extend([2 * angular_momentum + 1] * contraction_count)
+    return shell_sizes
 
 
 def _expected_shapes(dimensions: Mapping[str, int]) -> dict[str, tuple[int, ...]]:
@@ -326,6 +432,47 @@ def _validate_arrays(
     return normalized, inferred
 
 
+def _compatibility_seed(
+    mapping: Mapping[str, Any],
+    descriptor: Mapping[str, Any],
+    reference: Mapping[str, Any],
+    response: Mapping[str, Any],
+    generation: Mapping[str, Any],
+    feature_count: int,
+) -> dict[str, Any]:
+    return {
+        "schema": {"id": SCHEMA_ID, "version": SCHEMA_VERSION},
+        "conventions": _CONVENTIONS,
+        "atom_mapping_policy": {
+            "ghost_policy": mapping["ghost_policy"],
+            "raw_and_descriptor_atoms_are_bijective": True,
+        },
+        "descriptor": descriptor,
+        "reference": {
+            "family": reference["family"],
+            "python_class": reference["python_class"],
+            "basis_sha256": reference["basis_sha256"],
+            "ecp": reference["ecp"],
+            "charge": reference["charge"],
+            "spin": reference["spin"],
+            "scf_controls": reference["scf_controls"],
+        },
+        "response": response,
+        "generation": generation,
+        "dtype": "float64",
+        "dimensions": {"n_feature": feature_count},
+        "field_contracts": {
+            name: {
+                "axes": list(spec.axes),
+                "unit": spec.unit,
+                "sign": spec.sign,
+                "semantics": spec.semantics,
+            }
+            for name, spec in _FIELD_SPECS.items()
+        },
+    }
+
+
 def _normalize_provenance(
     provenance: Mapping[str, Any],
     arrays: Mapping[str, np.ndarray],
@@ -353,7 +500,7 @@ def _normalize_provenance(
     feature = dimensions["n_feature"]
 
     mapping = _require_mapping(provenance["atom_mapping"], "atom_mapping")
-    _require_keys(
+    _require_exact_keys(
         mapping,
         {
             "descriptor_to_raw",
@@ -401,17 +548,16 @@ def _normalize_provenance(
         raise _error("atom nuclear charges do not match atom_mapping provenance")
 
     descriptor = _require_mapping(provenance["descriptor"], "descriptor")
-    _require_keys(
-        descriptor,
-        {
-            "definition",
-            "spin_semantics",
-            "shell_sizes",
-            "projector_basis",
-            "differentiability_controls",
-        },
-        "descriptor",
-    )
+    descriptor_keys = {
+        "definition",
+        "spin_semantics",
+        "shell_sizes",
+        "projector_basis",
+        "differentiability_controls",
+    }
+    if "projector_sha256" in descriptor:
+        descriptor_keys.add("projector_sha256")
+    _require_exact_keys(descriptor, descriptor_keys, "descriptor")
     if descriptor["definition"] != "ordered_projected_density_eigenvalues":
         raise _error("descriptor definition is not the canonical ordered spectrum")
     if descriptor["spin_semantics"] != "spin_summed":
@@ -424,6 +570,11 @@ def _normalize_provenance(
         or sum(shell_sizes) != feature
     ):
         raise _error("descriptor shell_sizes must be positive and sum to n_feature")
+    projector_shell_sizes = _projector_shell_sizes(descriptor["projector_basis"])
+    if projector_shell_sizes != shell_sizes:
+        raise _error(
+            "descriptor shell_sizes do not match the canonical projector_basis"
+        )
     projector_hash = _json_fingerprint(descriptor["projector_basis"])
     supplied_projector_hash = descriptor.get("projector_sha256")
     if supplied_projector_hash is not None and supplied_projector_hash != projector_hash:
@@ -431,22 +582,48 @@ def _normalize_provenance(
     descriptor["projector_sha256"] = projector_hash
     if not isinstance(descriptor["differentiability_controls"], dict):
         raise _error("descriptor differentiability_controls must be a mapping")
+    _require_exact_keys(
+        descriptor["differentiability_controls"],
+        {
+            "gap_atol",
+            "gap_rtol",
+            "zero_atol",
+            "sensitivity_atol",
+            "structural_zero_blocks",
+            "validator",
+        },
+        "descriptor.differentiability_controls",
+    )
+    for control_name in ("gap_atol", "gap_rtol", "zero_atol", "sensitivity_atol"):
+        if _finite_float(
+            descriptor["differentiability_controls"][control_name],
+            f"descriptor.differentiability_controls.{control_name}",
+        ) <= 0:
+            raise _error(
+                f"descriptor.differentiability_controls.{control_name} must be positive"
+            )
+    if descriptor["differentiability_controls"]["structural_zero_blocks"] != "rejected":
+        raise _error("descriptor structural_zero_blocks policy must be rejected")
+    if (
+        descriptor["differentiability_controls"]["validator"]
+        != "deepks.descriptor.validate_differentiability"
+    ):
+        raise _error("descriptor differentiability validator is not canonical")
 
     reference = _require_mapping(provenance["reference"], "reference")
-    _require_keys(
-        reference,
-        {
-            "family",
-            "python_class",
-            "basis_content",
-            "ecp",
-            "charge",
-            "spin",
-            "occupations",
-            "scf_controls",
-        },
-        "reference",
-    )
+    reference_keys = {
+        "family",
+        "python_class",
+        "basis_content",
+        "ecp",
+        "charge",
+        "spin",
+        "occupations",
+        "scf_controls",
+    }
+    if "basis_sha256" in reference:
+        reference_keys.add("basis_sha256")
+    _require_exact_keys(reference, reference_keys, "reference")
     if reference["family"] != "RHF" or reference["python_class"] != "pyscf.scf.hf.RHF":
         raise _error("v1 force data require an exact native pyscf.scf.hf.RHF reference")
     if reference["ecp"] not in (None, {}):
@@ -454,19 +631,97 @@ def _normalize_provenance(
     reference["ecp"] = None
     if isinstance(reference["charge"], bool) or not isinstance(reference["charge"], int):
         raise _error("reference charge must be an integer")
-    if reference["spin"] != 0:
+    if (
+        isinstance(reference["spin"], bool)
+        or not isinstance(reference["spin"], int)
+        or reference["spin"] != 0
+    ):
         raise _error("v1 RHF force data require spin zero")
     occupations = reference["occupations"]
     if (
         not isinstance(occupations, list)
         or not occupations
-        or any(value not in (0, 0.0, 2, 2.0) for value in occupations)
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or value not in (0, 0.0, 2, 2.0)
+            for value in occupations
+        )
         or 0.0 not in [float(value) for value in occupations]
         or 2.0 not in [float(value) for value in occupations]
     ):
         raise _error("reference occupations must contain closed-shell occupied and virtual spaces")
+    first_virtual = next(
+        (index for index, value in enumerate(occupations) if float(value) == 0.0),
+        len(occupations),
+    )
+    if any(float(value) != 0.0 for value in occupations[first_virtual:]):
+        raise _error("reference occupations must use canonical Aufbau ordering")
+    electron_count = sum(nuclear_charges) - reference["charge"]
+    occupied_electrons = int(sum(float(value) for value in occupations))
+    if (
+        electron_count <= 0
+        or electron_count % 2
+        or occupied_electrons != electron_count
+    ):
+        raise _error(
+            "reference occupations do not match nuclear charges and molecular charge"
+        )
     if not isinstance(reference["scf_controls"], dict):
         raise _error("reference scf_controls must be a mapping")
+    _require_exact_keys(
+        reference["scf_controls"],
+        {
+            "conv_tol",
+            "conv_tol_grad",
+            "conv_tol_cpscf",
+            "max_cycle",
+            "level_shift",
+            "diis_space",
+            "direct_scf",
+            "conv_check",
+        },
+        "reference.scf_controls",
+    )
+    conv_tol = _finite_float(
+        reference["scf_controls"]["conv_tol"],
+        "reference.scf_controls.conv_tol",
+    )
+    if conv_tol <= 0:
+        raise _error("reference.scf_controls.conv_tol must be positive")
+    reference["scf_controls"]["conv_tol"] = conv_tol
+    for control_name in ("conv_tol_grad", "conv_tol_cpscf"):
+        control_value = reference["scf_controls"][control_name]
+        if control_value is not None:
+            control_value = _finite_float(
+                control_value,
+                f"reference.scf_controls.{control_name}",
+            )
+            if control_value <= 0:
+                raise _error(
+                    f"reference.scf_controls.{control_name} must be positive or null"
+                )
+            reference["scf_controls"][control_name] = control_value
+    reference["scf_controls"]["level_shift"] = _finite_float(
+        reference["scf_controls"]["level_shift"],
+        "reference.scf_controls.level_shift",
+    )
+    for control_name in ("max_cycle", "diis_space"):
+        control_value = reference["scf_controls"][control_name]
+        if (
+            isinstance(control_value, bool)
+            or not isinstance(control_value, int)
+            or control_value <= 0
+        ):
+            raise _error(
+                f"reference.scf_controls.{control_name} must be a positive integer"
+            )
+    for control_name in ("direct_scf", "conv_check"):
+        if not isinstance(reference["scf_controls"][control_name], bool):
+            raise _error(
+                f"reference.scf_controls.{control_name} must be boolean"
+            )
     basis_hash = _json_fingerprint(reference["basis_content"])
     supplied_basis_hash = reference.get("basis_sha256")
     if supplied_basis_hash is not None and supplied_basis_hash != basis_hash:
@@ -474,133 +729,73 @@ def _normalize_provenance(
     reference["basis_sha256"] = basis_hash
 
     response = _require_mapping(provenance["response"], "response")
-    _require_keys(response, {"backend", "adapter", "controls"}, "response")
+    _require_exact_keys(response, {"backend", "adapter", "controls"}, "response")
     if response["backend"] != "rhf_direct":
         raise _error("v1 force data require the rhf_direct response backend")
     if response["adapter"] != "deepks.deephf.pyscf_rhf.RHFResponseAdapter":
         raise _error("response adapter identity is not the accepted RHF adapter")
     if not isinstance(response["controls"], dict):
         raise _error("response controls must be a mapping")
-
-    frames = provenance["frames"]
-    if not isinstance(frames, list) or len(frames) != dimensions["n_frame"]:
-        raise _error("frames provenance must contain exactly one record per frame")
-    normalized_frames = []
-    compatibility_seed = {
-        "schema": {"id": SCHEMA_ID, "version": SCHEMA_VERSION},
-        "conventions": _CONVENTIONS,
-        "descriptor": {
-            "definition": descriptor["definition"],
-            "spin_semantics": descriptor["spin_semantics"],
-            "shell_sizes": descriptor["shell_sizes"],
-            "projector_sha256": descriptor["projector_sha256"],
-        },
-        "reference": {
-            "family": reference["family"],
-            "python_class": reference["python_class"],
-        },
-        "response": {
-            "backend": response["backend"],
-            "adapter": response["adapter"],
-        },
-        "dtype": "float64",
-        "n_feature": feature,
-        "field_contracts": {
-            name: {
-                "axes": list(spec.axes),
-                "unit": spec.unit,
-                "sign": spec.sign,
-                "semantics": spec.semantics,
-            }
-            for name, spec in _FIELD_SPECS.items()
-        },
-    }
-    compatibility_fingerprint = _json_fingerprint(compatibility_seed)
-    for frame_index, raw_frame in enumerate(frames):
-        frame = _require_mapping(raw_frame, f"frames[{frame_index}]")
-        _require_keys(
-            frame,
-            {
-                "reference_state_fingerprint",
-                "reference_converged",
-                "response_converged",
-                "response_diagnostics",
-                "descriptor_diagnostics",
-            },
-            f"frames[{frame_index}]",
+    _require_exact_keys(
+        response["controls"],
+        set(_RESPONSE_CONTROL_NAMES),
+        "response.controls",
+    )
+    for control_name in (
+        "cphf_tolerance",
+        "residual_tolerance",
+        "invariant_tolerance",
+        "orbital_gap_tolerance",
+        "operator_stability_tolerance",
+        "operator_symmetry_tolerance",
+    ):
+        control_value = _finite_float(
+            response["controls"][control_name],
+            f"response.controls.{control_name}",
         )
-        frame["reference_state_fingerprint"] = _sha256_string(
-            frame["reference_state_fingerprint"],
-            f"frames[{frame_index}].reference_state_fingerprint",
+        response["controls"][control_name] = control_value
+        if control_value <= 0:
+            raise _error(f"response.controls.{control_name} must be positive")
+    condition_tolerance = _finite_float(
+        response["controls"]["operator_condition_tolerance"],
+        "response.controls.operator_condition_tolerance",
+    )
+    if condition_tolerance <= 1:
+        raise _error(
+            "response.controls.operator_condition_tolerance must exceed one"
         )
-        if not _require_bool(
-            frame["reference_converged"],
-            f"frames[{frame_index}].reference_converged",
+    response["controls"]["operator_condition_tolerance"] = condition_tolerance
+    response["controls"]["level_shift"] = _finite_float(
+        response["controls"]["level_shift"],
+        "response.controls.level_shift",
+    )
+    for control_name, minimum in (
+        ("max_cycle", 1),
+        ("max_refinement_cycles", 0),
+        ("operator_dimension_limit", 1),
+    ):
+        control_value = response["controls"][control_name]
+        if (
+            isinstance(control_value, bool)
+            or not isinstance(control_value, int)
+            or control_value < minimum
         ):
-            raise _error(f"frame {frame_index} has an unconverged RHF reference")
-        if not _require_bool(
-            frame["response_converged"],
-            f"frames[{frame_index}].response_converged",
-        ):
-            raise _error(f"frame {frame_index} has an unconverged RHF response")
-        diagnostics = _require_mapping(
-            frame["response_diagnostics"],
-            f"frames[{frame_index}].response_diagnostics",
-        )
-        _require_keys(
-            diagnostics,
-            {"maximum_residual", "residual_tolerance"},
-            f"frames[{frame_index}].response_diagnostics",
-        )
-        maximum_residual = _finite_float(
-            diagnostics["maximum_residual"],
-            f"frames[{frame_index}].response_diagnostics.maximum_residual",
-        )
-        residual_tolerance = _finite_float(
-            diagnostics["residual_tolerance"],
-            f"frames[{frame_index}].response_diagnostics.residual_tolerance",
-        )
-        if residual_tolerance <= 0:
-            raise _error(f"frame {frame_index} response residual tolerance must be positive")
-        if maximum_residual > residual_tolerance:
             raise _error(
-                f"frame {frame_index} response residual {maximum_residual:.3e} "
-                f"exceeds tolerance {residual_tolerance:.3e}"
+                f"response.controls.{control_name} must be an integer >= {minimum}"
             )
-        frame["response_diagnostics"] = diagnostics
-        frame["descriptor_diagnostics"] = _require_mapping(
-            frame["descriptor_diagnostics"],
-            f"frames[{frame_index}].descriptor_diagnostics",
-        )
-        supplied_sample_id = frame.pop("sample_id", None)
-        sample_identity = {
-            "compatibility_fingerprint": compatibility_fingerprint,
-            "frame_provenance": frame,
-            "arrays": {
-                name: _array_fingerprint(value[frame_index])
-                for name, value in arrays.items()
-            },
-        }
-        sample_id = _json_fingerprint(sample_identity)
-        if supplied_sample_id is not None and supplied_sample_id != sample_id:
-            raise _error(f"frame {frame_index} sample_id does not match its data")
-        frame["sample_id"] = sample_id
-        normalized_frames.append(frame)
 
     generation = _require_mapping(provenance["generation"], "generation")
-    _require_keys(
-        generation,
-        {
-            "deepks_version",
-            "deepks_commit",
-            "pyscf_version",
-            "torch_version",
-            "numpy_version",
-            "python_version",
-            "producer",
-        },
-        "generation",
-    )
+    generation_keys = {
+        "deepks_version",
+        "deepks_commit",
+        "pyscf_version",
+        "torch_version",
+        "numpy_version",
+        "python_version",
+        "producer",
+        "producer_version",
+    }
+    _require_exact_keys(generation, generation_keys, "generation")
     for name in (
         "deepks_version",
         "pyscf_version",
@@ -616,6 +811,317 @@ def _normalize_provenance(
         raise _error("generation.deepks_commit must be a string or null")
     if generation["producer"] != "deepks.deephf.force_data.rhf_direct":
         raise _error("generation producer is not the accepted RHF direct producer")
+    if generation["producer_version"] != 1:
+        raise _error("generation producer_version is not supported")
+    version_parts = generation["pyscf_version"].split(".")
+    try:
+        pyscf_series = tuple(int(value) for value in version_parts[:2])
+    except ValueError as error:
+        raise _error("generation.pyscf_version is not a version string") from error
+    if pyscf_series != SUPPORTED_PYSCF_SERIES:
+        raise _error("v1 RHF force data require the PySCF 2.14 series")
+
+    frames = provenance["frames"]
+    if not isinstance(frames, list) or len(frames) != dimensions["n_frame"]:
+        raise _error("frames provenance must contain exactly one record per frame")
+    normalized_frames = []
+    compatibility_seed = _compatibility_seed(
+        mapping,
+        descriptor,
+        reference,
+        response,
+        generation,
+        feature,
+    )
+    compatibility_fingerprint = _json_fingerprint(compatibility_seed)
+    for frame_index, raw_frame in enumerate(frames):
+        frame = _require_mapping(raw_frame, f"frames[{frame_index}]")
+        frame_keys = {
+            "reference_state_fingerprint",
+            "reference_converged",
+            "response_converged",
+            "response_integrity_fingerprint",
+            "response_diagnostics",
+            "descriptor_diagnostics",
+            "geometry_bohr",
+        }
+        for derived_name in ("field_sha256", "sample_id"):
+            if derived_name in frame:
+                frame_keys.add(derived_name)
+        _require_exact_keys(frame, frame_keys, f"frames[{frame_index}]")
+        frame["reference_state_fingerprint"] = _sha256_string(
+            frame["reference_state_fingerprint"],
+            f"frames[{frame_index}].reference_state_fingerprint",
+        )
+        if not _require_bool(
+            frame["reference_converged"],
+            f"frames[{frame_index}].reference_converged",
+        ):
+            raise _error(f"frame {frame_index} has an unconverged RHF reference")
+        if not _require_bool(
+            frame["response_converged"],
+            f"frames[{frame_index}].response_converged",
+        ):
+            raise _error(f"frame {frame_index} has an unconverged RHF response")
+        frame["response_integrity_fingerprint"] = _sha256_string(
+            frame["response_integrity_fingerprint"],
+            f"frames[{frame_index}].response_integrity_fingerprint",
+        )
+        geometry = np.asarray(frame["geometry_bohr"])
+        if (
+            geometry.shape != (raw_atom, 3)
+            or geometry.dtype.kind not in "iuf"
+            or not np.isfinite(geometry).all()
+        ):
+            raise _error(
+                f"frames[{frame_index}].geometry_bohr must have shape "
+                f"({raw_atom}, 3) with finite coordinates"
+            )
+        if not np.array_equal(geometry.astype(np.float64), arrays["atom"][frame_index, :, 1:]):
+            raise _error(
+                f"frames[{frame_index}].geometry_bohr does not match field atom"
+            )
+        frame["geometry_bohr"] = geometry.astype(np.float64).tolist()
+        diagnostics = _require_mapping(
+            frame["response_diagnostics"],
+            f"frames[{frame_index}].response_diagnostics",
+        )
+        _require_exact_keys(
+            diagnostics,
+            _RESPONSE_DIAGNOSTIC_NAMES,
+            f"frames[{frame_index}].response_diagnostics",
+        )
+        for diagnostic_name in (
+            "minimum_orbital_gap",
+            "cphf_tolerance",
+            "maximum_residual",
+            "residual_rms",
+            "residual_tolerance",
+            "invariant_tolerance",
+            "orbital_gap_tolerance",
+            "level_shift",
+            "operator_stability_tolerance",
+            "operator_condition_tolerance",
+            "operator_symmetry_tolerance",
+            "operator_minimum_eigenvalue",
+            "operator_maximum_eigenvalue",
+            "operator_condition_number",
+            "operator_symmetry_residual",
+            "metric_residual",
+            "idempotency_residual",
+            "particle_number_residual",
+        ):
+            diagnostics[diagnostic_name] = _finite_float(
+                diagnostics[diagnostic_name],
+                f"frames[{frame_index}].response_diagnostics.{diagnostic_name}",
+            )
+        maximum_residual = _finite_float(
+            diagnostics["maximum_residual"],
+            f"frames[{frame_index}].response_diagnostics.maximum_residual",
+        )
+        residual_tolerance = _finite_float(
+            diagnostics["residual_tolerance"],
+            f"frames[{frame_index}].response_diagnostics.residual_tolerance",
+        )
+        if residual_tolerance <= 0:
+            raise _error(f"frame {frame_index} response residual tolerance must be positive")
+        if maximum_residual > residual_tolerance:
+            raise _error(
+                f"frame {frame_index} response residual {maximum_residual:.3e} "
+                f"exceeds tolerance {residual_tolerance:.3e}"
+            )
+        if maximum_residual < 0 or diagnostics["residual_rms"] < 0:
+            raise _error(f"frame {frame_index} response residuals must be nonnegative")
+        if diagnostics["residual_rms"] > maximum_residual:
+            raise _error(
+                f"frame {frame_index} response RMS residual exceeds its maximum residual"
+            )
+        if diagnostics["pyscf_version"] != generation["pyscf_version"]:
+            raise _error(
+                f"frame {frame_index} response PySCF version does not match generation"
+            )
+        for control_name in _RESPONSE_CONTROL_NAMES:
+            if diagnostics[control_name] != response["controls"][control_name]:
+                raise _error(
+                    f"frame {frame_index} response diagnostic {control_name} "
+                    "does not match response controls"
+                )
+        if diagnostics["minimum_orbital_gap"] <= diagnostics["orbital_gap_tolerance"]:
+            raise _error(
+                f"frame {frame_index} orbital gap does not exceed its tolerance"
+            )
+        for invariant_name in (
+            "metric_residual",
+            "idempotency_residual",
+            "particle_number_residual",
+        ):
+            if diagnostics[invariant_name] < 0:
+                raise _error(
+                    f"frame {frame_index} {invariant_name} must be nonnegative"
+                )
+            if diagnostics[invariant_name] > diagnostics["invariant_tolerance"]:
+                raise _error(
+                    f"frame {frame_index} {invariant_name} exceeds invariant tolerance"
+                )
+        if (
+            diagnostics["operator_minimum_eigenvalue"]
+            <= diagnostics["operator_stability_tolerance"]
+        ):
+            raise _error(
+                f"frame {frame_index} response operator is not strictly stable"
+            )
+        if (
+            diagnostics["operator_condition_number"]
+            > diagnostics["operator_condition_tolerance"]
+        ):
+            raise _error(
+                f"frame {frame_index} response operator is ill conditioned"
+            )
+        if diagnostics["operator_condition_number"] < 1:
+            raise _error(
+                f"frame {frame_index} response operator condition number is invalid"
+            )
+        if (
+            diagnostics["operator_maximum_eigenvalue"]
+            < diagnostics["operator_minimum_eigenvalue"]
+        ):
+            raise _error(
+                f"frame {frame_index} response operator eigenvalue bounds are invalid"
+            )
+        if diagnostics["operator_symmetry_residual"] < 0:
+            raise _error(
+                f"frame {frame_index} response operator symmetry residual is negative"
+            )
+        if (
+            diagnostics["operator_symmetry_residual"]
+            > diagnostics["operator_symmetry_tolerance"]
+        ):
+            raise _error(
+                f"frame {frame_index} response operator is not symmetric"
+            )
+        response_dimension = diagnostics["response_dimension"]
+        expected_response_dimension = sum(
+            float(value) > 0 for value in occupations
+        ) * sum(float(value) == 0 for value in occupations)
+        if (
+            isinstance(response_dimension, bool)
+            or not isinstance(response_dimension, int)
+            or response_dimension != expected_response_dimension
+            or response_dimension > diagnostics["operator_dimension_limit"]
+        ):
+            raise _error(f"frame {frame_index} response dimension is invalid")
+        expected_condition = (
+            diagnostics["operator_maximum_eigenvalue"]
+            / diagnostics["operator_minimum_eigenvalue"]
+        )
+        if not math.isclose(
+            diagnostics["operator_condition_number"],
+            expected_condition,
+            rel_tol=1.0e-12,
+            abs_tol=1.0e-12,
+        ):
+            raise _error(
+                f"frame {frame_index} response operator condition number "
+                "does not match its eigenvalue bounds"
+            )
+        refinement_cycles = diagnostics["refinement_cycles"]
+        residual_history = diagnostics["residual_history"]
+        if isinstance(residual_history, list):
+            residual_history = [
+                _finite_float(
+                    value,
+                    f"frames[{frame_index}].response_diagnostics.residual_history[{history_index}]",
+                )
+                for history_index, value in enumerate(residual_history)
+            ]
+            diagnostics["residual_history"] = residual_history
+        if (
+            isinstance(refinement_cycles, bool)
+            or not isinstance(refinement_cycles, int)
+            or refinement_cycles < 0
+            or refinement_cycles > diagnostics["max_refinement_cycles"]
+            or not isinstance(residual_history, list)
+            or len(residual_history) != refinement_cycles + 1
+            or any(value < 0 for value in residual_history)
+            or residual_history[-1] != diagnostics["maximum_residual"]
+            or residual_history[-1] > residual_history[0]
+        ):
+            raise _error(f"frame {frame_index} response refinement history is invalid")
+        frame["response_diagnostics"] = diagnostics
+        descriptor_diagnostics = _require_mapping(
+            frame["descriptor_diagnostics"],
+            f"frames[{frame_index}].descriptor_diagnostics",
+        )
+        descriptor_diagnostic_keys = {
+            "minimum_scaled_gap",
+            "structural_zero_blocks",
+        }
+        if "minimum_scaled_gap_unbounded" in descriptor_diagnostics:
+            descriptor_diagnostic_keys.add("minimum_scaled_gap_unbounded")
+        _require_exact_keys(
+            descriptor_diagnostics,
+            descriptor_diagnostic_keys,
+            f"frames[{frame_index}].descriptor_diagnostics",
+        )
+        if descriptor_diagnostics["structural_zero_blocks"] != []:
+            raise _error(
+                f"frame {frame_index} descriptor has structural zero blocks"
+            )
+        minimum_scaled_gap = descriptor_diagnostics["minimum_scaled_gap"]
+        if minimum_scaled_gap is None:
+            if descriptor_diagnostics.get("minimum_scaled_gap_unbounded") is not True:
+                raise _error(
+                    f"frame {frame_index} descriptor gap must be finite or unbounded"
+                )
+        elif _finite_float(
+            minimum_scaled_gap,
+            f"frames[{frame_index}].descriptor_diagnostics.minimum_scaled_gap",
+        ) <= 1:
+            raise _error(
+                f"frame {frame_index} descriptor differentiability gap is not accepted"
+            )
+        frame["descriptor_diagnostics"] = descriptor_diagnostics
+        supplied_sample_id = frame.pop("sample_id", None)
+        supplied_field_hashes = frame.pop("field_sha256", None)
+        field_hashes = {
+            name: _array_fingerprint(value[frame_index])
+            for name, value in arrays.items()
+        }
+        if supplied_field_hashes is not None:
+            supplied_field_hashes = _require_mapping(
+                supplied_field_hashes,
+                f"frames[{frame_index}].field_sha256",
+            )
+            _require_exact_keys(
+                supplied_field_hashes,
+                set(CANONICAL_FORCE_FIELDS),
+                f"frames[{frame_index}].field_sha256",
+            )
+            supplied_field_hashes = {
+                name: _sha256_string(
+                    supplied_field_hashes[name],
+                    f"frames[{frame_index}].field_sha256.{name}",
+                )
+                for name in CANONICAL_FORCE_FIELDS
+            }
+            if supplied_field_hashes != field_hashes:
+                raise _error(
+                    f"frame {frame_index} field hashes do not match its arrays"
+                )
+        frame["field_sha256"] = field_hashes
+        sample_identity = {
+            "compatibility_fingerprint": compatibility_fingerprint,
+            "system_provenance": {
+                "atom_mapping": mapping,
+                "reference_occupations": reference["occupations"],
+            },
+            "frame_provenance": frame,
+        }
+        sample_id = _json_fingerprint(sample_identity)
+        if supplied_sample_id is not None and supplied_sample_id != sample_id:
+            raise _error(f"frame {frame_index} sample_id does not match its data")
+        frame["sample_id"] = sample_id
+        normalized_frames.append(frame)
 
     return {
         "atom_mapping": mapping,
@@ -758,15 +1264,156 @@ def _validate_field_manifest(
             )
 
 
-@dataclass(frozen=True)
+def _validate_contract_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    manifest = _require_mapping(manifest, "force contract manifest")
+    dimensions = _validate_manifest_header(manifest)
+    fields = manifest["fields"]
+    if not isinstance(fields, dict) or set(fields) != set(CANONICAL_FORCE_FIELDS):
+        raise _error("force contract must describe exactly the nine canonical fields")
+    expected_shapes = _expected_shapes(dimensions)
+    for name, spec in _FIELD_SPECS.items():
+        field = fields[name]
+        expected_keys = {
+            "file",
+            "axes",
+            "shape",
+            "dtype",
+            "unit",
+            "sign",
+            "semantics",
+            "sha256",
+        }
+        if not isinstance(field, dict) or set(field) != expected_keys:
+            raise _error(f"force contract field {name} is not canonical")
+        expected_metadata = {
+            "file": f"{name}.npy",
+            "axes": list(spec.axes),
+            "shape": list(expected_shapes[name]),
+            "dtype": "float64",
+            "unit": spec.unit,
+            "sign": spec.sign,
+            "semantics": spec.semantics,
+        }
+        if any(field[key] != value for key, value in expected_metadata.items()):
+            raise _error(f"force contract field {name} metadata is not canonical")
+        _sha256_string(field["sha256"], f"fields.{name}.sha256")
+
+    mapping = manifest["atom_mapping"]
+    if not isinstance(mapping, dict) or set(mapping) != {
+        "descriptor_to_raw",
+        "raw_to_descriptor",
+        "nuclear_charges",
+        "ghost_policy",
+    }:
+        raise _error("force contract atom_mapping is not canonical")
+    if mapping["ghost_policy"] != "rejected":
+        raise _error("force contract ghost policy is not canonical")
+
+    descriptor = manifest["descriptor"]
+    if not isinstance(descriptor, dict) or set(descriptor) != {
+        "definition",
+        "spin_semantics",
+        "shell_sizes",
+        "projector_basis",
+        "projector_sha256",
+        "differentiability_controls",
+    }:
+        raise _error("force contract descriptor provenance is not canonical")
+    shell_sizes = _projector_shell_sizes(descriptor["projector_basis"])
+    if shell_sizes != descriptor["shell_sizes"] or sum(shell_sizes) != dimensions["n_feature"]:
+        raise _error("force contract projector and descriptor dimensions disagree")
+    if descriptor["projector_sha256"] != _json_fingerprint(
+        descriptor["projector_basis"]
+    ):
+        raise _error("force contract projector fingerprint is inconsistent")
+
+    reference = manifest["reference"]
+    if not isinstance(reference, dict) or set(reference) != {
+        "family",
+        "python_class",
+        "basis_content",
+        "basis_sha256",
+        "ecp",
+        "charge",
+        "spin",
+        "occupations",
+        "scf_controls",
+    }:
+        raise _error("force contract reference provenance is not canonical")
+    if reference["basis_sha256"] != _json_fingerprint(reference["basis_content"]):
+        raise _error("force contract basis fingerprint is inconsistent")
+
+    response = manifest["response"]
+    if not isinstance(response, dict) or set(response) != {"backend", "adapter", "controls"}:
+        raise _error("force contract response provenance is not canonical")
+    generation = manifest["generation"]
+    compatibility = _json_fingerprint(
+        _compatibility_seed(
+            mapping,
+            descriptor,
+            reference,
+            response,
+            generation,
+            dimensions["n_feature"],
+        )
+    )
+    if manifest["compatibility_fingerprint"] != compatibility:
+        raise _error("force contract compatibility fingerprint is inconsistent")
+
+    frames = manifest["frames"]
+    if not isinstance(frames, list) or len(frames) != dimensions["n_frame"]:
+        raise _error("force contract frame registry is incomplete")
+    for frame_index, frame in enumerate(frames):
+        if not isinstance(frame, dict) or "sample_id" not in frame or "field_sha256" not in frame:
+            raise _error(f"force contract frame {frame_index} is incomplete")
+        sample_id = _sha256_string(frame["sample_id"], f"frames[{frame_index}].sample_id")
+        field_hashes = frame["field_sha256"]
+        if not isinstance(field_hashes, dict) or set(field_hashes) != set(
+            CANONICAL_FORCE_FIELDS
+        ):
+            raise _error(f"force contract frame {frame_index} field hashes are incomplete")
+        for name, value in field_hashes.items():
+            _sha256_string(value, f"frames[{frame_index}].field_sha256.{name}")
+        unsigned_frame = dict(frame)
+        unsigned_frame.pop("sample_id")
+        expected_sample_id = _json_fingerprint(
+            {
+                "compatibility_fingerprint": compatibility,
+                "system_provenance": {
+                    "atom_mapping": mapping,
+                    "reference_occupations": reference["occupations"],
+                },
+                "frame_provenance": unsigned_frame,
+            }
+        )
+        if sample_id != expected_sample_id:
+            raise _error(f"force contract frame {frame_index} sample_id is inconsistent")
+    return manifest
+
+
+_CONTRACT_VALIDATION_TOKEN = object()
+
+
 class ForceDataContract:
     """Immutable view of one validated strict force-data manifest."""
 
-    _canonical_manifest: str
+    __slots__ = ("_canonical_manifest", "_validation_token")
+
+    def __new__(cls, *args, **kwargs):
+        raise TypeError(
+            "ForceDataContract objects are created only by validated force-data loaders"
+        )
 
     @classmethod
     def _from_manifest(cls, manifest: Mapping[str, Any]) -> "ForceDataContract":
-        return cls(_canonical_json(manifest))
+        manifest = _validate_contract_manifest(manifest)
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_canonical_manifest", _canonical_json(manifest))
+        object.__setattr__(instance, "_validation_token", _CONTRACT_VALIDATION_TOKEN)
+        return instance
+
+    def __setattr__(self, name, value):
+        raise AttributeError("ForceDataContract is immutable")
 
     @property
     def manifest(self) -> dict[str, Any]:
@@ -802,7 +1449,60 @@ class ForceDataContract:
         return JACOBIAN_NAME
 
 
-def write_force_dataset(
+def validate_force_data_contract(contract: ForceDataContract) -> ForceDataContract:
+    """Revalidate the sealed canonical manifest at a public consumption boundary."""
+    if (
+        type(contract) is not ForceDataContract
+        or getattr(contract, "_validation_token", None) is not _CONTRACT_VALIDATION_TOKEN
+    ):
+        raise TypeError("contract must be a validated ForceDataContract")
+    manifest = _validate_contract_manifest(contract.manifest)
+    if _canonical_json(manifest) != contract._canonical_manifest:
+        raise _error("force contract canonical manifest changed after validation")
+    return contract
+
+
+def validate_force_sample_arrays(
+    contract: ForceDataContract,
+    sample_id: str,
+    arrays: Mapping[str, np.ndarray],
+) -> None:
+    """Validate one runtime sample against its persisted per-field identities."""
+    validate_force_data_contract(contract)
+    sample_id = _sha256_string(sample_id, "runtime sample_id")
+    runtime_fields = {
+        "energy": "e_corr_target",
+        "descriptor": "descriptor",
+        "force": "f_corr_target",
+        JACOBIAN_NAME: JACOBIAN_NAME,
+    }
+    if not isinstance(arrays, Mapping) or set(arrays) != set(runtime_fields):
+        raise _error(
+            "runtime force sample must contain energy, descriptor, force, and "
+            "dq_dR_relaxed arrays"
+        )
+    frames = {
+        frame["sample_id"]: frame
+        for frame in contract.manifest["frames"]
+    }
+    if sample_id not in frames:
+        raise _error("runtime force sample_id is not present in the force contract")
+    expected_hashes = frames[sample_id]["field_sha256"]
+    for runtime_name, persisted_name in runtime_fields.items():
+        value = arrays[runtime_name]
+        if not isinstance(value, np.ndarray):
+            raise _error(f"runtime field {runtime_name} must be a numpy.ndarray")
+        if value.dtype != np.dtype(np.float64) or np.iscomplexobj(value):
+            raise _error(f"runtime field {runtime_name} must be real numpy.float64")
+        if not np.isfinite(value).all():
+            raise _error(f"runtime field {runtime_name} must contain only finite values")
+        if _array_fingerprint(value) != expected_hashes[persisted_name]:
+            raise _error(
+                f"runtime field {runtime_name} does not belong to sample {sample_id}"
+            )
+
+
+def _write_force_dataset(
     directory,
     *,
     arrays: Mapping[str, np.ndarray],
@@ -876,6 +1576,17 @@ def load_force_dataset(directory) -> tuple[ForceDataContract, dict[str, np.ndarr
     if not path.is_dir():
         raise _error(f"dataset path {path} is not a directory")
     manifest = _load_manifest(path / SCHEMA_FILENAME)
+    expected_array_files = {f"{name}.npy" for name in CANONICAL_FORCE_FIELDS}
+    actual_array_files = {item.name for item in path.glob("*.npy")}
+    if actual_array_files != expected_array_files:
+        extra = sorted(actual_array_files - expected_array_files)
+        missing = sorted(expected_array_files - actual_array_files)
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unexpected " + ", ".join(extra))
+        raise _error("dataset array files are not canonical: " + "; ".join(details))
     dimensions = _validate_manifest_header(manifest)
     arrays = {}
     for name in CANONICAL_FORCE_FIELDS:
@@ -915,8 +1626,7 @@ def load_force_dataset(directory) -> tuple[ForceDataContract, dict[str, np.ndarr
 
 def force_checkpoint_metadata(contract: ForceDataContract) -> dict[str, Any]:
     """Return the exact force contract that a checkpoint must retain."""
-    if not isinstance(contract, ForceDataContract):
-        raise TypeError("contract must be a ForceDataContract")
+    validate_force_data_contract(contract)
     manifest = contract.manifest
     descriptor = manifest["descriptor"]
     return {
@@ -968,6 +1678,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "force_checkpoint_metadata",
     "load_force_dataset",
+    "validate_force_data_contract",
     "validate_force_checkpoint_metadata",
-    "write_force_dataset",
+    "validate_force_sample_arrays",
 ]

@@ -5,12 +5,15 @@ import json
 import numpy as np
 import pytest
 
+import deepks.data as data_api
+
 from deepks.data.force_schema import (
+    ForceDataContract,
     ForceDataError,
     force_checkpoint_metadata,
     load_force_dataset,
     validate_force_checkpoint_metadata,
-    write_force_dataset,
+    _write_force_dataset as write_force_dataset,
 )
 from test_force_schema import make_schema_inputs
 
@@ -232,3 +235,126 @@ def test_manifest_duplicate_keys_and_nan_are_rejected(tmp_path, document, messag
 
     with pytest.raises(ForceDataError, match=message):
         load_force_dataset(directory)
+
+
+def test_low_level_schema_writer_is_not_a_public_data_api():
+    assert not hasattr(data_api, "write_force_dataset")
+    with pytest.raises(TypeError, match="validated force-data loaders"):
+        ForceDataContract("{}")
+
+
+def test_contract_factory_revalidates_manifest_internals(tmp_path):
+    arrays, provenance = make_schema_inputs(frame_count=1)
+    contract = write_force_dataset(
+        tmp_path / "strict",
+        arrays=arrays,
+        provenance=provenance,
+    )
+    forged_manifest = contract.manifest
+    forged_manifest["descriptor"]["projector_basis"][0][1][0] = 0.91
+
+    with pytest.raises(ForceDataError, match="manifest fingerprint|projector fingerprint"):
+        ForceDataContract._from_manifest(forged_manifest)
+
+
+def test_loader_rejects_extra_explicit_jacobian_file(tmp_path):
+    arrays, provenance = make_schema_inputs(frame_count=1)
+    directory = tmp_path / "strict"
+    write_force_dataset(directory, arrays=arrays, provenance=provenance)
+    np.save(
+        directory / "dq_dR_explicit.npy",
+        arrays["dq_dR_relaxed"],
+        allow_pickle=False,
+    )
+
+    with pytest.raises(ForceDataError, match="unexpected dq_dR_explicit.npy"):
+        load_force_dataset(directory)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda provenance: provenance["descriptor"].update(
+                projector_basis={"not": "a projector"}
+            ),
+            "projector_basis",
+        ),
+        (
+            lambda provenance: provenance["descriptor"].update(
+                shell_sizes=[1, 1, 2]
+            ),
+            "shell_sizes do not match",
+        ),
+        (
+            lambda provenance: provenance["generation"].pop("producer_version"),
+            "producer_version",
+        ),
+        (
+            lambda provenance: provenance["generation"].update(
+                pyscf_version="9.9.0"
+            ),
+            "PySCF 2.14",
+        ),
+        (
+            lambda provenance: provenance["frames"][0][
+                "descriptor_diagnostics"
+            ].update(structural_zero_blocks=[[0, 0, 0, 2]]),
+            "structural zero blocks",
+        ),
+        (
+            lambda provenance: provenance["response"]["controls"].update(
+                residual_tolerance=1.0e-10
+            ),
+            "does not match response controls",
+        ),
+        (
+            lambda provenance: provenance["frames"][0][
+                "response_diagnostics"
+            ].update(metric_residual=-1.0e-14),
+            "must be nonnegative",
+        ),
+        (
+            lambda provenance: provenance["frames"][0][
+                "response_diagnostics"
+            ].update(operator_condition_number=-8.0),
+            "condition number is invalid",
+        ),
+        (
+            lambda provenance: provenance["frames"][0][
+                "response_diagnostics"
+            ].update(response_dimension=17),
+            "response dimension is invalid",
+        ),
+        (
+            lambda provenance: provenance["frames"][0][
+                "response_diagnostics"
+            ].update(operator_condition_number=7.0),
+            "does not match its eigenvalue bounds",
+        ),
+        (
+            lambda provenance: provenance["reference"].update(charge=1),
+            "occupations do not match",
+        ),
+        (
+            lambda provenance: provenance["reference"]["scf_controls"].update(
+                max_cycle="many"
+            ),
+            "max_cycle must be a positive integer",
+        ),
+    ],
+)
+def test_writer_rejects_contradictory_scientific_provenance(
+    tmp_path,
+    mutate,
+    message,
+):
+    arrays, provenance = make_schema_inputs(frame_count=1)
+    mutate(provenance)
+
+    with pytest.raises(ForceDataError, match=message):
+        write_force_dataset(
+            tmp_path / message.replace(" ", "-"),
+            arrays=arrays,
+            provenance=provenance,
+        )

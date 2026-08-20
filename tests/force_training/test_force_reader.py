@@ -4,9 +4,12 @@ import numpy as np
 import pytest
 import torch
 
-from deepks.data.force_schema import ForceDataError, write_force_dataset
+from deepks.data.force_schema import (
+    ForceDataError,
+    _write_force_dataset as write_force_dataset,
+)
 from deepks.data.stats import concat_data, make_label
-from deepks.model.reader import GroupReader, Reader
+from deepks.model.reader import GroupReader, Reader, SimpleReader
 from test_force_schema import make_schema_inputs
 
 
@@ -39,6 +42,7 @@ def test_reader_exposes_only_canonical_relaxed_force_training_fields(tmp_path):
         "force",
         "dq_dR_relaxed",
         "force_contract_fingerprint",
+        "force_sample_fingerprint",
     }
     torch.testing.assert_close(sample["energy"], torch.from_numpy(arrays["e_corr_target"]))
     torch.testing.assert_close(sample["descriptor"], torch.from_numpy(arrays["descriptor"]))
@@ -52,6 +56,17 @@ def test_reader_exposes_only_canonical_relaxed_force_training_fields(tmp_path):
         dtype=torch.uint8,
     ).expand(arrays["descriptor"].shape[0], -1)
     torch.testing.assert_close(sample["force_contract_fingerprint"], expected_marker)
+    expected_sample_marker = torch.tensor(
+        [
+            list(bytes.fromhex(frame["sample_id"]))
+            for frame in contract.manifest["frames"]
+        ],
+        dtype=torch.uint8,
+    )
+    torch.testing.assert_close(
+        sample["force_sample_fingerprint"],
+        expected_sample_marker,
+    )
 
 
 def test_reader_rejects_explicit_aliases_and_missing_strict_manifest(tmp_path):
@@ -134,6 +149,28 @@ def test_energy_only_reader_remains_valid(tmp_path):
     assert reader.force_contract is None
     assert set(reader.sample_all()) == {"energy", "descriptor"}
     torch.testing.assert_close(reader.sample_all()["energy"], torch.from_numpy(energy))
+
+
+def test_strict_manifest_cannot_enter_simple_or_grouped_energy_only_paths(tmp_path):
+    directory = tmp_path / "strict"
+    _write_schema_dataset(directory, frame_count=1)
+
+    with pytest.raises(ForceDataError, match="force_mode='deephf_relaxed'"):
+        SimpleReader(directory, batch_size=1, converged_filter=False)
+    with pytest.raises(ForceDataError, match="force_mode='deephf_relaxed'"):
+        GroupReader(
+            [directory],
+            batch_size=1,
+            extra_label=False,
+            converged_filter=False,
+        )
+    with pytest.raises(ForceDataError, match="force_mode='deephf_relaxed'"):
+        GroupReader(
+            [directory],
+            batch_size=1,
+            descriptor_name=["descriptor"],
+            converged_filter=False,
+        )
 
 
 def test_legacy_stats_tools_refuse_to_rewrite_strict_force_data(tmp_path):

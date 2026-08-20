@@ -1,8 +1,11 @@
 """Isolated PySCF 2.14 adapter for molecular RHF nuclear response."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, replace
 import hashlib
 import operator
+from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 import pyscf
@@ -17,6 +20,26 @@ SUPPORTED_PYSCF_SERIES = (2, 14)
 
 class RHFResponseError(RuntimeError):
     """Raised when the RHF response equations fail the strict contract."""
+
+
+@dataclass(frozen=True)
+class RHFReferenceSnapshot:
+    """PySCF-independent provenance view of one molecular RHF reference."""
+
+    reference_class: str
+    converged: bool
+    state_fingerprint: str
+    charge: int
+    spin: int
+    electron_count: int
+    occupations: tuple[float, ...]
+    basis: Mapping[str, Any]
+    ecp: Mapping[str, Any]
+    geometry_bohr: tuple[tuple[float, float, float], ...]
+    atom_charges: tuple[int, ...]
+    ao_count: int
+    ao_labels: tuple[str, ...]
+    scf_controls: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -122,6 +145,69 @@ def reference_fingerprint(reference) -> str:
         digest.update(repr(array.shape).encode("ascii"))
         digest.update(array.tobytes())
     return digest.hexdigest()
+
+
+def _immutable_metadata(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return _immutable_metadata(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _immutable_metadata(item) for key, item in value.items()}
+        )
+    if isinstance(value, (tuple, list)):
+        return tuple(_immutable_metadata(item) for item in value)
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    raise DeePHFCapabilityError(
+        "cannot snapshot PySCF reference metadata of type "
+        f"{type(value).__name__}"
+    )
+
+
+def reference_provenance_snapshot(reference) -> RHFReferenceSnapshot:
+    """Snapshot RHF reference metadata behind the PySCF 2.14 boundary."""
+    validate_pyscf_version()
+    reference = validate_reference(reference)
+    molecule = reference.mol
+    controls = {
+        name: _immutable_metadata(getattr(reference, name, None))
+        for name in (
+            "conv_tol",
+            "conv_tol_grad",
+            "conv_tol_cpscf",
+            "max_cycle",
+            "level_shift",
+            "diis_space",
+            "direct_scf",
+            "conv_check",
+        )
+    }
+    geometry = np.asarray(molecule.atom_coords(unit="Bohr"), dtype=np.float64)
+    atom_charges = np.asarray(molecule.atom_charges())
+    occupations = np.asarray(reference.mo_occ, dtype=np.float64)
+    return RHFReferenceSnapshot(
+        reference_class=(
+            f"{type(reference).__module__}.{type(reference).__qualname__}"
+        ),
+        converged=bool(reference.converged),
+        state_fingerprint=reference_fingerprint(reference),
+        charge=int(molecule.charge),
+        spin=int(molecule.spin),
+        electron_count=int(molecule.nelectron),
+        occupations=tuple(float(value) for value in occupations),
+        basis=_immutable_metadata(molecule._basis),
+        ecp=_immutable_metadata(molecule._ecp),
+        geometry_bohr=tuple(
+            tuple(float(component) for component in coordinates)
+            for coordinates in geometry
+        ),
+        atom_charges=tuple(int(value) for value in atom_charges),
+        ao_count=int(molecule.nao),
+        ao_labels=tuple(molecule.ao_labels()),
+        scf_controls=MappingProxyType(controls),
+    )
 
 
 def _immutable_array(value: np.ndarray) -> np.ndarray:

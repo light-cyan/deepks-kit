@@ -124,6 +124,11 @@ def test(model, g_reader, dump_prefix="test", group=False, force_aware=None):
     """Test one loaded checkpoint against saved energy or strict relaxed-force data."""
     model.eval()
     contract = getattr(g_reader, "force_contract", None)
+    contracts = getattr(
+        g_reader,
+        "force_contracts",
+        (contract,) if contract is not None else (),
+    )
     inferred_force_aware = contract is not None
     if force_aware is None:
         force_aware = inferred_force_aware
@@ -143,7 +148,7 @@ def test(model, g_reader, dump_prefix="test", group=False, force_aware=None):
     evaluator = Evaluator(
         energy_factor=1.0,
         force_factor=1.0 if force_aware else 0.0,
-        force_contract=contract,
+        force_contract=contracts if force_aware else None,
     )
     systems = []
     for index in range(g_reader.nsystems):

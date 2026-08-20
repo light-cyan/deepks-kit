@@ -7,7 +7,7 @@ import torch
 from deepks.data.force_schema import (
     ForceDataError,
     force_checkpoint_metadata,
-    write_force_dataset,
+    _write_force_dataset as write_force_dataset,
 )
 from deepks.model.evaluate import predict_correction
 from deepks.model.model import CorrNet
@@ -16,12 +16,16 @@ from deepks.model.test import main as saved_data_main
 from deepks.model.test import test as run_saved_data_test
 from deepks.utils import save_yaml
 from test_force_schema import make_schema_inputs
+from force_contract_helpers import write_force_contract_sample
+
+
+TEST_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [0, [0.3, 1.0]]]
 
 
 def _make_force_checkpoint(path, contract, provenance):
     torch.manual_seed(23)
     model = CorrNet(
-        input_dim=3,
+        input_dim=contract.dimensions["n_feature"],
         hidden_sizes=(4,),
         actv_fn="tanh",
         use_resnet=False,
@@ -232,7 +236,7 @@ def test_strict_saved_data_directory_cannot_default_to_energy_only(tmp_path):
     checkpoint = tmp_path / "force.pth"
     _make_force_checkpoint(checkpoint, contract, provenance)
 
-    with pytest.raises(ForceDataError, match="must be read.*deephf_relaxed"):
+    with pytest.raises(ForceDataError, match="force_mode='deephf_relaxed'"):
         saved_data_main(
             [str(data_directory)],
             model_file=str(checkpoint),
@@ -267,6 +271,64 @@ def test_strict_reader_cannot_be_forced_through_energy_only_test_path(tmp_path):
             dump_prefix=None,
             force_aware=False,
         )
+
+
+def test_grouped_saved_data_uses_all_sample_contracts(tmp_path):
+    torch.manual_seed(61)
+    model = CorrNet(
+        input_dim=2,
+        hidden_sizes=(3,),
+        actv_fn="tanh",
+        use_resnet=False,
+        proj_basis=TEST_PROJECTOR_BASIS,
+    ).double().eval()
+    descriptor = torch.tensor(
+        [[[0.2, -0.1], [0.4, 0.3]]],
+        dtype=torch.float64,
+    )
+    jacobian = torch.arange(
+        1 * 2 * 3 * 2 * 2,
+        dtype=torch.float64,
+    ).reshape(1, 2, 3, 2, 2) / 100.0
+    contracts = []
+    for index, shifted_descriptor in enumerate(
+        (descriptor, descriptor + 0.037)
+    ):
+        prediction = predict_correction(
+            model,
+            shifted_descriptor,
+            dq_dR_relaxed=jacobian,
+            require_force=True,
+        )
+        contract, _ = write_force_contract_sample(
+            tmp_path / f"system-{index}",
+            energy=prediction.energy.detach(),
+            descriptor=shifted_descriptor,
+            force=prediction.force.detach(),
+            jacobian=jacobian,
+            projector_basis=TEST_PROJECTOR_BASIS,
+            shell_sizes=[1, 1],
+        )
+        contracts.append(contract)
+    assert contracts[0].compatibility_fingerprint == (
+        contracts[1].compatibility_fingerprint
+    )
+    checkpoint = tmp_path / "grouped-force.pth"
+    model.save(
+        checkpoint,
+        force_training=force_checkpoint_metadata(contracts[0]),
+    )
+
+    (result,) = saved_data_main(
+        [str(tmp_path / "system-0"), str(tmp_path / "system-1")],
+        model_file=str(checkpoint),
+        output_prefix=None,
+        force_mode=FORCE_MODE_DEEPHF_RELAXED,
+    )
+
+    assert len(result.systems) == 2
+    assert result.energy_rmse < 1.0e-14
+    assert result.force_rmse < 1.0e-14
 
 
 def test_saved_data_cli_forwards_strict_force_mode_from_training_yaml(

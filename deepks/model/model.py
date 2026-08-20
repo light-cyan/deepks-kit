@@ -1,5 +1,7 @@
-import math
+import hashlib
 import inspect
+import json
+import math
 from collections.abc import Mapping
 import numpy as np
 import torch
@@ -11,6 +13,12 @@ from deepks.utils import load_elem_table
 SCALE_EPS = 1e-8
 CHECKPOINT_FORMAT_VERSION = 1
 FORCE_JACOBIAN_SEMANTICS = "dq_dR_relaxed"
+FORCE_SCHEMA_ID = "deepks.deephf.rhf-force-data"
+FORCE_SCHEMA_VERSION = 1
+FORCE_DESCRIPTOR_DEFINITION = "ordered_projected_density_eigenvalues"
+FORCE_DESCRIPTOR_SPIN_SEMANTICS = "spin_summed"
+FORCE_REFERENCE_FAMILY = "RHF"
+FORCE_RESPONSE_BACKEND = "rhf_direct"
 FORCE_CHECKPOINT_METADATA_KEYS = {
     "schema_id",
     "schema_version",
@@ -98,7 +106,12 @@ def _validate_checkpoint_force_metadata(
         raise ValueError("checkpoint is missing force_training metadata")
     if set(metadata) != FORCE_CHECKPOINT_METADATA_KEYS:
         missing = sorted(FORCE_CHECKPOINT_METADATA_KEYS - set(metadata))
-        extra = sorted(set(metadata) - FORCE_CHECKPOINT_METADATA_KEYS)
+        extra = sorted(
+            (
+                key if isinstance(key, str) else repr(key)
+                for key in set(metadata) - FORCE_CHECKPOINT_METADATA_KEYS
+            )
+        )
         details = []
         if missing:
             details.append("missing " + ", ".join(missing))
@@ -108,13 +121,62 @@ def _validate_checkpoint_force_metadata(
             "force-training checkpoint metadata fields are invalid: "
             + "; ".join(details)
         )
-    if metadata.get("jacobian_semantics") != FORCE_JACOBIAN_SEMANTICS:
+    fixed_fields = {
+        "schema_id": FORCE_SCHEMA_ID,
+        "schema_version": FORCE_SCHEMA_VERSION,
+        "jacobian_semantics": FORCE_JACOBIAN_SEMANTICS,
+        "descriptor_definition": FORCE_DESCRIPTOR_DEFINITION,
+        "descriptor_spin_semantics": FORCE_DESCRIPTOR_SPIN_SEMANTICS,
+        "reference_family": FORCE_REFERENCE_FAMILY,
+        "response_backend": FORCE_RESPONSE_BACKEND,
+    }
+    for name, expected in fixed_fields.items():
+        actual = metadata[name]
+        if type(actual) is not type(expected) or actual != expected:
+            raise ValueError(
+                f"force-training checkpoint {name} must be {expected!r}"
+            )
+    n_feature = metadata["n_feature"]
+    if type(n_feature) is not int or n_feature <= 0:
         raise ValueError(
-            "force-training checkpoint must declare dq_dR_relaxed Jacobian semantics"
+            "force-training checkpoint n_feature must be a positive integer"
         )
+    shell_sizes = metadata["descriptor_shell_sizes"]
+    if (
+        not isinstance(shell_sizes, list)
+        or not shell_sizes
+        or any(type(size) is not int or size <= 0 for size in shell_sizes)
+        or sum(shell_sizes) != n_feature
+    ):
+        raise ValueError(
+            "force-training checkpoint descriptor_shell_sizes must be positive "
+            "integers summing to n_feature"
+        )
+    projector_digest = metadata["projector_sha256"]
+    if (
+        not isinstance(projector_digest, str)
+        or len(projector_digest) != 64
+        or projector_digest.lower() != projector_digest
+    ):
+        raise ValueError(
+            "force-training checkpoint projector_sha256 must be a lowercase "
+            "SHA-256 hexadecimal string"
+        )
+    try:
+        bytes.fromhex(projector_digest)
+    except ValueError as error:
+        raise ValueError(
+            "force-training checkpoint projector_sha256 must be a lowercase "
+            "SHA-256 hexadecimal string"
+        ) from error
     fingerprint = normalize_force_contract_fingerprint(
         metadata.get("compatibility_fingerprint")
     )
+    if metadata["compatibility_fingerprint"] != fingerprint:
+        raise ValueError(
+            "force-training checkpoint compatibility_fingerprint must be a "
+            "lowercase 64-digit hexadecimal string"
+        )
     if expected_fingerprint is not None:
         expected = normalize_force_contract_fingerprint(expected_fingerprint)
         if fingerprint != expected:
@@ -126,6 +188,90 @@ def _validate_checkpoint_force_metadata(
 
         validate_force_checkpoint_metadata(metadata, expected_contract)
     return dict(metadata)
+
+
+def _projector_digest(projector_basis) -> str:
+    try:
+        encoded = json.dumps(
+            _as_checkpoint_metadata(projector_basis),
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "checkpoint model projector metadata is not canonical JSON"
+        ) from error
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_force_metadata_against_model(metadata, model) -> None:
+    if model.elem_table is not None:
+        raise ValueError(
+            "force-training checkpoints must not depend on an external element table"
+        )
+    if metadata["n_feature"] != model.input_dim:
+        raise ValueError(
+            "force-training checkpoint n_feature does not match model input_dim"
+        )
+    shell_sizes = list(get_shell_sec(model._pbas))
+    if metadata["descriptor_shell_sizes"] != shell_sizes:
+        raise ValueError(
+            "force-training checkpoint descriptor_shell_sizes do not match the "
+            "model projector basis"
+        )
+    projector_digest = _projector_digest(model._pbas)
+    if metadata["projector_sha256"] != projector_digest:
+        raise ValueError(
+            "force-training checkpoint projector_sha256 does not match the model "
+            "projector basis"
+        )
+
+
+def _validate_force_state_dict(state_dict, model) -> None:
+    if not isinstance(state_dict, Mapping):
+        raise ValueError("force-training checkpoint state_dict must be a mapping")
+    expected_state = model.state_dict()
+    actual_keys = set(state_dict)
+    expected_keys = set(expected_state)
+    if actual_keys != expected_keys:
+        missing = sorted(expected_keys - actual_keys)
+        extra = sorted(
+            (
+                key if isinstance(key, str) else repr(key)
+                for key in actual_keys - expected_keys
+            )
+        )
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unexpected " + ", ".join(extra))
+        raise ValueError(
+            "force-training checkpoint state_dict keys are invalid: "
+            + "; ".join(details)
+        )
+    for name, expected in expected_state.items():
+        actual = state_dict[name]
+        if not isinstance(actual, torch.Tensor):
+            raise TypeError(
+                f"force-training checkpoint state_dict[{name!r}] must be a tensor"
+            )
+        if actual.shape != expected.shape:
+            raise ValueError(
+                f"force-training checkpoint state_dict[{name!r}] has shape "
+                f"{tuple(actual.shape)}; expected {tuple(expected.shape)}"
+            )
+        if actual.dtype != expected.dtype:
+            raise TypeError(
+                f"force-training checkpoint state_dict[{name!r}] has dtype "
+                f"{actual.dtype}; expected {expected.dtype}"
+            )
+        if actual.device.type == "meta" or not torch.isfinite(actual).all().item():
+            raise ValueError(
+                f"force-training checkpoint state_dict[{name!r}] must contain "
+                "only finite values"
+            )
 
 
 def _metadata_signature(value):
@@ -479,27 +625,35 @@ class CorrNet(nn.Module):
         if not isinstance(extra_info, Mapping):
             raise ValueError("CorrNet checkpoint extra_info must be a mapping")
         has_force_metadata = "force_training" in extra_info
+        force_metadata = None
         if (
             require_force_metadata
             or expected_force_contract_fingerprint is not None
             or expected_force_contract is not None
         ):
-            _validate_checkpoint_force_metadata(
+            force_metadata = _validate_checkpoint_force_metadata(
                 extra_info,
                 expected_fingerprint=expected_force_contract_fingerprint,
                 expected_contract=expected_force_contract,
             )
             has_force_metadata = True
         elif has_force_metadata:
-            _validate_checkpoint_force_metadata(extra_info)
-        init_args = dict(checkpoint["init_args"])
+            force_metadata = _validate_checkpoint_force_metadata(extra_info)
+        init_args_value = checkpoint.get("init_args")
+        if not isinstance(init_args_value, Mapping):
+            raise ValueError("CorrNet checkpoint init_args must be a mapping")
+        init_args = dict(init_args_value)
         if "layer_sizes" in init_args:
             layers = init_args.pop("layer_sizes")
             init_args["input_dim"] = layers[0]
             init_args["hidden_sizes"] = layers[1:-1]
         model = CorrNet(**init_args)
+        state_dict = checkpoint.get("state_dict")
+        if has_force_metadata:
+            _validate_force_metadata_against_model(force_metadata, model)
+            _validate_force_state_dict(state_dict, model)
         model.load_state_dict(
-            checkpoint['state_dict'],
+            state_dict,
             strict=True if has_force_metadata else strict,
         )
         if expected_force_contract is not None:
