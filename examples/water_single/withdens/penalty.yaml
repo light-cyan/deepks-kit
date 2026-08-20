@@ -4,7 +4,7 @@ n_iter: 5
 # adding penalty
 scf_input: # can also be specified by a separete file
   basis: ccpvdz
-  # this is for force training
+  # Explicit-force fields are retained as SCF diagnostics.
   dump_fields: [e_base, e_tot, descriptor, converged, f_reference_variational, f_tot, dq_dR_explicit, f_corr_explicit_target, e_corr_target]
   verbose: 1
   mol_args:

@@ -8,10 +8,7 @@ data_args:
   group_batch: 1
   energy_name: e_corr_target
   descriptor_name: descriptor
-  force_name: f_corr_explicit_target
-  jacobian_name: dq_dR_explicit
   converged_name: converged
-  extra_label: true
   converged_filter: true
 preprocess_args:
   preshift: false 
@@ -23,7 +20,6 @@ train_args:
   decay_rate: 0.5
   decay_steps: 1000
   display_epoch: 100
-  force_factor: 0.1
   n_epoch: 5000
   start_lr: 0.0001
 train_paths:

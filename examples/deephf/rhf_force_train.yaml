@@ -1,0 +1,35 @@
+seed: 20260820
+device: cpu
+projector_basis:
+  - [0, [0.8, 1.0]]
+  - [1, [0.3, 1.0]]
+model_args:
+  hidden_sizes: [8, 8]
+  output_scale: 1
+  use_resnet: true
+  actv_fn: gelu
+data_args:
+  batch_size: 1
+  group_batch: 1
+  energy_name: e_corr_target
+  descriptor_name: descriptor
+  force_name: f_corr_target
+  jacobian_name: dq_dR_relaxed
+  force_mode: deephf_relaxed
+preprocess_args:
+  preshift: false
+  prescale: false
+  prefit: false
+train_args:
+  ckpt_file: examples/deephf/model.pth
+  decay_rate: 0.8
+  decay_steps: 10
+  display_epoch: 5
+  energy_factor: 1.0
+  force_factor: 1.0
+  n_epoch: 20
+  start_lr: 0.001
+train_paths:
+  - examples/deephf/data/train
+test_paths:
+  - examples/deephf/data/validation

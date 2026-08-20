@@ -14,7 +14,7 @@ Here we are using Slurm to schedule jobs. If Slurm is not available, please exec
 
 ## System preparation
 
-We use randomly generated water monomers, dimers and trimers as training datasets. Each dataset contains 100 near equilibrium configurations. We also include 50 tetramers as a validation dataset. We use energy and force as labels. The reference values are given by CCSD calculation with cc-pVDZ basis. The system configurations and corresponding labels are grouped into different folders by the number of atoms, follow the convention described in [another example](../water_single/README.md). Note that the default length unit in deepks is Bohr. The systems we provided here are in Angstrom, so we add a `unit.raw` file containing "Angstrom" in each system folder to specify the unit different from default. The path to the folders can be specified in the config file as follows:
+We use randomly generated water monomers, dimers and trimers as training datasets. Each dataset contains 100 near-equilibrium configurations. We also include 50 tetramers as a validation dataset. The datasets contain target energies and forces from CCSD calculations with the cc-pVDZ basis, while the supplied training configuration uses the correction-energy labels. The system configurations and corresponding labels are grouped into different folders by atom count, following the convention described in [another example](../water_single/README.md). The default length unit in deepks is Bohr. The systems provided here are in Angstrom, so a `unit.raw` file containing `Angstrom` in each system folder records the different unit. The paths to the folders can be specified in the configuration as follows:
 ```yaml
 systems_train: # can also be files that containing system paths
   - ./systems/train.n[1-3]
@@ -26,7 +26,7 @@ systems_test: # if empty, use the last system of training set
 
 As a first step, we need to train an energy model as the starting point of the iterative learning procedure. This consists of two steps. First, we solve the systems using the baseline method such as HF or PBE and dump descriptors needed for training the energy model. Second, we conduct the training from scratch using the previously dumped descriptors. If there is already an existing model, this step can be skipped, by provide the path of the model to the `init_model` key.
 
-The energy model generated in this step is also a ready-to-use DeePHF model, saved at `iter.init/01.train/model.pth`. If self-consistency is not needed, the rest iteration steps can be ignored. We do not use forces as labels when training the energy model in this example.
+The energy model generated in this step is also a ready-to-use DeePHF model, saved at `iter.init/01.train/model.pth`. If self-consistency is not needed, the rest iteration steps can be ignored. This example trains the energy model with correction energies as labels.
 
 The parameters of the init SCF calculation are specified under the `init_scf` key. The same set of parameters is also accepted as a standalone file by the `deepks scf` command when running SCF calculations directly. We use cc-pVDZ as the calculation basis. The required fields are `descriptor` for descriptor values and `e_corr_target` for supervised correction-energy labels; `e_corr` denotes the energy computed by the model. We also include `e_tot` for total energy and `converged` for the convergence record.
 ```yaml
@@ -38,15 +38,15 @@ The parameters of the init training is specified under the `init_train` key. Sim
 
 ## Iterative learning (DeePKS model)
 
-For self-consistency, we take the model acquired in last step and perform several additional iterations of SCF calculation and NN training. The number of iterations is set in the `n_iter` key to be 10. If it is set to 0, no iteration will be performed, which gives the DeePHF model. In the iterative learning procedure, we also include forces as labels to improve accuracy.
+For self-consistency, we take the model acquired in the last step and perform several additional iterations of SCF calculation and neural-network energy training. The number of iterations is set in the `n_iter` key to 10. Setting it to 0 leaves the initial DeePHF model unchanged.
 
-The SCF parameters are provided in the `scf_input` key, following the same rules as the `init_scf` key. Force training uses `dq_dR_explicit` for the explicit descriptor Jacobian and `f_corr_explicit_target` for the supervised force label; `f_corr_explicit` denotes the force computed from the model and that Jacobian. The `f_reference_variational` field records the variational reference partition of the total force, while `f_tot` records the total force.
+The SCF parameters are provided in the `scf_input` key, following the same rules as the `init_scf` key. The `dq_dR_explicit`, `f_corr_explicit_target`, `f_reference_variational`, and `f_tot` fields are retained as SCF diagnostics and are not training inputs in this example.
 ```yaml
 dump_fields: [converged, e_tot, descriptor, e_corr_target, f_reference_variational, f_tot, dq_dR_explicit, f_corr_explicit_target]
 ```
 Due to the complexity of the neural network functional, we use looser (but still accurate enough) convergence criteria in `scf_args`, with `conv_tol` to be 1e-6.
 
-The training parameters are provided in the `train_input` key, similar to `init_train`. But since we are restarting from the existing model, no `model_args` is needed, and the preprocessing procedure can be turned off. In addition, we add `extra_label: true` in `data_args` and `force_factor: 1` in `train_args` to enable using forces in training. The total number of training epochs is also reduced to 5000. The learning rate starts as 1e-4 and decays by a factor of 0.5 for every 1000 steps.
+The training parameters are provided in the `train_input` key, similar to `init_train`. Since training restarts from the existing model, no `model_args` is needed and preprocessing can be disabled. The supplied configuration trains only against `e_corr_target`. The total number of training epochs is reduced to 5000, and the learning rate starts at 1e-4 and decays by a factor of 0.5 every 1000 steps.
 
 ## Machine settings
 

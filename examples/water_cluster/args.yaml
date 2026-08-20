@@ -16,7 +16,7 @@ share_folder: "share" # folder that stores all other settings
 # scf settings
 scf_input: # can also be specified by a separete file
   basis: ccpvdz
-  # this is for force training
+  # Explicit-force fields are retained as SCF diagnostics.
   # the following properties will be dumped in data folder
   # please refer to https://arxiv.org/abs/2012.14615 for detailed explaination of each fields
   dump_fields: [atom, e_base, e_tot, descriptor, converged, f_reference_variational, f_tot, dq_dR_explicit, f_corr_explicit_target, e_corr_target]
@@ -83,10 +83,6 @@ train_input:
     group_batch: 1
     energy_name: e_corr_target
     descriptor_name: descriptor
-    force_name: f_corr_explicit_target
-    jacobian_name: dq_dR_explicit
-    # if set to true, will try to find force labels and use them in training
-    extra_label: true
     # if set to true, will read the convergence data from converged_name
     # and only use converged datapoints to train
     converged_filter: true
@@ -107,8 +103,6 @@ train_input:
     decay_steps: 1000
     # show training results every n epoch
     display_epoch: 100
-    # the prefactor multiplied infront of the force part of the loss
-    force_factor: 1
     # total number of epoch needed in training
     n_epoch: 5000
 
