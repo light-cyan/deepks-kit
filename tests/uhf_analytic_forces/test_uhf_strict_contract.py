@@ -11,8 +11,10 @@ from deepks.deephf import (
     DeePHFCapabilityError,
     RHFDeePHFGradients,
     RHFDeePHFZVectorGradients,
+    UHFAdjoint,
     UHFDeePHF,
     UHFDeePHFGradients,
+    UHFDeePHFZVectorGradients,
     UHFResponse,
     UHFResponseAdapter,
     UHFResponseDiagnostics,
@@ -660,25 +662,24 @@ def test_response_and_response_options_are_mutually_exclusive(
             function(response=strict_uhf_response, cphf_tolerance=1.0e-10)
 
 
-def test_uhf_direct_backend_is_distinct_and_rejects_adjoint_or_scanner_paths(
+def test_uhf_direct_and_adjoint_backends_are_distinct_and_reject_scanners(
     native_uhf_reference,
     strict_uhf_method,
 ):
     driver = strict_uhf_method.nuc_grad_method(backend="direct")
     assert type(driver) is UHFDeePHFGradients
     assert driver.backend == "direct"
-
-    with pytest.raises(DeePHFCapabilityError, match="backend must be 'direct'"):
-        strict_uhf_method.nuc_grad_method(backend="zvector")
-    with pytest.raises(DeePHFCapabilityError, match="adjoint backend"):
-        strict_uhf_method.adjoint()
-    with pytest.raises(DeePHFCapabilityError, match="adjoint backend"):
-        UHFDeePHF(
-            native_uhf_reference,
-            None,
-            projector_basis=PROJECTOR_BASIS,
-            adjoint_options={"residual_tolerance": 1.0e-9},
-        )
+    zvector = strict_uhf_method.nuc_grad_method(backend="zvector")
+    assert type(zvector) is UHFDeePHFZVectorGradients
+    assert zvector.backend == "zvector"
+    assert type(strict_uhf_method.adjoint()) is UHFAdjoint
+    configured = UHFDeePHF(
+        native_uhf_reference,
+        None,
+        projector_basis=PROJECTOR_BASIS,
+        adjoint_options={"residual_tolerance": 1.0e-9},
+    )
+    assert configured.adjoint_options == {"residual_tolerance": 1.0e-9}
     with pytest.raises(UHFResponseError, match="does not provide a gradient scanner"):
         driver.as_scanner()
     with pytest.raises(ValueError, match="unsupported direct backend options"):

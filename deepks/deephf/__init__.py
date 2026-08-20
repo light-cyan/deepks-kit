@@ -38,8 +38,13 @@ from .pyscf_rhf import (
 )
 from .scanner import RHFDeePHFGradientScanner, RHFDeePHFScannerError
 from .uhf_gradient import UHFDeePHFGradients
+from .uhf_zvector import UHFDeePHFZVectorGradients
 from .uhf_method import UHFDeePHF
 from .pyscf_uhf import (
+    UHFAdjoint,
+    UHFAdjointAdapter,
+    UHFAdjointDiagnostics,
+    UHFAdjointError,
     UHFResponse,
     UHFResponseAdapter,
     UHFResponseDiagnostics,
@@ -105,6 +110,11 @@ __all__ = [
     "ScalarAdjointProblem",
     "UHFDeePHF",
     "UHFDeePHFGradients",
+    "UHFDeePHFZVectorGradients",
+    "UHFAdjoint",
+    "UHFAdjointAdapter",
+    "UHFAdjointDiagnostics",
+    "UHFAdjointError",
     "UHFResponse",
     "UHFResponseAdapter",
     "UHFResponseDiagnostics",

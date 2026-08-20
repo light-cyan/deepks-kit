@@ -1,4 +1,4 @@
-"""Isolated PySCF 2.14 adapter for molecular UHF nuclear response."""
+"""Isolated PySCF 2.14 adapter for molecular UHF response and adjoints."""
 
 from dataclasses import dataclass, fields, replace
 import hashlib
@@ -17,6 +17,7 @@ from pyscf.scf import ucphf, uhf as scf_uhf
 from deepks.descriptor import is_ghost_atom
 
 from .capabilities import DeePHFCapabilityError
+from .adjoint import AdjointError, solve_scalar_adjoint
 
 
 SUPPORTED_PYSCF_SERIES = (2, 14)
@@ -24,6 +25,10 @@ SUPPORTED_PYSCF_SERIES = (2, 14)
 
 class UHFResponseError(RuntimeError):
     """Raised when the UHF response equations fail the strict contract."""
+
+
+class UHFAdjointError(AdjointError):
+    """Raised when a correction-specific UHF adjoint fails its contract."""
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,81 @@ class UHFResponse:
     alpha_orbital_response_residual: np.ndarray
     beta_orbital_response_residual: np.ndarray
     diagnostics: UHFResponseDiagnostics
+
+
+@dataclass(frozen=True)
+class UHFAdjointDiagnostics:
+    """Independent diagnostics for one coupled alpha/beta UHF adjoint."""
+
+    minimum_alpha_orbital_gap: float
+    minimum_beta_orbital_gap: float
+    pyscf_version: str
+    residual_tolerance: float
+    invariant_tolerance: float
+    orbital_gap_tolerance: float
+    response_dimension: int
+    alpha_response_dimension: int
+    beta_response_dimension: int
+    operator_stability_tolerance: float
+    operator_condition_tolerance: float
+    operator_symmetry_tolerance: float
+    operator_dimension_limit: int
+    operator_minimum_eigenvalue: float
+    operator_maximum_eigenvalue: float
+    operator_condition_number: float
+    operator_symmetry_residual: float
+    objective_symmetry_tolerance: float
+    objective_symmetry_residual: float
+    alpha_adjoint_density_symmetry_residual: float
+    beta_adjoint_density_symmetry_residual: float
+    alpha_adjoint_potential_symmetry_residual: float
+    beta_adjoint_potential_symmetry_residual: float
+    gradient_reconstruction_residual: float
+    solver: str
+    solve_count: int
+    objective_gradient_norm: float
+    solution_norm: float
+    maximum_solver_residual: float
+    solver_residual_rms: float
+    maximum_transpose_residual: float
+    transpose_residual_rms: float
+    maximum_physical_residual: float
+    physical_residual_rms: float
+
+
+@dataclass(frozen=True)
+class UHFAdjoint:
+    """Immutable coupled UHF Z-vectors and nuclear contractions."""
+
+    reference_identity: int
+    state_fingerprint: str
+    integrity_fingerprint: str
+    operator_fingerprint: str
+    objective_ao_potential: np.ndarray
+    alpha_objective_orbital_gradient: np.ndarray
+    beta_objective_orbital_gradient: np.ndarray
+    alpha_zvector: np.ndarray
+    beta_zvector: np.ndarray
+    alpha_solver_residual: np.ndarray
+    beta_solver_residual: np.ndarray
+    alpha_transpose_residual: np.ndarray
+    beta_transpose_residual: np.ndarray
+    alpha_physical_residual: np.ndarray
+    beta_physical_residual: np.ndarray
+    alpha_adjoint_ao_density: np.ndarray
+    beta_adjoint_ao_density: np.ndarray
+    alpha_adjoint_ao_potential: np.ndarray
+    beta_adjoint_ao_potential: np.ndarray
+    correction_gradient_metric_spin: np.ndarray
+    correction_gradient_metric: np.ndarray
+    correction_gradient_adjoint_nuclear_spin: np.ndarray
+    correction_gradient_adjoint_nuclear: np.ndarray
+    correction_gradient_adjoint_metric_spin: np.ndarray
+    correction_gradient_adjoint_metric: np.ndarray
+    correction_gradient_occupied_virtual_spin: np.ndarray
+    correction_gradient_occupied_virtual: np.ndarray
+    correction_gradient_response: np.ndarray
+    diagnostics: UHFAdjointDiagnostics
 
 
 def _version_series(version: str) -> tuple[int, int]:
@@ -535,6 +615,24 @@ def uhf_response_integrity_fingerprint(response: UHFResponse) -> str:
     return digest.hexdigest()
 
 
+def uhf_adjoint_integrity_fingerprint(adjoint: UHFAdjoint) -> str:
+    """Return a digest covering every UHF adjoint field except itself."""
+    digest = hashlib.sha256()
+    for adjoint_field in fields(adjoint):
+        if adjoint_field.name == "integrity_fingerprint":
+            continue
+        value = getattr(adjoint, adjoint_field.name)
+        digest.update(adjoint_field.name.encode("utf-8"))
+        if isinstance(value, np.ndarray):
+            array = np.ascontiguousarray(value)
+            digest.update(array.dtype.str.encode("ascii"))
+            digest.update(repr(array.shape).encode("ascii"))
+            digest.update(array.tobytes())
+        else:
+            digest.update(repr(value).encode("utf-8"))
+    return digest.hexdigest()
+
+
 def _immutable_array(value: np.ndarray) -> np.ndarray:
     array = np.ascontiguousarray(value)
     return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
@@ -585,8 +683,8 @@ def _response_real_control(value, name: str) -> float:
     return result
 
 
-class UHFResponseAdapter:
-    """Solve and independently audit molecular UHF nuclear UC-PHF response."""
+class _UHFLinearResponseCore:
+    """Share the strict coupled UHF operator and nuclear perturbation primitives."""
 
     def __init__(
         self,
@@ -924,13 +1022,13 @@ class UHFResponseAdapter:
             axis=-1,
         )
 
-    def _response_operator_diagnostics(
+    def _response_operator_matrix_and_diagnostics(
         self,
         coefficient: np.ndarray,
         energy: np.ndarray,
         occupied: np.ndarray,
         virtual: np.ndarray,
-    ) -> tuple[int, int, int, float, float, float, float]:
+    ) -> tuple[np.ndarray, int, int, int, float, float, float, float]:
         dimensions = self._dimensions(occupied, virtual)
         alpha_dimension, beta_dimension = dimensions[-2:]
         dimension = alpha_dimension + beta_dimension
@@ -988,6 +1086,7 @@ class UHFResponseAdapter:
                 f"{condition_number:.3e} > {self.operator_condition_tolerance:.3e}"
             )
         return (
+            matrix,
             dimension,
             alpha_dimension,
             beta_dimension,
@@ -996,6 +1095,25 @@ class UHFResponseAdapter:
             float(condition_number),
             symmetry_residual,
         )
+
+    def _response_operator_diagnostics(
+        self,
+        coefficient: np.ndarray,
+        energy: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> tuple[int, int, int, float, float, float, float]:
+        """Return the direct-oracle operator diagnostics without its matrix."""
+        return self._response_operator_matrix_and_diagnostics(
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )[1:]
+
+
+class UHFResponseAdapter(_UHFLinearResponseCore):
+    """Solve and independently audit molecular UHF nuclear UC-PHF response."""
 
     def _orbital_residual(
         self,
@@ -2136,3 +2254,910 @@ class UHFResponseAdapter:
             raise UHFResponseError(
                 "the supplied UHF response invariant exceeds its tolerance"
             )
+
+
+class _UHFScalarAdjointProblem:
+    """Bind one coupled UHF operator to the reference-neutral adjoint protocol."""
+
+    def __init__(
+        self,
+        adapter: "UHFAdjointAdapter",
+        matrix: np.ndarray,
+        coefficient: np.ndarray,
+        energy: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ):
+        self._adapter = adapter
+        self._matrix = _immutable_array(matrix)
+        self._coefficient = coefficient
+        self._energy = energy
+        self._occupied = occupied
+        self._virtual = virtual
+        dimensions = adapter._dimensions(occupied, virtual)
+        self._dimension = dimensions[-2] + dimensions[-1]
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    def dense_operator(self) -> np.ndarray:
+        return self._matrix
+
+    def apply(self, vector: np.ndarray) -> np.ndarray:
+        return np.asarray(
+            self._adapter._apply_occupied_virtual_operator(
+                np.asarray(vector).reshape(self.dimension),
+                self._coefficient,
+                self._energy,
+                self._occupied,
+                self._virtual,
+            )
+        ).reshape(self.dimension)
+
+    def apply_transpose(self, vector: np.ndarray) -> np.ndarray:
+        # The strict UHF gate independently proves coupled-operator symmetry.
+        return self.apply(vector)
+
+
+class UHFAdjointAdapter(_UHFLinearResponseCore):
+    """Solve one correction-specific coupled UHF scalar adjoint."""
+
+    def __init__(
+        self,
+        reference,
+        *,
+        residual_tolerance: float = 1.0e-9,
+        invariant_tolerance: float = 1.0e-9,
+        orbital_gap_tolerance: float = 1.0e-7,
+        operator_stability_tolerance: float = 1.0e-6,
+        operator_condition_tolerance: float = 1.0e8,
+        operator_symmetry_tolerance: float = 1.0e-10,
+        operator_dimension_limit: int = 512,
+        objective_symmetry_tolerance: float = 1.0e-10,
+    ):
+        validate_pyscf_version()
+        self.reference = validate_uhf_reference(reference)
+        self.residual_tolerance = _response_real_control(
+            residual_tolerance,
+            "adjoint residual_tolerance",
+        )
+        self.invariant_tolerance = _response_real_control(
+            invariant_tolerance,
+            "adjoint invariant_tolerance",
+        )
+        self.orbital_gap_tolerance = _response_real_control(
+            orbital_gap_tolerance,
+            "adjoint orbital_gap_tolerance",
+        )
+        self.operator_stability_tolerance = _response_real_control(
+            operator_stability_tolerance,
+            "adjoint operator_stability_tolerance",
+        )
+        self.operator_condition_tolerance = _response_real_control(
+            operator_condition_tolerance,
+            "adjoint operator_condition_tolerance",
+        )
+        self.operator_symmetry_tolerance = _response_real_control(
+            operator_symmetry_tolerance,
+            "adjoint operator_symmetry_tolerance",
+        )
+        self.operator_dimension_limit = _cycle_limit(
+            operator_dimension_limit,
+            "adjoint operator_dimension_limit",
+        )
+        self.objective_symmetry_tolerance = _response_real_control(
+            objective_symmetry_tolerance,
+            "adjoint objective_symmetry_tolerance",
+        )
+        if (
+            self.residual_tolerance <= 0
+            or self.invariant_tolerance <= 0
+            or self.orbital_gap_tolerance <= 0
+            or self.operator_stability_tolerance <= 0
+            or self.operator_condition_tolerance <= 1
+            or self.operator_symmetry_tolerance <= 0
+            or self.objective_symmetry_tolerance <= 0
+        ):
+            raise ValueError("UHF adjoint tolerances are invalid")
+        if self.operator_dimension_limit <= 0:
+            raise ValueError("UHF adjoint operator_dimension_limit must be positive")
+
+    @staticmethod
+    def _matrix_fingerprint(matrix: np.ndarray) -> str:
+        array = np.ascontiguousarray(matrix)
+        digest = hashlib.sha256()
+        digest.update(array.dtype.str.encode("ascii"))
+        digest.update(repr(array.shape).encode("ascii"))
+        digest.update(array.tobytes())
+        return digest.hexdigest()
+
+    def _validated_objective_potential(self, value) -> np.ndarray:
+        potential = _validated_float64_array(
+            value,
+            (self.molecule.nao, self.molecule.nao),
+            "UHF correction AO objective potential",
+        )
+        symmetry_residual = float(
+            np.max(np.abs(potential - potential.T), initial=0.0)
+        )
+        if symmetry_residual > self.objective_symmetry_tolerance:
+            raise UHFAdjointError(
+                "the UHF correction AO objective potential violates symmetry: "
+                f"{symmetry_residual:.3e} > "
+                f"{self.objective_symmetry_tolerance:.3e}"
+            )
+        return potential
+
+    @staticmethod
+    def _audited_array(value, expected_shape, name: str) -> np.ndarray:
+        if type(value) is not np.ndarray:
+            raise UHFAdjointError(
+                f"the supplied UHF adjoint field {name} has an invalid type"
+            )
+        if value.shape != expected_shape:
+            raise UHFAdjointError(
+                f"the supplied UHF adjoint field {name} has shape {value.shape}; "
+                f"expected {expected_shape}"
+            )
+        if value.dtype != np.dtype(np.float64) or np.iscomplexobj(value):
+            raise UHFAdjointError(
+                f"the supplied UHF adjoint field {name} must use real numpy.float64"
+            )
+        if not np.isfinite(value).all():
+            raise UHFAdjointError(
+                f"the supplied UHF adjoint field {name} must be finite"
+            )
+        if value.flags.writeable:
+            raise UHFAdjointError(
+                f"the supplied UHF adjoint field {name} must be immutable"
+            )
+        return value
+
+    @staticmethod
+    def _require_close(stored, expected, name: str) -> None:
+        if not np.allclose(stored, expected, rtol=1.0e-11, atol=1.0e-12):
+            raise UHFAdjointError(
+                f"the supplied UHF adjoint {name} is inconsistent"
+            )
+
+    def _objective_gradients(
+        self,
+        objective_ao_potential: np.ndarray,
+        coefficient: np.ndarray,
+        occupation: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
+        objective_mo = tuple(
+            coefficient[spin].T
+            @ objective_ao_potential
+            @ coefficient[spin]
+            for spin in range(2)
+        )
+        gradients = tuple(
+            (
+                objective_mo[spin][virtual[spin]][:, occupied[spin]]
+                + objective_mo[spin].T[virtual[spin]][:, occupied[spin]]
+            )
+            * occupation[spin, occupied[spin]]
+            for spin in range(2)
+        )
+        return objective_mo, gradients
+
+    def _adjoint_densities_and_potentials(
+        self,
+        zvector,
+        coefficient,
+        occupation,
+        occupied,
+        virtual,
+    ):
+        densities = []
+        density_symmetry = []
+        for spin in range(2):
+            occupied_coefficients = coefficient[spin][:, occupied[spin]]
+            virtual_coefficients = coefficient[spin][:, virtual[spin]]
+            rotated = virtual_coefficients @ zvector[spin]
+            one_sided = rotated @ (
+                occupied_coefficients * occupation[spin, occupied[spin]]
+            ).T
+            density = one_sided + one_sided.T
+            density = _validated_float64_array(
+                density,
+                (self.molecule.nao, self.molecule.nao),
+                f"UHF {('alpha', 'beta')[spin]} adjoint AO density",
+            )
+            symmetry = float(
+                np.max(np.abs(density - density.T), initial=0.0)
+            )
+            if symmetry > self.objective_symmetry_tolerance:
+                raise UHFAdjointError(
+                    "the UHF adjoint AO density violates symmetry"
+                )
+            densities.append(density)
+            density_symmetry.append(symmetry)
+        potentials = self._induced_potential(densities[0], densities[1])
+        potential_symmetry = []
+        validated_potentials = []
+        for spin in range(2):
+            potential = _validated_float64_array(
+                potentials[spin],
+                (self.molecule.nao, self.molecule.nao),
+                f"UHF {('alpha', 'beta')[spin]} adjoint AO potential",
+            )
+            symmetry = float(
+                np.max(np.abs(potential - potential.T), initial=0.0)
+            )
+            if symmetry > self.objective_symmetry_tolerance:
+                raise UHFAdjointError(
+                    "the UHF adjoint AO potential violates symmetry"
+                )
+            validated_potentials.append(potential)
+            potential_symmetry.append(symmetry)
+        return (
+            tuple(densities),
+            tuple(validated_potentials),
+            tuple(density_symmetry),
+            tuple(potential_symmetry),
+        )
+
+    def _gradient_partitions(
+        self,
+        objective_mo,
+        zvector,
+        adjoint_potential,
+        coefficient,
+        energy,
+        occupation,
+        occupied,
+        virtual,
+    ):
+        overlap_derivative = self._overlap_derivative()
+        hamiltonian_derivative = self._hamiltonian_derivative(
+            coefficient,
+            occupation,
+        )
+        metric_spin = []
+        nuclear_spin = []
+        adjoint_metric_spin = []
+        for spin in range(2):
+            occupied_coefficients = coefficient[spin][:, occupied[spin]]
+            overlap_mo = np.einsum(
+                "mp,...mn,ni->...pi",
+                coefficient[spin],
+                overlap_derivative,
+                occupied_coefficients,
+            )
+            hamiltonian_mo = np.einsum(
+                "mp,...mn,ni->...pi",
+                coefficient[spin],
+                hamiltonian_derivative[spin],
+                occupied_coefficients,
+            )
+            bare_rhs = (
+                hamiltonian_mo[..., virtual[spin], :]
+                - overlap_mo[..., virtual[spin], :]
+                * energy[spin, occupied[spin]]
+            )
+            nuclear_spin.append(
+                -np.einsum("ai,...ai->...", zvector[spin], bare_rhs)
+            )
+            objective_occupied = objective_mo[spin][occupied[spin]][
+                :, occupied[spin]
+            ]
+            objective_occupied = 0.5 * (
+                objective_occupied + objective_occupied.T
+            )
+            adjoint_potential_mo = (
+                coefficient[spin].T
+                @ adjoint_potential[spin]
+                @ coefficient[spin]
+            )
+            adjoint_potential_occupied = adjoint_potential_mo[occupied[spin]][
+                :, occupied[spin]
+            ]
+            adjoint_potential_occupied = 0.5 * (
+                adjoint_potential_occupied
+                + adjoint_potential_occupied.T
+            )
+            overlap_occupied = overlap_mo[..., occupied[spin], :]
+            metric_spin.append(
+                np.einsum(
+                    "...ij,ij->...",
+                    overlap_occupied,
+                    -objective_occupied,
+                )
+            )
+            adjoint_metric_spin.append(
+                np.einsum(
+                    "...ij,ij->...",
+                    overlap_occupied,
+                    0.5 * adjoint_potential_occupied,
+                )
+            )
+        metric_spin = np.stack(metric_spin)
+        nuclear_spin = np.stack(nuclear_spin)
+        adjoint_metric_spin = np.stack(adjoint_metric_spin)
+        occupied_virtual_spin = nuclear_spin + adjoint_metric_spin
+        metric = metric_spin.sum(axis=0)
+        nuclear = nuclear_spin.sum(axis=0)
+        adjoint_metric = adjoint_metric_spin.sum(axis=0)
+        occupied_virtual = occupied_virtual_spin.sum(axis=0)
+        response = metric + occupied_virtual
+        reconstruction_residual = max(
+            float(
+                np.max(
+                    np.abs(occupied_virtual_spin - nuclear_spin - adjoint_metric_spin),
+                    initial=0.0,
+                )
+            ),
+            float(
+                np.max(
+                    np.abs(response - metric - occupied_virtual),
+                    initial=0.0,
+                )
+            ),
+        )
+        return (
+            metric_spin,
+            metric,
+            nuclear_spin,
+            nuclear,
+            adjoint_metric_spin,
+            adjoint_metric,
+            occupied_virtual_spin,
+            occupied_virtual,
+            response,
+            reconstruction_residual,
+        )
+
+    def solve(self, objective_ao_potential: np.ndarray) -> UHFAdjoint:
+        """Return one audited coupled UHF adjoint and nuclear contraction."""
+        try:
+            return self._solve(objective_ao_potential)
+        except DeePHFCapabilityError:
+            raise
+        except UHFAdjointError:
+            raise
+        except (AdjointError, UHFResponseError) as error:
+            raise UHFAdjointError(f"UHF adjoint evaluation failed: {error}") from error
+
+    def _solve(self, objective_ao_potential: np.ndarray) -> UHFAdjoint:
+        validate_uhf_reference(self.reference)
+        objective = self._validated_objective_potential(objective_ao_potential)
+        objective_symmetry_residual = float(
+            np.max(np.abs(objective - objective.T), initial=0.0)
+        )
+        coefficient, energy, occupation, occupied, virtual, minimum_gaps = (
+            self._state()
+        )
+        (
+            response_operator,
+            response_dimension,
+            alpha_dimension,
+            beta_dimension,
+            operator_minimum_eigenvalue,
+            operator_maximum_eigenvalue,
+            operator_condition_number,
+            operator_symmetry_residual,
+        ) = self._response_operator_matrix_and_diagnostics(
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )
+        objective_mo, objective_gradients = self._objective_gradients(
+            objective,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        objective_vector = np.concatenate(
+            tuple(value.reshape(-1) for value in objective_gradients)
+        )
+        problem = _UHFScalarAdjointProblem(
+            self,
+            response_operator,
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )
+        linear_result = solve_scalar_adjoint(
+            problem,
+            objective_vector,
+            residual_tolerance=self.residual_tolerance,
+            require_physical_residual=True,
+        )
+        zvector = self._split_occupied_virtual(
+            linear_result.solution,
+            occupied,
+            virtual,
+        )
+        solver_residual = self._split_occupied_virtual(
+            linear_result.solver_residual,
+            occupied,
+            virtual,
+        )
+        transpose_residual = self._split_occupied_virtual(
+            linear_result.transpose_residual,
+            occupied,
+            virtual,
+        )
+        physical_residual = self._split_occupied_virtual(
+            linear_result.physical_residual,
+            occupied,
+            virtual,
+        )
+        (
+            adjoint_density,
+            adjoint_potential,
+            density_symmetry,
+            potential_symmetry,
+        ) = self._adjoint_densities_and_potentials(
+            zvector,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        partitions = self._gradient_partitions(
+            objective_mo,
+            zvector,
+            adjoint_potential,
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        if partitions[-1] > self.invariant_tolerance:
+            raise UHFAdjointError(
+                "the UHF adjoint gradient reconstruction residual exceeds tolerance"
+            )
+        for name, value in zip(
+            (
+                "metric spin gradient",
+                "metric gradient",
+                "nuclear spin gradient",
+                "nuclear gradient",
+                "adjoint metric spin gradient",
+                "adjoint metric gradient",
+                "occupied-virtual spin gradient",
+                "occupied-virtual gradient",
+                "response gradient",
+            ),
+            partitions[:-1],
+            strict=True,
+        ):
+            expected_shape = (
+                (2, self.molecule.natm, 3)
+                if "spin" in name
+                else (self.molecule.natm, 3)
+            )
+            _validated_float64_array(value, expected_shape, f"UHF adjoint {name}")
+        validate_uhf_reference(self.reference)
+        linear_diagnostics = linear_result.diagnostics
+        diagnostics = UHFAdjointDiagnostics(
+            minimum_alpha_orbital_gap=minimum_gaps[0],
+            minimum_beta_orbital_gap=minimum_gaps[1],
+            pyscf_version=pyscf.__version__,
+            residual_tolerance=self.residual_tolerance,
+            invariant_tolerance=self.invariant_tolerance,
+            orbital_gap_tolerance=self.orbital_gap_tolerance,
+            response_dimension=response_dimension,
+            alpha_response_dimension=alpha_dimension,
+            beta_response_dimension=beta_dimension,
+            operator_stability_tolerance=self.operator_stability_tolerance,
+            operator_condition_tolerance=self.operator_condition_tolerance,
+            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
+            operator_dimension_limit=self.operator_dimension_limit,
+            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
+            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
+            operator_condition_number=operator_condition_number,
+            operator_symmetry_residual=operator_symmetry_residual,
+            objective_symmetry_tolerance=self.objective_symmetry_tolerance,
+            objective_symmetry_residual=objective_symmetry_residual,
+            alpha_adjoint_density_symmetry_residual=density_symmetry[0],
+            beta_adjoint_density_symmetry_residual=density_symmetry[1],
+            alpha_adjoint_potential_symmetry_residual=potential_symmetry[0],
+            beta_adjoint_potential_symmetry_residual=potential_symmetry[1],
+            gradient_reconstruction_residual=partitions[-1],
+            solver=linear_diagnostics.solver,
+            solve_count=linear_diagnostics.solve_count,
+            objective_gradient_norm=linear_diagnostics.objective_gradient_norm,
+            solution_norm=linear_diagnostics.solution_norm,
+            maximum_solver_residual=linear_diagnostics.maximum_solver_residual,
+            solver_residual_rms=linear_diagnostics.solver_residual_rms,
+            maximum_transpose_residual=(
+                linear_diagnostics.maximum_transpose_residual
+            ),
+            transpose_residual_rms=linear_diagnostics.transpose_residual_rms,
+            maximum_physical_residual=(
+                linear_diagnostics.maximum_physical_residual
+            ),
+            physical_residual_rms=linear_diagnostics.physical_residual_rms,
+        )
+        adjoint = UHFAdjoint(
+            reference_identity=id(self.reference),
+            state_fingerprint=uhf_reference_fingerprint(self.reference),
+            integrity_fingerprint="",
+            operator_fingerprint=linear_result.operator_fingerprint,
+            objective_ao_potential=_immutable_array(objective),
+            alpha_objective_orbital_gradient=_immutable_array(
+                objective_gradients[0]
+            ),
+            beta_objective_orbital_gradient=_immutable_array(
+                objective_gradients[1]
+            ),
+            alpha_zvector=_immutable_array(zvector[0]),
+            beta_zvector=_immutable_array(zvector[1]),
+            alpha_solver_residual=_immutable_array(solver_residual[0]),
+            beta_solver_residual=_immutable_array(solver_residual[1]),
+            alpha_transpose_residual=_immutable_array(transpose_residual[0]),
+            beta_transpose_residual=_immutable_array(transpose_residual[1]),
+            alpha_physical_residual=_immutable_array(physical_residual[0]),
+            beta_physical_residual=_immutable_array(physical_residual[1]),
+            alpha_adjoint_ao_density=_immutable_array(adjoint_density[0]),
+            beta_adjoint_ao_density=_immutable_array(adjoint_density[1]),
+            alpha_adjoint_ao_potential=_immutable_array(adjoint_potential[0]),
+            beta_adjoint_ao_potential=_immutable_array(adjoint_potential[1]),
+            correction_gradient_metric_spin=_immutable_array(partitions[0]),
+            correction_gradient_metric=_immutable_array(partitions[1]),
+            correction_gradient_adjoint_nuclear_spin=_immutable_array(
+                partitions[2]
+            ),
+            correction_gradient_adjoint_nuclear=_immutable_array(partitions[3]),
+            correction_gradient_adjoint_metric_spin=_immutable_array(
+                partitions[4]
+            ),
+            correction_gradient_adjoint_metric=_immutable_array(partitions[5]),
+            correction_gradient_occupied_virtual_spin=_immutable_array(
+                partitions[6]
+            ),
+            correction_gradient_occupied_virtual=_immutable_array(partitions[7]),
+            correction_gradient_response=_immutable_array(partitions[8]),
+            diagnostics=diagnostics,
+        )
+        return replace(
+            adjoint,
+            integrity_fingerprint=uhf_adjoint_integrity_fingerprint(adjoint),
+        )
+
+    def audit_adjoint(
+        self,
+        adjoint: UHFAdjoint,
+        expected_objective_ao_potential: np.ndarray,
+    ) -> None:
+        """Independently audit one consumed UHF adjoint without another solve."""
+        validate_uhf_reference(self.reference)
+        if type(adjoint) is not UHFAdjoint:
+            raise UHFAdjointError("the supplied UHF adjoint has an invalid type")
+        diagnostics = adjoint.diagnostics
+        if type(diagnostics) is not UHFAdjointDiagnostics:
+            raise UHFAdjointError(
+                "the supplied UHF adjoint diagnostics have an invalid type"
+            )
+        if adjoint.reference_identity != id(self.reference):
+            raise UHFAdjointError(
+                "the supplied UHF adjoint belongs to another reference"
+            )
+        if adjoint.state_fingerprint != uhf_reference_fingerprint(self.reference):
+            raise UHFAdjointError(
+                "the supplied UHF adjoint does not match the current UHF state"
+            )
+        if adjoint.integrity_fingerprint != uhf_adjoint_integrity_fingerprint(
+            adjoint
+        ):
+            raise UHFAdjointError(
+                "the supplied UHF adjoint failed its integrity check"
+            )
+        provenance = (
+            adjoint.reference_identity,
+            adjoint.state_fingerprint,
+            adjoint.integrity_fingerprint,
+            adjoint.operator_fingerprint,
+        )
+        if type(provenance[0]) is not int or any(
+            type(value) is not str for value in provenance[1:]
+        ):
+            raise UHFAdjointError(
+                "the supplied UHF adjoint provenance fields have invalid types"
+            )
+        if diagnostics.pyscf_version != pyscf.__version__:
+            raise UHFAdjointError(
+                "the supplied UHF adjoint PySCF version does not match the runtime"
+            )
+        if diagnostics.solver != "numpy.linalg.solve(A.T, b)":
+            raise UHFAdjointError(
+                "the supplied UHF adjoint solver convention is invalid"
+            )
+        integer_diagnostics = (
+            diagnostics.response_dimension,
+            diagnostics.alpha_response_dimension,
+            diagnostics.beta_response_dimension,
+            diagnostics.operator_dimension_limit,
+            diagnostics.solve_count,
+        )
+        if any(type(value) is not int for value in integer_diagnostics):
+            raise UHFAdjointError(
+                "the supplied UHF adjoint integer diagnostics are invalid"
+            )
+        if diagnostics.solve_count != 1:
+            raise UHFAdjointError(
+                "the supplied UHF adjoint must contain exactly one scalar solve"
+            )
+        real_names = tuple(
+            field.name
+            for field in fields(diagnostics)
+            if field.name
+            not in {
+                "pyscf_version",
+                "response_dimension",
+                "alpha_response_dimension",
+                "beta_response_dimension",
+                "operator_dimension_limit",
+                "solver",
+                "solve_count",
+            }
+        )
+        real_values = tuple(getattr(diagnostics, name) for name in real_names)
+        if any(
+            isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
+            for value in real_values
+        ) or not np.isfinite(real_values).all():
+            raise UHFAdjointError(
+                "the supplied UHF adjoint diagnostics must be finite real scalars"
+            )
+        accepted_controls = {
+            "residual_tolerance": self.residual_tolerance,
+            "invariant_tolerance": self.invariant_tolerance,
+            "orbital_gap_tolerance": self.orbital_gap_tolerance,
+            "operator_stability_tolerance": self.operator_stability_tolerance,
+            "operator_condition_tolerance": self.operator_condition_tolerance,
+            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
+            "operator_dimension_limit": self.operator_dimension_limit,
+            "objective_symmetry_tolerance": self.objective_symmetry_tolerance,
+        }
+        for name, expected in accepted_controls.items():
+            if getattr(diagnostics, name) != expected:
+                raise UHFAdjointError(
+                    f"the supplied UHF adjoint {name} control is inconsistent"
+                )
+        coefficient, energy, occupation, occupied, virtual, minimum_gaps = (
+            self._state()
+        )
+        dimensions = self._dimensions(occupied, virtual)
+        alpha_nocc, beta_nocc, alpha_nvir, beta_nvir = dimensions[:4]
+        alpha_dimension, beta_dimension = dimensions[-2:]
+        dimension = alpha_dimension + beta_dimension
+        natm = int(self.molecule.natm)
+        nao = int(self.molecule.nao)
+        alpha_shape = (alpha_nvir, alpha_nocc)
+        beta_shape = (beta_nvir, beta_nocc)
+        arrays = {
+            "objective_ao_potential": (nao, nao),
+            "alpha_objective_orbital_gradient": alpha_shape,
+            "beta_objective_orbital_gradient": beta_shape,
+            "alpha_zvector": alpha_shape,
+            "beta_zvector": beta_shape,
+            "alpha_solver_residual": alpha_shape,
+            "beta_solver_residual": beta_shape,
+            "alpha_transpose_residual": alpha_shape,
+            "beta_transpose_residual": beta_shape,
+            "alpha_physical_residual": alpha_shape,
+            "beta_physical_residual": beta_shape,
+            "alpha_adjoint_ao_density": (nao, nao),
+            "beta_adjoint_ao_density": (nao, nao),
+            "alpha_adjoint_ao_potential": (nao, nao),
+            "beta_adjoint_ao_potential": (nao, nao),
+            "correction_gradient_metric_spin": (2, natm, 3),
+            "correction_gradient_metric": (natm, 3),
+            "correction_gradient_adjoint_nuclear_spin": (2, natm, 3),
+            "correction_gradient_adjoint_nuclear": (natm, 3),
+            "correction_gradient_adjoint_metric_spin": (2, natm, 3),
+            "correction_gradient_adjoint_metric": (natm, 3),
+            "correction_gradient_occupied_virtual_spin": (2, natm, 3),
+            "correction_gradient_occupied_virtual": (natm, 3),
+            "correction_gradient_response": (natm, 3),
+        }
+        for name, shape in arrays.items():
+            self._audited_array(getattr(adjoint, name), shape, name)
+        expected_objective = self._validated_objective_potential(
+            expected_objective_ao_potential
+        )
+        self._require_close(
+            adjoint.objective_ao_potential,
+            expected_objective,
+            "objective AO potential",
+        )
+        objective_mo, objective_gradients = self._objective_gradients(
+            expected_objective,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        self._require_close(
+            adjoint.alpha_objective_orbital_gradient,
+            objective_gradients[0],
+            "alpha bilateral occupied-virtual objective gradient",
+        )
+        self._require_close(
+            adjoint.beta_objective_orbital_gradient,
+            objective_gradients[1],
+            "beta bilateral occupied-virtual objective gradient",
+        )
+        (
+            operator_matrix,
+            measured_dimension,
+            measured_alpha_dimension,
+            measured_beta_dimension,
+            minimum_eigenvalue,
+            maximum_eigenvalue,
+            condition_number,
+            symmetry_residual,
+        ) = self._response_operator_matrix_and_diagnostics(
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )
+        if adjoint.operator_fingerprint != self._matrix_fingerprint(operator_matrix):
+            raise UHFAdjointError(
+                "the supplied UHF adjoint response operator is inconsistent"
+            )
+        zvector = (adjoint.alpha_zvector, adjoint.beta_zvector)
+        zflat = np.concatenate(tuple(value.reshape(-1) for value in zvector))
+        objective_flat = np.concatenate(
+            tuple(value.reshape(-1) for value in objective_gradients)
+        )
+        solver_residual = self._split_occupied_virtual(
+            operator_matrix.T @ zflat - objective_flat,
+            occupied,
+            virtual,
+        )
+        physical_residual = self._split_occupied_virtual(
+            self._apply_occupied_virtual_operator(
+                zflat,
+                coefficient,
+                energy,
+                occupied,
+                virtual,
+            )
+            - objective_flat,
+            occupied,
+            virtual,
+        )
+        for spin, spin_name in enumerate(("alpha", "beta")):
+            self._require_close(
+                getattr(adjoint, f"{spin_name}_solver_residual"),
+                solver_residual[spin],
+                f"{spin_name} literal transpose residual",
+            )
+            self._require_close(
+                getattr(adjoint, f"{spin_name}_transpose_residual"),
+                physical_residual[spin],
+                f"{spin_name} independent transpose residual",
+            )
+            self._require_close(
+                getattr(adjoint, f"{spin_name}_physical_residual"),
+                physical_residual[spin],
+                f"{spin_name} physical residual",
+            )
+        (
+            expected_density,
+            expected_potential,
+            density_symmetry,
+            potential_symmetry,
+        ) = self._adjoint_densities_and_potentials(
+            zvector,
+            coefficient,
+            occupation,
+            occupied,
+            virtual,
+        )
+        for spin, spin_name in enumerate(("alpha", "beta")):
+            self._require_close(
+                getattr(adjoint, f"{spin_name}_adjoint_ao_density"),
+                expected_density[spin],
+                f"{spin_name} AO density",
+            )
+            self._require_close(
+                getattr(adjoint, f"{spin_name}_adjoint_ao_potential"),
+                expected_potential[spin],
+                f"{spin_name} AO potential",
+            )
+        partitions = self._gradient_partitions(
+            objective_mo,
+            zvector,
+            expected_potential,
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        partition_fields = (
+            "correction_gradient_metric_spin",
+            "correction_gradient_metric",
+            "correction_gradient_adjoint_nuclear_spin",
+            "correction_gradient_adjoint_nuclear",
+            "correction_gradient_adjoint_metric_spin",
+            "correction_gradient_adjoint_metric",
+            "correction_gradient_occupied_virtual_spin",
+            "correction_gradient_occupied_virtual",
+            "correction_gradient_response",
+        )
+        for name, expected in zip(partition_fields, partitions[:-1], strict=True):
+            self._require_close(getattr(adjoint, name), expected, name)
+        combined_solver = np.concatenate(
+            tuple(value.reshape(-1) for value in solver_residual)
+        )
+        combined_physical = np.concatenate(
+            tuple(value.reshape(-1) for value in physical_residual)
+        )
+        measured = {
+            "minimum_alpha_orbital_gap": minimum_gaps[0],
+            "minimum_beta_orbital_gap": minimum_gaps[1],
+            "response_dimension": measured_dimension,
+            "alpha_response_dimension": measured_alpha_dimension,
+            "beta_response_dimension": measured_beta_dimension,
+            "operator_minimum_eigenvalue": minimum_eigenvalue,
+            "operator_maximum_eigenvalue": maximum_eigenvalue,
+            "operator_condition_number": condition_number,
+            "operator_symmetry_residual": symmetry_residual,
+            "objective_symmetry_residual": float(
+                np.max(np.abs(expected_objective - expected_objective.T), initial=0.0)
+            ),
+            "alpha_adjoint_density_symmetry_residual": density_symmetry[0],
+            "beta_adjoint_density_symmetry_residual": density_symmetry[1],
+            "alpha_adjoint_potential_symmetry_residual": potential_symmetry[0],
+            "beta_adjoint_potential_symmetry_residual": potential_symmetry[1],
+            "gradient_reconstruction_residual": partitions[-1],
+            "objective_gradient_norm": float(np.linalg.norm(objective_flat)),
+            "solution_norm": float(np.linalg.norm(zflat)),
+            "maximum_solver_residual": float(
+                np.max(np.abs(combined_solver), initial=0.0)
+            ),
+            "solver_residual_rms": float(
+                np.sqrt(np.mean(np.square(combined_solver)))
+            ),
+            "maximum_transpose_residual": float(
+                np.max(np.abs(combined_physical), initial=0.0)
+            ),
+            "transpose_residual_rms": float(
+                np.sqrt(np.mean(np.square(combined_physical)))
+            ),
+            "maximum_physical_residual": float(
+                np.max(np.abs(combined_physical), initial=0.0)
+            ),
+            "physical_residual_rms": float(
+                np.sqrt(np.mean(np.square(combined_physical)))
+            ),
+        }
+        for name, expected in measured.items():
+            if not np.isclose(
+                getattr(diagnostics, name),
+                expected,
+                rtol=1.0e-10,
+                atol=1.0e-12,
+            ):
+                raise UHFAdjointError(
+                    f"the supplied UHF adjoint {name} diagnostic is inconsistent"
+                )
+        if max(
+            measured["maximum_solver_residual"],
+            measured["maximum_transpose_residual"],
+            measured["maximum_physical_residual"],
+        ) > self.residual_tolerance:
+            raise UHFAdjointError(
+                "the supplied UHF adjoint residual exceeds its tolerance"
+            )
+        if measured["gradient_reconstruction_residual"] > self.invariant_tolerance:
+            raise UHFAdjointError(
+                "the supplied UHF adjoint invariant exceeds its tolerance"
+            )
+        validate_uhf_reference(self.reference)

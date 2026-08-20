@@ -491,6 +491,7 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
         "force_data.py",
         "uhf_method.py",
         "uhf_gradient.py",
+        "uhf_zvector.py",
         "rks_method.py",
         "rks_gradient.py",
         "rks_zvector.py",
@@ -612,6 +613,9 @@ def test_rhf_zvector_scanner_and_force_data_do_not_access_non_rhf_symbols():
     forbidden_symbols = {
         "UHFDeePHF",
         "UHFDeePHFGradients",
+        "UHFDeePHFZVectorGradients",
+        "UHFAdjoint",
+        "UHFAdjointAdapter",
         "UHFResponse",
         "UHFResponseAdapter",
         "UHFResponseDiagnostics",
@@ -643,7 +647,7 @@ def test_rhf_zvector_scanner_and_force_data_do_not_access_non_rhf_symbols():
     assert violations == {module_name: [] for module_name in guarded_modules}
 
 
-def test_uhf_direct_path_does_not_access_rhf_adjoint_scanner_or_force_data_symbols():
+def test_uhf_paths_do_not_access_other_reference_backends_or_force_data_symbols():
     forbidden_symbols = {
         "RHFAdjoint",
         "RHFAdjointAdapter",
@@ -666,7 +670,12 @@ def test_uhf_direct_path_does_not_access_rhf_adjoint_scanner_or_force_data_symbo
     def whole_module(tree):
         return (tree,)
 
-    guarded_modules = ("pyscf_uhf.py", "uhf_method.py", "uhf_gradient.py")
+    guarded_modules = (
+        "pyscf_uhf.py",
+        "uhf_method.py",
+        "uhf_gradient.py",
+        "uhf_zvector.py",
+    )
     violations = {
         module_name: _symbol_accesses(
             PACKAGE_ROOT / "deephf" / module_name,
@@ -688,6 +697,9 @@ def test_rks_paths_do_not_access_other_reference_backends():
         "RHFForceFrame",
         "UHFDeePHF",
         "UHFDeePHFGradients",
+        "UHFDeePHFZVectorGradients",
+        "UHFAdjoint",
+        "UHFAdjointAdapter",
         "UHFResponse",
         "UHFResponseAdapter",
         "generate_rhf_force_frame",
@@ -752,6 +764,55 @@ def test_rks_zvector_path_has_no_direct_response_symbol_access():
             forbidden_symbols,
         ),
         "deepks/deephf/rks_method.py:adjoint": _symbol_accesses(
+            method_path,
+            method_zvector_nodes,
+            forbidden_symbols,
+        ),
+    }
+
+    assert violations == {name: [] for name in violations}
+
+
+def test_uhf_zvector_path_has_no_direct_response_symbol_access():
+    forbidden_symbols = {
+        "UHFDeePHFGradients",
+        "UHFResponseAdapter",
+        "response",
+        "first_order_density",
+        "first_order_spin_density",
+        "dq_dR_response",
+        "dq_dR_response_spin",
+        "dq_dR_relaxed",
+        "dq_dR_relaxed_spin",
+    }
+    zvector_path = PACKAGE_ROOT / "deephf" / "uhf_zvector.py"
+    method_path = PACKAGE_ROOT / "deephf" / "uhf_method.py"
+
+    def whole_module(tree):
+        return (tree,)
+
+    def method_zvector_nodes(tree):
+        return tuple(
+            node
+            for class_node in tree.body
+            if isinstance(class_node, ast.ClassDef)
+            and class_node.name == "UHFDeePHF"
+            for node in class_node.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {
+                "adjoint",
+                "_zvector_inputs",
+                "_validate_zvector_inputs",
+            }
+        )
+
+    violations = {
+        "deepks/deephf/uhf_zvector.py": _symbol_accesses(
+            zvector_path,
+            whole_module,
+            forbidden_symbols,
+        ),
+        "deepks/deephf/uhf_method.py:adjoint": _symbol_accesses(
             method_path,
             method_zvector_nodes,
             forbidden_symbols,
@@ -826,10 +887,15 @@ def test_zvector_result_symbols_have_one_module_level_owner():
     }
 
 
-def test_uhf_direct_result_symbols_have_one_module_level_owner():
+def test_uhf_result_symbols_have_one_module_level_owner():
     expected_owners = {
         "UHFDeePHF": "deepks/deephf/uhf_method.py",
         "UHFDeePHFGradients": "deepks/deephf/uhf_gradient.py",
+        "UHFDeePHFZVectorGradients": "deepks/deephf/uhf_zvector.py",
+        "UHFAdjoint": "deepks/deephf/pyscf_uhf.py",
+        "UHFAdjointAdapter": "deepks/deephf/pyscf_uhf.py",
+        "UHFAdjointDiagnostics": "deepks/deephf/pyscf_uhf.py",
+        "UHFAdjointError": "deepks/deephf/pyscf_uhf.py",
         "UHFResponse": "deepks/deephf/pyscf_uhf.py",
         "UHFResponseAdapter": "deepks/deephf/pyscf_uhf.py",
         "UHFResponseDiagnostics": "deepks/deephf/pyscf_uhf.py",
