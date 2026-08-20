@@ -46,6 +46,18 @@ from .pyscf_uhf import (
     UHFResponseError,
     validate_uhf_reference,
 )
+from .rks_gradient import RKSDeePHFGradients
+from .rks_method import RKSDeePHF
+from .pyscf_rks import (
+    RKSFunctionalProvenance,
+    RKSGridProvenance,
+    RKSNativeGradient,
+    RKSResponse,
+    RKSResponseAdapter,
+    RKSResponseDiagnostics,
+    RKSResponseError,
+    validate_rks_reference,
+)
 from .zvector import RHFDeePHFZVectorGradients
 
 __all__ = [
@@ -71,6 +83,15 @@ __all__ = [
     "RHFRootSnapshot",
     "RHFScannerReferenceError",
     "RHFScannerReferenceFactory",
+    "RKSDeePHF",
+    "RKSDeePHFGradients",
+    "RKSFunctionalProvenance",
+    "RKSGridProvenance",
+    "RKSNativeGradient",
+    "RKSResponse",
+    "RKSResponseAdapter",
+    "RKSResponseDiagnostics",
+    "RKSResponseError",
     "ScalarAdjointProblem",
     "UHFDeePHF",
     "UHFDeePHFGradients",
@@ -84,6 +105,7 @@ __all__ = [
     "validate_force_model",
     "validate_model_output",
     "validate_reference",
+    "validate_rks_reference",
     "validate_uhf_reference",
     "write_rhf_force_dataset",
 ]
