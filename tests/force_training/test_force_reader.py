@@ -58,6 +58,9 @@ def test_reader_rejects_explicit_aliases_and_missing_strict_manifest(tmp_path):
     directory = tmp_path / "force-data"
     _write_schema_dataset(directory, frame_count=1)
 
+    with pytest.raises(ForceDataError, match="must be read.*deephf_relaxed"):
+        Reader(directory, batch_size=1)
+
     with pytest.raises(ForceDataError, match="canonical f_corr_target"):
         Reader(
             directory,

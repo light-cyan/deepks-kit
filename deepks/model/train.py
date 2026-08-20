@@ -1,8 +1,10 @@
 import os
 import sys
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from time import time
@@ -10,12 +12,261 @@ try:
     import deepks
 except ImportError as e:
     sys.path.append(os.path.dirname(os.path.realpath(__file__)) + "/../../")
-from deepks.model.model import CorrNet
-from deepks.model.reader import GroupReader
-from deepks.utils import load_dirs, load_elem_table
+from deepks.data.force_schema import (
+    ForceDataContract,
+    force_checkpoint_metadata,
+    validate_force_checkpoint_metadata,
+)
+from deepks.model.evaluate import CorrectionPrediction, model_reference, predict_correction
+from deepks.model.model import (
+    CorrNet,
+    FORCE_JACOBIAN_SEMANTICS,
+    normalize_force_contract_fingerprint,
+)
+from deepks.model.reader import (
+    FORCE_MODE_DEEPHF_RELAXED,
+    FORCE_MODE_NONE,
+    GroupReader,
+)
+from deepks.utils import load_basis, load_dirs, load_elem_table
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+class ForceTrainingError(ValueError):
+    """Raised when strict relaxed-force training data are incomplete or ambiguous."""
+
+
+@dataclass(frozen=True)
+class ErrorMetrics:
+    """Unweighted elementwise error metrics for one prediction batch."""
+
+    absolute_error_sum: torch.Tensor
+    squared_error_sum: torch.Tensor
+    count: int
+
+    @property
+    def mae(self) -> torch.Tensor:
+        return self.absolute_error_sum / self.count
+
+    @property
+    def rmse(self) -> torch.Tensor:
+        return torch.sqrt(self.squared_error_sum / self.count)
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    """Loss components, predictions, and separately reported physical metrics."""
+
+    total_loss: torch.Tensor
+    energy_loss: torch.Tensor
+    force_loss: torch.Tensor | None
+    energy_metrics: ErrorMetrics
+    force_metrics: ErrorMetrics | None
+    prediction: CorrectionPrediction
+
+
+@dataclass(frozen=True)
+class MetricSummary:
+    """Dataset-level energy and optional force MAE/RMSE values."""
+
+    energy_mae: float
+    energy_rmse: float
+    force_mae: float | None
+    force_rmse: float | None
+
+
+@dataclass(frozen=True)
+class TrainingResult:
+    """The trained model and its final train/validation metrics."""
+
+    model: CorrNet
+    training_metrics: MetricSummary
+    validation_metrics: MetricSummary
+
+
+def _error_metrics(predicted: torch.Tensor, target: torch.Tensor) -> ErrorMetrics:
+    difference = (predicted - target).detach()
+    return ErrorMetrics(
+        absolute_error_sum=difference.abs().sum(),
+        squared_error_sum=difference.square().sum(),
+        count=difference.numel(),
+    )
+
+
+def _contract_member(contract, *names):
+    if isinstance(contract, Mapping):
+        for name in names:
+            if name in contract:
+                return contract[name]
+    for name in names:
+        if hasattr(contract, name):
+            value = getattr(contract, name)
+            return value() if callable(value) else value
+    return None
+
+
+def force_contract_fingerprint(contract) -> str:
+    """Return the normalized SHA-256 fingerprint of a force-data contract."""
+    if contract is None:
+        raise ForceTrainingError("force-aware evaluation requires a force-data contract")
+    semantics = _contract_member(
+        contract,
+        "jacobian_semantics",
+        "derivative_semantics",
+    )
+    if semantics != FORCE_JACOBIAN_SEMANTICS:
+        raise ForceTrainingError(
+            "force-data contract must declare dq_dR_relaxed Jacobian semantics"
+        )
+    fingerprint = _contract_member(
+        contract,
+        "fingerprint",
+        "contract_fingerprint",
+        "force_contract_fingerprint",
+    )
+    if fingerprint is None:
+        raise ForceTrainingError("force-data contract is missing its fingerprint")
+    try:
+        return normalize_force_contract_fingerprint(fingerprint)
+    except (TypeError, ValueError) as error:
+        raise ForceTrainingError(f"invalid force-data contract fingerprint: {error}") from error
+
+
+def _metadata_signature(value):
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, (list, tuple)):
+        return tuple(_metadata_signature(item) for item in value)
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _contract_projector_basis(contract: ForceDataContract):
+    if not isinstance(contract, ForceDataContract):
+        raise ForceTrainingError(
+            "strict force training requires a validated ForceDataContract"
+        )
+    try:
+        return contract.manifest["descriptor"]["projector_basis"]
+    except (KeyError, TypeError) as error:
+        raise ForceTrainingError(
+            "force-data contract is missing canonical projector_basis metadata"
+        ) from error
+
+
+def validate_model_force_contract(model, contract: ForceDataContract) -> None:
+    """Reject same-sized models whose projector or feature contract differs."""
+    projector_basis = _contract_projector_basis(contract)
+    expected_features = int(contract.dimensions["n_feature"])
+    if getattr(model, "input_dim", None) != expected_features:
+        raise ForceTrainingError(
+            "model input dimension does not match the force-data contract: "
+            f"{getattr(model, 'input_dim', None)} != {expected_features}"
+        )
+    if _metadata_signature(getattr(model, "_pbas", None)) != _metadata_signature(
+        load_basis(projector_basis)
+    ):
+        raise ForceTrainingError(
+            "model projector metadata does not match the force-data contract"
+        )
+
+
+def _validate_contract_marker(
+    marker,
+    *,
+    expected_fingerprint: str,
+    frame_count: int,
+) -> None:
+    if not isinstance(marker, torch.Tensor):
+        raise ForceTrainingError("force_contract_fingerprint must be a torch.Tensor")
+    if marker.dtype != torch.uint8:
+        raise ForceTrainingError("force_contract_fingerprint must use torch.uint8")
+    if marker.shape != (frame_count, 32):
+        raise ForceTrainingError(
+            "force_contract_fingerprint must have shape "
+            f"({frame_count}, 32); received {tuple(marker.shape)}"
+        )
+    expected = torch.tensor(
+        list(bytes.fromhex(expected_fingerprint)),
+        dtype=torch.uint8,
+        device=marker.device,
+    ).expand(frame_count, -1)
+    if not torch.equal(marker, expected):
+        raise ForceTrainingError(
+            "sample force contract fingerprint does not match the configured contract"
+        )
+
+
+def _require_sample_tensor(sample, name: str, *, ndim: int) -> torch.Tensor:
+    if name not in sample:
+        raise ValueError(f"sample is missing required field {name!r}")
+    value = sample[name]
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"sample field {name!r} must be a torch.Tensor")
+    if value.dtype != torch.float64:
+        raise TypeError(f"sample field {name!r} must use torch.float64")
+    if value.ndim != ndim:
+        raise ValueError(
+            f"sample field {name!r} must have rank {ndim}; received {tuple(value.shape)}"
+        )
+    if not torch.isfinite(value).all():
+        raise ValueError(f"sample field {name!r} must contain only finite values")
+    return value
+
+
+def _summarize_evaluations(results: list[EvaluationResult]) -> MetricSummary:
+    if not results:
+        raise ValueError("cannot summarize an empty evaluation")
+
+    def combine(metrics):
+        metrics = [value for value in metrics if value is not None]
+        if not metrics:
+            return None, None
+        absolute_sum = sum(value.absolute_error_sum.item() for value in metrics)
+        squared_sum = sum(value.squared_error_sum.item() for value in metrics)
+        count = sum(value.count for value in metrics)
+        return absolute_sum / count, math.sqrt(squared_sum / count)
+
+    energy_mae, energy_rmse = combine(
+        [result.energy_metrics for result in results]
+    )
+    force_mae, force_rmse = combine(
+        [result.force_metrics for result in results]
+    )
+    return MetricSummary(
+        energy_mae=energy_mae,
+        energy_rmse=energy_rmse,
+        force_mae=force_mae,
+        force_rmse=force_rmse,
+    )
+
+
+def evaluate_reader(model, reader, evaluator: "Evaluator") -> MetricSummary:
+    """Evaluate one reader with the same predictor and metrics used for training."""
+    results = [
+        evaluator.evaluate(model, batch, create_graph=False)
+        for batch in reader.sample_all_batch()
+    ]
+    return _summarize_evaluations(results)
+
+
+def _training_batches(reader):
+    """Yield exactly one bounded epoch, including exactly one single-frame batch."""
+    group_batch = max(int(getattr(reader, "group_batch", 1)), 1)
+    batch_size = int(reader.get_batch_size()) * group_batch
+    if batch_size <= 0:
+        raise ValueError("training batch size must be positive")
+    batch_count = max(math.ceil(int(reader.get_train_size()) / batch_size), 1)
+    sampler = (
+        reader.sample_train
+        if group_batch == 1
+        else reader.sample_train_group
+    )
+    for _ in range(batch_count):
+        yield sampler()
 
 
 def fit_elem_const(g_reader, test_reader=None, elem_table=None, ridge_alpha=0.):
@@ -86,7 +337,18 @@ class Evaluator:
     def __init__(self,
                  energy_factor=1., force_factor=0., 
                  density_factor=0., grad_penalty=0., 
-                 energy_lossfn=None, force_lossfn=None):
+                 energy_lossfn=None, force_lossfn=None,
+                 force_contract=None):
+        for name, value in (
+            ("energy_factor", energy_factor),
+            ("force_factor", force_factor),
+            ("density_factor", density_factor),
+            ("grad_penalty", grad_penalty),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"{name} must be a real number")
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
         # energy term
         if energy_lossfn is None:
             energy_lossfn = {}
@@ -105,82 +367,157 @@ class Evaluator:
         self.density_factor = density_factor
         # gradient penalty, not very useful
         self.gradient_penalty = grad_penalty
+        self.force_contract = force_contract
+        self.force_contract_fingerprint = (
+            force_contract_fingerprint(force_contract)
+            if self.force_factor > 0
+            else None
+        )
 
     def __call__(self, model, sample):
-        parameter_reference = next(model.parameters())
-        total_loss = 0.
-        sample = {
-            key: value.to(parameter_reference, non_blocking=True)
-            for key, value in sample.items()
-        }
-        energy = sample["energy"]
-        descriptor = sample["descriptor"]
-        requires_grad = (
-            (self.force_factor > 0 and "force" in sample)
-            or (
-                self.density_factor > 0
-                and "coulomb_loss_descriptor_gradient" in sample
+        return self.evaluate(model, sample, create_graph=True).total_loss
+
+    def evaluate(self, model, sample, *, create_graph=False) -> EvaluationResult:
+        """Evaluate loss components and separate energy/force error metrics."""
+        if not isinstance(sample, Mapping):
+            raise TypeError("sample must be a mapping")
+        if not isinstance(create_graph, bool):
+            raise TypeError("create_graph must be bool")
+        reference = model_reference(model)
+        energy = _require_sample_tensor(sample, "energy", ndim=2)
+        descriptor = _require_sample_tensor(sample, "descriptor", ndim=3)
+        if energy.shape != (descriptor.shape[0], 1):
+            raise ValueError(
+                "sample energy must have shape (frame, 1) matching descriptor; "
+                f"received {tuple(energy.shape)} and {tuple(descriptor.shape)}"
             )
-            or self.gradient_penalty > 0
-        )
-        descriptor.requires_grad_(requires_grad)
-        # begin the calculation
-        predicted_energy = model(descriptor)
-        total_loss = total_loss + self.energy_factor * self.energy_lossfn(
-            predicted_energy, energy
-        )
-        if requires_grad:
-            [energy_descriptor_gradient] = torch.autograd.grad(
-                predicted_energy,
-                descriptor,
-                grad_outputs=torch.ones_like(predicted_energy),
-                retain_graph=True,
-                create_graph=True,
-                only_inputs=True,
+        energy = energy.to(device=reference.device, non_blocking=True)
+        descriptor = descriptor.to(device=reference.device, non_blocking=True)
+
+        target_force = None
+        relaxed_jacobian = None
+        if self.force_factor > 0:
+            target_force = _require_sample_tensor(sample, "force", ndim=3)
+            relaxed_jacobian = _require_sample_tensor(
+                sample,
+                "dq_dR_relaxed",
+                ndim=5,
             )
-            # for now always use pure l2 loss for gradient penalty
-            if (
-                self.gradient_penalty > 0
-                and "reference_orbital_gradient" in sample
-            ):
-                reference_orbital_gradient = sample[
-                    "reference_orbital_gradient"
-                ]
-                descriptor_orbital_gradient_jacobian = sample[
-                    "descriptor_orbital_gradient_jacobian"
-                ]
-                total_orbital_gradient = torch.einsum(
-                    '...apg,...ap->...g',
-                    descriptor_orbital_gradient_jacobian,
-                    energy_descriptor_gradient,
-                ) + reference_orbital_gradient
-                total_loss = total_loss + self.gradient_penalty * (
-                    total_orbital_gradient.pow(2).mean(0).sum()
+            marker_name = "force_contract_fingerprint"
+            if marker_name not in sample:
+                raise ForceTrainingError(
+                    f"force-aware sample is missing required field {marker_name!r}"
                 )
-            # optional force calculation
-            if self.force_factor > 0 and "force" in sample:
-                force = sample["force"]
-                dq_dR_explicit = sample["dq_dR_explicit"]
-                predicted_force = -torch.einsum(
-                    "...bxap,...ap->...bx",
-                    dq_dR_explicit,
-                    energy_descriptor_gradient,
+            _validate_contract_marker(
+                sample[marker_name],
+                expected_fingerprint=self.force_contract_fingerprint,
+                frame_count=descriptor.shape[0],
+            )
+            expected_force_shape = (
+                descriptor.shape[0],
+                relaxed_jacobian.shape[1],
+                3,
+            )
+            if target_force.shape != expected_force_shape:
+                raise ValueError(
+                    "sample force shape must exactly match the relaxed-Jacobian raw-atom "
+                    f"axis; expected {expected_force_shape}, received {tuple(target_force.shape)}"
                 )
-                total_loss = total_loss + self.force_factor * self.force_lossfn(
-                    predicted_force, force
+            target_force = target_force.to(
+                device=reference.device,
+                non_blocking=True,
+            )
+            relaxed_jacobian = relaxed_jacobian.to(
+                device=reference.device,
+                non_blocking=True,
+            )
+
+        needs_auxiliary_gradient = (
+            self.density_factor > 0 or self.gradient_penalty > 0
+        )
+        if needs_auxiliary_gradient and self.force_factor == 0:
+            descriptor = descriptor.detach().requires_grad_(True)
+        prediction = predict_correction(
+            model,
+            descriptor,
+            dq_dR_relaxed=relaxed_jacobian,
+            require_force=self.force_factor > 0,
+            create_graph=create_graph,
+        )
+        energy_loss = self.energy_lossfn(prediction.energy, energy)
+        if not isinstance(energy_loss, torch.Tensor) or energy_loss.numel() != 1:
+            raise ValueError("energy loss function must return one scalar tensor")
+        total_loss = self.energy_factor * energy_loss
+        energy_metrics = _error_metrics(prediction.energy, energy)
+
+        force_loss = None
+        force_metrics = None
+        if self.force_factor > 0:
+            force_loss = self.force_lossfn(prediction.force, target_force)
+            if not isinstance(force_loss, torch.Tensor) or force_loss.numel() != 1:
+                raise ValueError("force loss function must return one scalar tensor")
+            total_loss = total_loss + self.force_factor * force_loss
+            force_metrics = _error_metrics(prediction.force, target_force)
+
+        energy_descriptor_gradient = prediction.descriptor_gradient
+        if needs_auxiliary_gradient and energy_descriptor_gradient is None:
+            if prediction.energy.requires_grad:
+                (energy_descriptor_gradient,) = torch.autograd.grad(
+                    prediction.energy,
+                    descriptor,
+                    grad_outputs=torch.ones_like(prediction.energy),
+                    retain_graph=create_graph,
+                    create_graph=create_graph,
+                    only_inputs=True,
+                    allow_unused=True,
                 )
-            # density loss with fix head grad
-            if (
-                self.density_factor > 0
-                and "coulomb_loss_descriptor_gradient" in sample
-            ):
-                coulomb_loss_descriptor_gradient = sample[
-                    "coulomb_loss_descriptor_gradient"
-                ]
-                total_loss = total_loss + self.density_factor * (
-                    coulomb_loss_descriptor_gradient * energy_descriptor_gradient
-                ).mean(0).sum()
-        return total_loss
+            if energy_descriptor_gradient is None:
+                energy_descriptor_gradient = torch.zeros_like(descriptor)
+
+        if self.gradient_penalty > 0:
+            reference_orbital_gradient = _require_sample_tensor(
+                sample,
+                "reference_orbital_gradient",
+                ndim=2,
+            ).to(device=reference.device, non_blocking=True)
+            descriptor_orbital_gradient_jacobian = _require_sample_tensor(
+                sample,
+                "descriptor_orbital_gradient_jacobian",
+                ndim=4,
+            ).to(device=reference.device, non_blocking=True)
+            total_orbital_gradient = torch.einsum(
+                "...apg,...ap->...g",
+                descriptor_orbital_gradient_jacobian,
+                energy_descriptor_gradient,
+            ) + reference_orbital_gradient
+            total_loss = total_loss + self.gradient_penalty * (
+                total_orbital_gradient.pow(2).mean(0).sum()
+            )
+
+        if self.density_factor > 0:
+            coulomb_loss_descriptor_gradient = _require_sample_tensor(
+                sample,
+                "coulomb_loss_descriptor_gradient",
+                ndim=3,
+            ).to(device=reference.device, non_blocking=True)
+            if coulomb_loss_descriptor_gradient.shape != descriptor.shape:
+                raise ValueError(
+                    "coulomb_loss_descriptor_gradient shape must match descriptor"
+                )
+            total_loss = total_loss + self.density_factor * (
+                coulomb_loss_descriptor_gradient * energy_descriptor_gradient
+            ).mean(0).sum()
+
+        if total_loss.numel() != 1 or not torch.isfinite(total_loss).all():
+            raise ValueError("total training loss must be one finite scalar")
+        return EvaluationResult(
+            total_loss=total_loss,
+            energy_loss=energy_loss,
+            force_loss=force_loss,
+            energy_metrics=energy_metrics,
+            force_metrics=force_metrics,
+            prediction=prediction,
+        )
 
 
 def train(model, g_reader, n_epoch=1000, test_reader=None, *,
@@ -188,13 +525,34 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
           energy_loss=None, force_loss=None, grad_penalty=0.,
           start_lr=0.001, decay_steps=100, decay_rate=0.96, stop_lr=None,
           weight_decay=0.,  fix_embedding=False,
-          display_epoch=100, ckpt_file="model.pth", device=DEVICE):
+          display_epoch=100, ckpt_file="model.pth", device=DEVICE,
+          force_contract=None):
     
     model = model.to(device)
     model.eval()
     print("# working on device:", device)
     if test_reader is None:
         test_reader = g_reader
+    if force_factor > 0:
+        if force_contract is None:
+            force_contract = getattr(g_reader, "force_contract", None)
+        training_fingerprint = force_contract_fingerprint(force_contract)
+        test_contract = getattr(test_reader, "force_contract", force_contract)
+        test_fingerprint = force_contract_fingerprint(test_contract)
+        if test_fingerprint != training_fingerprint:
+            raise ForceTrainingError(
+                "training and validation force-data contracts do not match"
+            )
+        if isinstance(force_contract, ForceDataContract):
+            if not isinstance(test_contract, ForceDataContract):
+                raise ForceTrainingError(
+                    "validation data do not expose a validated ForceDataContract"
+                )
+            validate_force_checkpoint_metadata(
+                force_checkpoint_metadata(test_contract),
+                force_contract,
+            )
+            validate_model_force_contract(model, force_contract)
     # fix parameters if needed
     if fix_embedding and model.embedder is not None:
         model.embedder.requires_grad_(False)
@@ -208,48 +566,101 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
     # make evaluators for training
     evaluator = Evaluator(energy_factor=energy_factor, force_factor=force_factor, 
                           energy_lossfn=energy_loss, force_lossfn=force_loss,
-                          density_factor=density_factor, grad_penalty=grad_penalty)
-    # make test evaluator that only returns l2loss of energy
-    test_eval = Evaluator(energy_factor=1., energy_lossfn=L2LOSS, 
-                          force_factor=0., density_factor=0., grad_penalty=0.)
+                          density_factor=density_factor, grad_penalty=grad_penalty,
+                          force_contract=force_contract)
+    # Validation uses the same energy/relaxed-force predictor and reports each
+    # physical metric independently of the training loss weights.
+    test_eval = Evaluator(
+        energy_factor=1.,
+        energy_lossfn=L2LOSS,
+        force_factor=1. if force_factor > 0 else 0.,
+        force_lossfn=L2LOSS,
+        density_factor=0.,
+        grad_penalty=0.,
+        force_contract=force_contract,
+    )
 
-    print("# epoch      trn_err   tst_err        lr  trn_time  tst_time ")
+    if force_factor > 0:
+        print(
+            "# epoch      trn_e_rmse tst_e_rmse trn_f_rmse tst_f_rmse "
+            "       lr  trn_time  tst_time"
+        )
+    else:
+        print("# epoch      trn_e_rmse tst_e_rmse        lr  trn_time  tst_time")
     tic = time()
-    trn_loss = np.mean([evaluator(model, batch).item() 
-                    for batch in g_reader.sample_all_batch()])
-    tst_loss = np.mean([test_eval(model, batch).item() 
-                    for batch in test_reader.sample_all_batch()])
+    training_metrics = evaluate_reader(model, g_reader, evaluator)
+    validation_metrics = evaluate_reader(model, test_reader, test_eval)
     tst_time = time() - tic
-    print(f"  {0:<8d}  {np.sqrt(np.abs(trn_loss)):>.2e}  {np.sqrt(np.abs(tst_loss)):>.2e}"
-          f"  {start_lr:>.2e}  {0:>8.2f}  {tst_time:>8.2f}")
+    if force_factor > 0:
+        print(
+            f"  {0:<8d}  {training_metrics.energy_rmse:>.2e}  "
+            f"{validation_metrics.energy_rmse:>.2e}  "
+            f"{training_metrics.force_rmse:>.2e}  "
+            f"{validation_metrics.force_rmse:>.2e}  "
+            f"{start_lr:>.2e}  {0:>8.2f}  {tst_time:>8.2f}"
+        )
+    else:
+        print(
+            f"  {0:<8d}  {training_metrics.energy_rmse:>.2e}  "
+            f"{validation_metrics.energy_rmse:>.2e}  "
+            f"{start_lr:>.2e}  {0:>8.2f}  {tst_time:>8.2f}"
+        )
 
     for epoch in range(1, n_epoch+1):
         tic = time()
-        loss_list = []
-        for sample in g_reader:
+        for sample in _training_batches(g_reader):
             model.train()
             optimizer.zero_grad()
             loss = evaluator(model, sample)
             loss.backward()
             optimizer.step()
-            loss_list.append(loss.item())
         scheduler.step()
 
         if epoch % display_epoch == 0:
             model.eval()
-            trn_loss = np.mean(loss_list)
             trn_time = time() - tic
             tic = time()
-            tst_loss = np.mean([test_eval(model, batch).item() 
-                            for batch in test_reader.sample_all_batch()])
+            training_metrics = evaluate_reader(model, g_reader, evaluator)
+            validation_metrics = evaluate_reader(model, test_reader, test_eval)
             tst_time = time() - tic
-            print(f"  {epoch:<8d}  {np.sqrt(np.abs(trn_loss)):>.2e}  {np.sqrt(np.abs(tst_loss)):>.2e}"
-                  f"  {scheduler.get_last_lr()[0]:>.2e}  {trn_time:>8.2f}  {tst_time:8.2f}")
+            if force_factor > 0:
+                print(
+                    f"  {epoch:<8d}  {training_metrics.energy_rmse:>.2e}  "
+                    f"{validation_metrics.energy_rmse:>.2e}  "
+                    f"{training_metrics.force_rmse:>.2e}  "
+                    f"{validation_metrics.force_rmse:>.2e}  "
+                    f"{scheduler.get_last_lr()[0]:>.2e}  "
+                    f"{trn_time:>8.2f}  {tst_time:8.2f}"
+                )
+            else:
+                print(
+                    f"  {epoch:<8d}  {training_metrics.energy_rmse:>.2e}  "
+                    f"{validation_metrics.energy_rmse:>.2e}  "
+                    f"{scheduler.get_last_lr()[0]:>.2e}  "
+                    f"{trn_time:>8.2f}  {tst_time:8.2f}"
+                )
             if ckpt_file:
-                model.save(ckpt_file)
+                extra_info = {}
+                if force_factor > 0:
+                    extra_info["force_training"] = force_checkpoint_metadata(
+                        force_contract
+                    )
+                model.save(ckpt_file, **extra_info)
 
+    if n_epoch == 0 or n_epoch % display_epoch != 0:
+        model.eval()
+        training_metrics = evaluate_reader(model, g_reader, evaluator)
+        validation_metrics = evaluate_reader(model, test_reader, test_eval)
     if ckpt_file:
-        model.save(ckpt_file)
+        extra_info = {}
+        if force_factor > 0:
+            extra_info["force_training"] = force_checkpoint_metadata(force_contract)
+        model.save(ckpt_file, **extra_info)
+    return TrainingResult(
+        model=model,
+        training_metrics=training_metrics,
+        validation_metrics=validation_metrics,
+    )
     
 
 def main(train_paths, test_paths=None,
@@ -265,16 +676,36 @@ def main(train_paths, test_paths=None,
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    if model_args is None: model_args = {}
-    if data_args is None: data_args = {}
-    if preprocess_args is None: preprocess_args = {}
-    if train_args is None: train_args = {}
+    model_args = {} if model_args is None else dict(model_args)
+    data_args = {} if data_args is None else dict(data_args)
+    preprocess_args = {} if preprocess_args is None else dict(preprocess_args)
+    train_args = {} if train_args is None else dict(train_args)
     if projector_basis is not None:
         model_args["proj_basis"] = projector_basis
     if ckpt_file is not None:
         train_args["ckpt_file"] = ckpt_file
     if device is not None:
         train_args["device"] = device
+
+    force_enabled = train_args.get("force_factor", 0.) > 0
+    configured_force_mode = data_args.get("force_mode", FORCE_MODE_NONE)
+    if force_enabled:
+        if configured_force_mode not in (
+            FORCE_MODE_NONE,
+            FORCE_MODE_DEEPHF_RELAXED,
+        ):
+            raise ForceTrainingError(
+                "force_factor > 0 conflicts with the configured data force_mode"
+            )
+        if "force_mode" in data_args and configured_force_mode == FORCE_MODE_NONE:
+            raise ForceTrainingError(
+                "force_factor > 0 requires force_mode='deephf_relaxed'"
+            )
+        data_args["force_mode"] = FORCE_MODE_DEEPHF_RELAXED
+    elif configured_force_mode == FORCE_MODE_DEEPHF_RELAXED:
+        raise ForceTrainingError(
+            "force_mode='deephf_relaxed' requires force_factor > 0"
+        )
 
     train_paths = load_dirs(train_paths)
     # print(f'# training with {len(train_paths)} system(s)')
@@ -287,10 +718,27 @@ def main(train_paths, test_paths=None,
         print('# testing with training set')
         test_reader = None
 
+    force_contract = getattr(g_reader, "force_contract", None)
+    if force_enabled:
+        projector_basis_from_contract = _contract_projector_basis(force_contract)
+        if model_args.get("proj_basis") is None:
+            model_args["proj_basis"] = projector_basis_from_contract
     if restart is not None:
-        model = CorrNet.load(restart)
+        expected_fingerprint = (
+            force_contract_fingerprint(force_contract)
+            if force_enabled
+            else None
+        )
+        model = CorrNet.load(
+            restart,
+            require_force_metadata=force_enabled,
+            expected_force_contract_fingerprint=expected_fingerprint,
+            expected_force_contract=force_contract if force_enabled else None,
+        )
         if model.elem_table is not None:
             fit_elem_const(g_reader, test_reader, model.elem_table)
+        if force_enabled:
+            validate_model_force_contract(model, force_contract)
     else:
         input_dim = g_reader.descriptor_size
         if model_args.get("input_dim", input_dim) != input_dim:
@@ -304,9 +752,17 @@ def main(train_paths, test_paths=None,
             elem_table = fit_elem_const(g_reader, test_reader, elem_table)
             model_args["elem_table"] = elem_table
         model = CorrNet(**model_args).double()
+        if force_enabled:
+            validate_model_force_contract(model, force_contract)
         
     preprocess(model, g_reader, **preprocess_args)
-    train(model, g_reader, test_reader=test_reader, **train_args)
+    return train(
+        model,
+        g_reader,
+        test_reader=test_reader,
+        force_contract=force_contract,
+        **train_args,
+    )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import math
 import inspect
+from collections.abc import Mapping
 import numpy as np
 import torch
 import torch.nn as nn 
@@ -9,6 +10,20 @@ from deepks.utils import load_elem_table
 
 SCALE_EPS = 1e-8
 CHECKPOINT_FORMAT_VERSION = 1
+FORCE_JACOBIAN_SEMANTICS = "dq_dR_relaxed"
+FORCE_CHECKPOINT_METADATA_KEYS = {
+    "schema_id",
+    "schema_version",
+    "compatibility_fingerprint",
+    "jacobian_semantics",
+    "n_feature",
+    "descriptor_definition",
+    "descriptor_spin_semantics",
+    "descriptor_shell_sizes",
+    "projector_sha256",
+    "reference_family",
+    "response_backend",
+}
 
 
 def _as_checkpoint_metadata(value):
@@ -31,6 +46,117 @@ def _as_checkpoint_metadata(value):
     raise TypeError(
         f"checkpoint metadata does not support {type(value).__name__} values"
     )
+
+
+def normalize_force_contract_fingerprint(value) -> str:
+    if isinstance(value, torch.Tensor):
+        if value.dtype != torch.uint8 or value.shape != (32,):
+            raise ValueError(
+                "force contract fingerprint tensor must have dtype uint8 and shape (32,)"
+            )
+        value = bytes(value.detach().cpu().tolist())
+    elif isinstance(value, np.ndarray):
+        if value.dtype != np.uint8 or value.shape != (32,):
+            raise ValueError(
+                "force contract fingerprint array must have dtype uint8 and shape (32,)"
+            )
+        value = value.tobytes()
+    elif isinstance(value, (list, tuple)):
+        try:
+            value = bytes(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid force contract fingerprint bytes") from error
+    if isinstance(value, bytes):
+        if len(value) != 32:
+            raise ValueError("force contract fingerprint must contain exactly 32 bytes")
+        return value.hex()
+    if not isinstance(value, str):
+        raise TypeError("force contract fingerprint must be bytes or a hexadecimal string")
+    fingerprint = value.lower()
+    if fingerprint.startswith("sha256:"):
+        fingerprint = fingerprint[7:]
+    if len(fingerprint) != 64:
+        raise ValueError("force contract fingerprint must contain 64 hexadecimal digits")
+    try:
+        bytes.fromhex(fingerprint)
+    except ValueError as error:
+        raise ValueError("force contract fingerprint must be hexadecimal") from error
+    return fingerprint
+
+
+def _validate_checkpoint_force_metadata(
+    extra_info,
+    *,
+    expected_fingerprint=None,
+    expected_contract=None,
+):
+    """Validate and return strict relaxed-force checkpoint metadata."""
+    if not isinstance(extra_info, Mapping):
+        raise ValueError("checkpoint extra_info must be a mapping")
+    metadata = extra_info.get("force_training")
+    if not isinstance(metadata, Mapping):
+        raise ValueError("checkpoint is missing force_training metadata")
+    if set(metadata) != FORCE_CHECKPOINT_METADATA_KEYS:
+        missing = sorted(FORCE_CHECKPOINT_METADATA_KEYS - set(metadata))
+        extra = sorted(set(metadata) - FORCE_CHECKPOINT_METADATA_KEYS)
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unexpected " + ", ".join(extra))
+        raise ValueError(
+            "force-training checkpoint metadata fields are invalid: "
+            + "; ".join(details)
+        )
+    if metadata.get("jacobian_semantics") != FORCE_JACOBIAN_SEMANTICS:
+        raise ValueError(
+            "force-training checkpoint must declare dq_dR_relaxed Jacobian semantics"
+        )
+    fingerprint = normalize_force_contract_fingerprint(
+        metadata.get("compatibility_fingerprint")
+    )
+    if expected_fingerprint is not None:
+        expected = normalize_force_contract_fingerprint(expected_fingerprint)
+        if fingerprint != expected:
+            raise ValueError(
+                "force-training checkpoint contract fingerprint does not match the data"
+            )
+    if expected_contract is not None:
+        from deepks.data.force_schema import validate_force_checkpoint_metadata
+
+        validate_force_checkpoint_metadata(metadata, expected_contract)
+    return dict(metadata)
+
+
+def _metadata_signature(value):
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, (list, tuple)):
+        return tuple(_metadata_signature(item) for item in value)
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _validate_loaded_model_force_contract(model, contract) -> None:
+    try:
+        dimensions = contract.dimensions
+        projector_basis = contract.manifest["descriptor"]["projector_basis"]
+    except (AttributeError, KeyError, TypeError) as error:
+        raise ValueError(
+            "expected_force_contract is not a validated force-data contract"
+        ) from error
+    expected_features = int(dimensions["n_feature"])
+    if model.input_dim != expected_features:
+        raise ValueError(
+            "checkpoint model input dimension does not match the force-data contract"
+        )
+    if _metadata_signature(model._pbas) != _metadata_signature(
+        load_basis(projector_basis)
+    ):
+        raise ValueError(
+            "checkpoint model projector metadata does not match the force-data contract"
+        )
 
 
 def parse_actv_fn(code):
@@ -284,6 +410,7 @@ class CorrNet(nn.Module):
         self.energy_const = nn.Parameter(
             torch.tensor(0, dtype=torch.float64), 
             requires_grad=False)
+        self._checkpoint_extra_info = {}
     
     def forward(self, x):
         # x: nframes x natom x nfeature
@@ -319,11 +446,13 @@ class CorrNet(nn.Module):
         self.energy_const.data = torch.tensor(const, dtype=dtype).reshape([])
 
     def save_dict(self, **extra_info):
+        retained_extra_info = dict(self._checkpoint_extra_info)
+        retained_extra_info.update(extra_info)
         dump_dict = {
             "format_version": CHECKPOINT_FORMAT_VERSION,
             "state_dict": self.state_dict(),
             "init_args": _as_checkpoint_metadata(self._init_args),
-            "extra_info": _as_checkpoint_metadata(extra_info),
+            "extra_info": _as_checkpoint_metadata(retained_extra_info),
         }
         return dump_dict
 
@@ -331,26 +460,71 @@ class CorrNet(nn.Module):
         torch.save(self.save_dict(**extra_info), filename)
 
     @staticmethod
-    def load_dict(checkpoint, strict=False):
+    def load_dict(
+        checkpoint,
+        strict=False,
+        *,
+        require_force_metadata=False,
+        expected_force_contract_fingerprint=None,
+        expected_force_contract=None,
+    ):
+        if not isinstance(checkpoint, Mapping):
+            raise TypeError("CorrNet checkpoint must be a mapping")
         format_version = checkpoint.get("format_version")
         if format_version != CHECKPOINT_FORMAT_VERSION:
             raise ValueError(
                 f"unsupported CorrNet checkpoint format: {format_version!r}"
             )
+        extra_info = checkpoint.get("extra_info", {})
+        if not isinstance(extra_info, Mapping):
+            raise ValueError("CorrNet checkpoint extra_info must be a mapping")
+        has_force_metadata = "force_training" in extra_info
+        if (
+            require_force_metadata
+            or expected_force_contract_fingerprint is not None
+            or expected_force_contract is not None
+        ):
+            _validate_checkpoint_force_metadata(
+                extra_info,
+                expected_fingerprint=expected_force_contract_fingerprint,
+                expected_contract=expected_force_contract,
+            )
+            has_force_metadata = True
+        elif has_force_metadata:
+            _validate_checkpoint_force_metadata(extra_info)
         init_args = dict(checkpoint["init_args"])
         if "layer_sizes" in init_args:
             layers = init_args.pop("layer_sizes")
             init_args["input_dim"] = layers[0]
             init_args["hidden_sizes"] = layers[1:-1]
         model = CorrNet(**init_args)
-        model.load_state_dict(checkpoint['state_dict'], strict=strict)
+        model.load_state_dict(
+            checkpoint['state_dict'],
+            strict=True if has_force_metadata else strict,
+        )
+        if expected_force_contract is not None:
+            _validate_loaded_model_force_contract(model, expected_force_contract)
+        model._checkpoint_extra_info = _as_checkpoint_metadata(dict(extra_info))
         return model
 
     @staticmethod
-    def load(filename, strict=False):
+    def load(
+        filename,
+        strict=False,
+        *,
+        require_force_metadata=False,
+        expected_force_contract_fingerprint=None,
+        expected_force_contract=None,
+    ):
         checkpoint = torch.load(
             filename,
             map_location="cpu",
             weights_only=True,
         )
-        return CorrNet.load_dict(checkpoint, strict=strict)
+        return CorrNet.load_dict(
+            checkpoint,
+            strict=strict,
+            require_force_metadata=require_force_metadata,
+            expected_force_contract_fingerprint=expected_force_contract_fingerprint,
+            expected_force_contract=expected_force_contract,
+        )

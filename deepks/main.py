@@ -88,6 +88,8 @@ def test_cli(args=None):
                         help="the name of energy file to be read (no .npy extension)")
     parser.add_argument("-D", "--descriptor-name", type=str, nargs="+",
                         help="the name of descriptor file(s) to be read (no .npy extension)")
+    parser.add_argument("--force-mode", choices=("none", "deephf_relaxed"),
+                        help="strict saved-data evaluation mode")
     parser.add_argument("-G", "--group", action='store_true',
                         help="group test results for all systems")
     args = parser.parse_args(args)
@@ -102,6 +104,16 @@ def test_cli(args=None):
             argdict["energy_name"] = rawdict["data_args"]["energy_name"]
         if "descriptor_name" in rawdict["data_args"]:
             argdict["descriptor_name"] = rawdict["data_args"]["descriptor_name"]
+        if "force_mode" in rawdict["data_args"]:
+            argdict["force_mode"] = rawdict["data_args"]["force_mode"]
+        if rawdict.get("train_args", {}).get("force_factor", 0) > 0:
+            configured_mode = rawdict["data_args"].get("force_mode")
+            if configured_mode != "deephf_relaxed":
+                raise ValueError(
+                    "force-aware saved-data testing requires "
+                    "data_args.force_mode='deephf_relaxed'"
+                )
+            argdict["force_mode"] = configured_mode
         if "test_paths" in rawdict:
             argdict["data_paths"] = rawdict["test_paths"]
         argdict.update(vars(args))

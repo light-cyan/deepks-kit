@@ -2,7 +2,11 @@ import os,time,sys
 import numpy as np
 import torch
 
-from deepks.data.force_schema import ForceDataError, load_force_dataset
+from deepks.data.force_schema import (
+    ForceDataError,
+    SCHEMA_FILENAME,
+    load_force_dataset,
+)
 
 
 FORCE_MODE_NONE = "none"
@@ -47,6 +51,7 @@ class Reader(object):
         self.converged_filter = converged_filter
         self.force_contract = None
         self._force_arrays = None
+        strict_manifest_path = os.path.join(data_path, SCHEMA_FILENAME)
         if force_mode == FORCE_MODE_DEEPHF_RELAXED:
             if energy_name != "e_corr_target" or descriptor_name != "descriptor":
                 raise ForceDataError(
@@ -61,6 +66,11 @@ class Reader(object):
                     "strict DeePHF force data uses canonical dq_dR_relaxed"
                 )
             self.force_contract, self._force_arrays = load_force_dataset(data_path)
+        elif os.path.isfile(strict_manifest_path):
+            raise ForceDataError(
+                "a strict force dataset must be read with "
+                "force_mode='deephf_relaxed'"
+            )
         elif force_name is not None or jacobian_name is not None:
             raise ForceDataError(
                 "force field names require force_mode='deephf_relaxed'; "
