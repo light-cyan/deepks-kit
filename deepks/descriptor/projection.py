@@ -10,7 +10,11 @@ from pyscf import gto
 from deepks.utils import get_shell_sec, load_basis
 
 from .core import descriptor, dq_dP, projected_density
-from .derivatives import dD_dR_explicit, dq_dR_explicit
+from .derivatives import (
+    dD_dR_explicit,
+    dq_dR_explicit,
+    dq_dR_explicit_component,
+)
 
 
 def is_ghost_atom(mol, atom_index: int) -> bool:
@@ -161,6 +165,22 @@ class AtomicDensityDescriptor:
         result = dq_dR_explicit(
             self.mol,
             _as_ao_density_tensor(ao_density),
+            self.overlap_shells,
+            self.derivative_overlap_shells(),
+            self.descriptor_atom_indices,
+        )
+        return result.detach().cpu().numpy()
+
+    def dq_dR_explicit_component(
+        self,
+        ao_density,
+        component_density,
+    ) -> np.ndarray:
+        """Return one additive component of fixed-density descriptor motion."""
+        result = dq_dR_explicit_component(
+            self.mol,
+            _as_ao_density_tensor(ao_density),
+            _as_ao_density_tensor(component_density),
             self.overlap_shells,
             self.derivative_overlap_shells(),
             self.descriptor_atom_indices,

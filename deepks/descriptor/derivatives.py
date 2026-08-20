@@ -82,3 +82,39 @@ def dq_dR_explicit(
         )
     ]
     return torch.cat(shell_results, dim=-1)
+
+
+def dq_dR_explicit_component(
+    mol,
+    ao_density: torch.Tensor,
+    component_density: torch.Tensor,
+    overlap_shells: Sequence[torch.Tensor],
+    derivative_overlap_shells: Sequence[torch.Tensor],
+    descriptor_atom_indices: Sequence[int],
+) -> torch.Tensor:
+    """Return one additive fixed-density component of the descriptor derivative."""
+    if component_density.shape != ao_density.shape:
+        raise ValueError("component_density must match ao_density")
+    density_blocks = [
+        block.requires_grad_(True)
+        for block in projected_density(ao_density, overlap_shells)
+    ]
+    eigenvalue_jacobians = [
+        batch_jacobian(shell_eigenvalues, block, block.shape[-1])
+        for block in density_blocks
+    ]
+    coordinate_jacobians = dD_dR_explicit(
+        mol,
+        component_density,
+        overlap_shells,
+        derivative_overlap_shells,
+        descriptor_atom_indices,
+    )
+    shell_results = [
+        torch.einsum("bxapq,avpq->bxav", coordinate, eigenvalue)
+        for coordinate, eigenvalue in zip(
+            coordinate_jacobians,
+            eigenvalue_jacobians,
+        )
+    ]
+    return torch.cat(shell_results, dim=-1)
