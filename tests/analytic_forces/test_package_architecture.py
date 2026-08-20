@@ -172,6 +172,18 @@ def _pyscf_response_imports(source_path):
         or module_name.startswith("pyscf.hessian.rhf.")
         or module_name == "pyscf.hessian.uhf"
         or module_name.startswith("pyscf.hessian.uhf.")
+        or module_name == "pyscf.hessian.rks"
+        or module_name.startswith("pyscf.hessian.rks.")
+        or module_name == "pyscf.grad.rks"
+        or module_name.startswith("pyscf.grad.rks.")
+        or module_name == "pyscf.dft.numint"
+        or module_name.startswith("pyscf.dft.numint.")
+        or module_name == "pyscf.dft.libxc"
+        or module_name.startswith("pyscf.dft.libxc.")
+        or module_name == "pyscf.dft.gen_grid"
+        or module_name.startswith("pyscf.dft.gen_grid.")
+        or module_name == "pyscf.dft.radi"
+        or module_name.startswith("pyscf.dft.radi.")
     ]
 
 
@@ -241,6 +253,21 @@ def _pyscf_compatibility_accesses(source_path):
             facilities.add("rhf_hessian")
         if _imports_prefix(name, "pyscf.hessian.uhf"):
             facilities.add("uhf_hessian")
+        if _imports_prefix(name, "pyscf.hessian.rks"):
+            facilities.add("rks_hessian")
+        if _imports_prefix(name, "pyscf.grad.rks"):
+            facilities.add("rks_gradient")
+        if _imports_prefix(name, "pyscf.dft.numint"):
+            facilities.add("rks_numint")
+        if _imports_prefix(name, "pyscf.dft.libxc"):
+            facilities.add("rks_libxc")
+        if (
+            _imports_prefix(name, "pyscf.dft.gen_grid")
+            or _imports_prefix(name, "pyscf.dft.radi")
+        ):
+            facilities.add("rks_grid")
+        if _imports_prefix(name, "pyscf.dft.rks"):
+            facilities.add("rks_reference")
         if name.startswith("pyscf.") and "intor_cross" in name.split("."):
             facilities.add("cross_overlap")
     return sorted(facilities)
@@ -321,10 +348,21 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
     response_imports = []
     for source_path in sorted(PACKAGE_ROOT.rglob("*.py")):
         relative_path = str(source_path.relative_to(REPOSITORY_ROOT))
-        response_imports.extend(
-            (relative_path, module_name)
-            for module_name in _pyscf_response_imports(source_path)
-        )
+        for module_name in _pyscf_response_imports(source_path):
+            is_rks_facility = any(
+                _imports_prefix(module_name, prefix)
+                for prefix in (
+                    "pyscf.hessian.rks",
+                    "pyscf.grad.rks",
+                    "pyscf.dft.numint",
+                    "pyscf.dft.libxc",
+                    "pyscf.dft.gen_grid",
+                    "pyscf.dft.radi",
+                )
+            )
+            if is_rks_facility and source_path.parent != PACKAGE_ROOT / "deephf":
+                continue
+            response_imports.append((relative_path, module_name))
 
     owners = {}
     for source_path, module_name in response_imports:
@@ -336,21 +374,48 @@ def test_pyscf_response_imports_are_isolated_in_the_compatibility_adapter():
             facility = "rhf_hessian"
         elif _imports_prefix(module_name, "pyscf.hessian.uhf"):
             facility = "uhf_hessian"
+        elif _imports_prefix(module_name, "pyscf.hessian.rks"):
+            facility = "rks_hessian"
+        elif _imports_prefix(module_name, "pyscf.grad.rks"):
+            facility = "rks_gradient"
+        elif _imports_prefix(module_name, "pyscf.dft.numint"):
+            facility = "rks_numint"
+        elif _imports_prefix(module_name, "pyscf.dft.libxc"):
+            facility = "rks_libxc"
+        elif (
+            _imports_prefix(module_name, "pyscf.dft.gen_grid")
+            or _imports_prefix(module_name, "pyscf.dft.radi")
+        ):
+            facility = "rks_grid"
         else:
             raise AssertionError(f"unclassified response import {module_name}")
         owners.setdefault(facility, set()).add(source_path)
 
     assert owners == {
-        "cphf": {"deepks/deephf/pyscf_rhf.py"},
+        "cphf": {
+            "deepks/deephf/pyscf_rhf.py",
+            "deepks/deephf/pyscf_rks.py",
+        },
         "rhf_hessian": {"deepks/deephf/pyscf_rhf.py"},
         "ucphf": {"deepks/deephf/pyscf_uhf.py"},
         "uhf_hessian": {"deepks/deephf/pyscf_uhf.py"},
+        "rks_hessian": {"deepks/deephf/pyscf_rks.py"},
+        "rks_gradient": {"deepks/deephf/pyscf_rks.py"},
+        "rks_numint": {"deepks/deephf/pyscf_rks.py"},
+        "rks_libxc": {"deepks/deephf/pyscf_rks.py"},
+        "rks_grid": {"deepks/deephf/pyscf_rks.py"},
     }
     imported_modules = {module_name for _, module_name in response_imports}
     assert "pyscf.scf.cphf" in imported_modules
     assert "pyscf.hessian.rhf" in imported_modules
     assert "pyscf.scf.ucphf" in imported_modules
     assert "pyscf.hessian.uhf" in imported_modules
+    assert "pyscf.hessian.rks" in imported_modules
+    assert "pyscf.grad.rks" in imported_modules
+    assert "pyscf.dft.numint" in imported_modules
+    assert "pyscf.dft.libxc" in imported_modules
+    assert "pyscf.dft.gen_grid" in imported_modules
+    assert "pyscf.dft.radi" in imported_modules
 
 
 def test_reference_neutral_adjoint_has_no_reference_or_application_imports():
@@ -389,11 +454,20 @@ def test_deephf_pyscf_compatibility_facilities_have_one_adapter_owner():
         owners.setdefault(facility, set()).add(source_path)
 
     assert owners == {
-        "cphf": {"deepks/deephf/pyscf_rhf.py"},
+        "cphf": {
+            "deepks/deephf/pyscf_rhf.py",
+            "deepks/deephf/pyscf_rks.py",
+        },
         "cross_overlap": {"deepks/deephf/pyscf_rhf.py"},
         "rhf_hessian": {"deepks/deephf/pyscf_rhf.py"},
         "ucphf": {"deepks/deephf/pyscf_uhf.py"},
         "uhf_hessian": {"deepks/deephf/pyscf_uhf.py"},
+        "rks_hessian": {"deepks/deephf/pyscf_rks.py"},
+        "rks_gradient": {"deepks/deephf/pyscf_rks.py"},
+        "rks_numint": {"deepks/deephf/pyscf_rks.py"},
+        "rks_libxc": {"deepks/deephf/pyscf_rks.py"},
+        "rks_grid": {"deepks/deephf/pyscf_rks.py"},
+        "rks_reference": {"deepks/deephf/pyscf_rks.py"},
     }
 
 
@@ -406,6 +480,7 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
         "_ecp",
         "_eri",
         "_pseudo",
+        "_numint",
         "__dict__",
     }
     guarded_modules = (
@@ -416,6 +491,8 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
         "force_data.py",
         "uhf_method.py",
         "uhf_gradient.py",
+        "rks_method.py",
+        "rks_gradient.py",
     )
     violations = {
         module_name: _private_attribute_accesses(
@@ -428,6 +505,33 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
     assert violations == {module_name: [] for module_name in guarded_modules}
 
 
+def test_rks_semiprivate_pyscf_facilities_have_one_adapter_owner():
+    semiprivate_symbols = {
+        "_CUSTOM_FUNC_R",
+        "_get_vxc_deriv1",
+        "_itrf",
+        "grids_response_cc",
+    }
+
+    def whole_module(tree):
+        return (tree,)
+
+    owners = {symbol: set() for symbol in semiprivate_symbols}
+    for source_path in sorted((PACKAGE_ROOT / "deephf").rglob("*.py")):
+        relative_path = str(source_path.relative_to(REPOSITORY_ROOT))
+        for symbol in _symbol_accesses(
+            source_path,
+            whole_module,
+            semiprivate_symbols,
+        ):
+            owners[symbol].add(relative_path)
+
+    assert owners == {
+        symbol: {"deepks/deephf/pyscf_rks.py"}
+        for symbol in semiprivate_symbols
+    }
+
+
 def test_capabilities_is_pyscf_neutral_and_reference_validation_has_exact_owners():
     capabilities_path = PACKAGE_ROOT / "deephf" / "capabilities.py"
     pyscf_imports = [
@@ -435,7 +539,11 @@ def test_capabilities_is_pyscf_neutral_and_reference_validation_has_exact_owners
         for module_name in _imported_modules(capabilities_path)
         if _imports_prefix(module_name, "pyscf")
     ]
-    owners = {"validate_reference": [], "validate_uhf_reference": []}
+    owners = {
+        "validate_reference": [],
+        "validate_uhf_reference": [],
+        "validate_rks_reference": [],
+    }
     for source_path in sorted((PACKAGE_ROOT / "deephf").rglob("*.py")):
         tree = ast.parse(
             source_path.read_text(encoding="utf-8"),
@@ -454,6 +562,7 @@ def test_capabilities_is_pyscf_neutral_and_reference_validation_has_exact_owners
     assert owners == {
         "validate_reference": ["deepks/deephf/pyscf_rhf.py"],
         "validate_uhf_reference": ["deepks/deephf/pyscf_uhf.py"],
+        "validate_rks_reference": ["deepks/deephf/pyscf_rks.py"],
     }
 
 
@@ -498,7 +607,7 @@ def test_zvector_path_has_no_direct_response_symbol_access():
     assert violations == {name: [] for name in violations}
 
 
-def test_rhf_zvector_scanner_and_force_data_do_not_access_uhf_symbols():
+def test_rhf_zvector_scanner_and_force_data_do_not_access_non_rhf_symbols():
     forbidden_symbols = {
         "UHFDeePHF",
         "UHFDeePHFGradients",
@@ -506,6 +615,12 @@ def test_rhf_zvector_scanner_and_force_data_do_not_access_uhf_symbols():
         "UHFResponseAdapter",
         "UHFResponseDiagnostics",
         "validate_uhf_reference",
+        "RKSDeePHF",
+        "RKSDeePHFGradients",
+        "RKSResponse",
+        "RKSResponseAdapter",
+        "RKSResponseDiagnostics",
+        "validate_rks_reference",
     }
 
     def whole_module(tree):
@@ -533,12 +648,50 @@ def test_uhf_direct_path_does_not_access_rhf_adjoint_scanner_or_force_data_symbo
         "RHFForceFrame",
         "generate_rhf_force_frame",
         "write_rhf_force_dataset",
+        "RKSDeePHF",
+        "RKSDeePHFGradients",
+        "RKSResponse",
+        "RKSResponseAdapter",
+        "RKSResponseDiagnostics",
+        "validate_rks_reference",
     }
 
     def whole_module(tree):
         return (tree,)
 
     guarded_modules = ("pyscf_uhf.py", "uhf_method.py", "uhf_gradient.py")
+    violations = {
+        module_name: _symbol_accesses(
+            PACKAGE_ROOT / "deephf" / module_name,
+            whole_module,
+            forbidden_symbols,
+        )
+        for module_name in guarded_modules
+    }
+
+    assert violations == {module_name: [] for module_name in guarded_modules}
+
+
+def test_rks_direct_path_does_not_access_other_reference_backends():
+    forbidden_symbols = {
+        "RHFAdjoint",
+        "RHFAdjointAdapter",
+        "RHFDeePHFGradientScanner",
+        "RHFDeePHFZVectorGradients",
+        "RHFForceFrame",
+        "UHFDeePHF",
+        "UHFDeePHFGradients",
+        "UHFResponse",
+        "UHFResponseAdapter",
+        "generate_rhf_force_frame",
+        "solve_scalar_adjoint",
+        "write_rhf_force_dataset",
+    }
+
+    def whole_module(tree):
+        return (tree,)
+
+    guarded_modules = ("pyscf_rks.py", "rks_method.py", "rks_gradient.py")
     violations = {
         module_name: _symbol_accesses(
             PACKAGE_ROOT / "deephf" / module_name,
@@ -624,6 +777,39 @@ def test_uhf_direct_result_symbols_have_one_module_level_owner():
         "UHFResponseAdapter": "deepks/deephf/pyscf_uhf.py",
         "UHFResponseDiagnostics": "deepks/deephf/pyscf_uhf.py",
         "UHFResponseError": "deepks/deephf/pyscf_uhf.py",
+    }
+    actual_owners = {symbol: [] for symbol in expected_owners}
+
+    for source_path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        tree = ast.parse(
+            source_path.read_text(encoding="utf-8"),
+            filename=str(source_path),
+        )
+        relative_path = str(source_path.relative_to(REPOSITORY_ROOT))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name in actual_owners:
+                    actual_owners[node.name].append(relative_path)
+
+    assert actual_owners == {
+        symbol: [owner] for symbol, owner in expected_owners.items()
+    }
+
+
+def test_rks_direct_result_symbols_have_one_module_level_owner():
+    expected_owners = {
+        "RKSDeePHF": "deepks/deephf/rks_method.py",
+        "RKSDeePHFGradients": "deepks/deephf/rks_gradient.py",
+        "RKSFunctionalProvenance": "deepks/deephf/pyscf_rks.py",
+        "RKSGridProvenance": "deepks/deephf/pyscf_rks.py",
+        "RKSNativeGradient": "deepks/deephf/pyscf_rks.py",
+        "RKSResponse": "deepks/deephf/pyscf_rks.py",
+        "RKSResponseAdapter": "deepks/deephf/pyscf_rks.py",
+        "RKSResponseDiagnostics": "deepks/deephf/pyscf_rks.py",
+        "RKSResponseError": "deepks/deephf/pyscf_rks.py",
+        "native_rks_gradient": "deepks/deephf/pyscf_rks.py",
+        "rks_reference_fingerprint": "deepks/deephf/pyscf_rks.py",
+        "rks_response_integrity_fingerprint": "deepks/deephf/pyscf_rks.py",
     }
     actual_owners = {symbol: [] for symbol in expected_owners}
 

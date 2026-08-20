@@ -9,11 +9,13 @@ from .method import DeePHF, _DIRECT_RESPONSE_OPTIONS, _validated_backend_options
 from .pyscf_rks import (
     RKSResponse,
     RKSResponseAdapter,
-    RKSResponseDiagnostics,
     RKSResponseError,
     rks_reference_fingerprint,
     validate_rks_reference,
 )
+
+
+_TRUSTED_RESPONSE_LIMIT = 8
 
 
 class RKSDeePHF(DeePHF):
@@ -51,6 +53,7 @@ class RKSDeePHF(DeePHF):
             response_options=response_options,
             adjoint_options={},
         )
+        self._trusted_rks_responses = {}
 
     def response(self, **response_options) -> RKSResponse:
         """Solve the audited complete finite-grid RKS density response."""
@@ -63,46 +66,41 @@ class RKSDeePHF(DeePHF):
             _DIRECT_RESPONSE_OPTIONS,
             "direct",
         )
-        response = RKSResponseAdapter(self.reference, **options).solve()
+        adapter = RKSResponseAdapter(self.reference, **options)
+        response = adapter.solve()
         self._trusted_response = response
         self._trusted_response_integrity = response.integrity_fingerprint
+        self._trusted_rks_responses[id(response)] = (
+            response,
+            adapter,
+            response.integrity_fingerprint,
+        )
+        while len(self._trusted_rks_responses) > _TRUSTED_RESPONSE_LIMIT:
+            self._trusted_rks_responses.pop(next(iter(self._trusted_rks_responses)))
         return response
-
-    @staticmethod
-    def _response_adapter_options(diagnostics: RKSResponseDiagnostics) -> dict:
-        return {
-            "cphf_tolerance": diagnostics.cphf_tolerance,
-            "residual_tolerance": diagnostics.residual_tolerance,
-            "invariant_tolerance": diagnostics.invariant_tolerance,
-            "orbital_gap_tolerance": diagnostics.orbital_gap_tolerance,
-            "max_cycle": diagnostics.max_cycle,
-            "max_refinement_cycles": diagnostics.max_refinement_cycles,
-            "level_shift": diagnostics.level_shift,
-            "operator_stability_tolerance": (
-                diagnostics.operator_stability_tolerance
-            ),
-            "operator_condition_tolerance": (
-                diagnostics.operator_condition_tolerance
-            ),
-            "operator_symmetry_tolerance": (
-                diagnostics.operator_symmetry_tolerance
-            ),
-            "operator_dimension_limit": diagnostics.operator_dimension_limit,
-        }
 
     def _validate_response(self, response: RKSResponse) -> RKSResponse:
         """Rebuild and audit one supplied finite-grid RKS response."""
         self._validate_reference_object(self.reference)
         if type(response) is not RKSResponse:
             raise RKSResponseError("the supplied RKS response has an invalid type")
-        if type(response.diagnostics) is not RKSResponseDiagnostics:
+        trusted = self._trusted_rks_responses.get(id(response))
+        if trusted is None or trusted[0] is not response:
             raise RKSResponseError(
-                "the supplied RKS response diagnostics have an invalid type"
+                "the supplied RKS response was not produced by this RKS DeePHF method"
             )
-        adapter = RKSResponseAdapter(
-            self.reference,
-            **self._response_adapter_options(response.diagnostics),
-        )
+        _, adapter, original_integrity = trusted
+        if (
+            type(original_integrity) is not str
+            or response.integrity_fingerprint != original_integrity
+        ):
+            raise RKSResponseError(
+                "the supplied RKS response changed after it was produced"
+            )
+        if type(adapter) is not RKSResponseAdapter:
+            raise RKSResponseError(
+                "the trusted RKS response adapter is unavailable"
+            )
         adapter.audit_response_equations(response)
         return response
 

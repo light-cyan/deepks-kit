@@ -23,8 +23,22 @@ from .capabilities import DeePHFCapabilityError
 
 
 SUPPORTED_PYSCF_SERIES = (2, 14)
+SUPPORTED_LIBXC_VERSION = "7.0.0"
 SUPPORTED_LIBXC_COMPONENTS = ((1, 1.0), (7, 1.0))
 SUPPORTED_ATOM_GRID = (20, 50)
+SUPPORTED_NUMINT_CUTOFF = 1.0e-13
+SUPPORTED_GRID_CUTOFF = 1.0e-15
+SUPPORTED_BRAGG_RADII_FINGERPRINT = (
+    "d5eeefc53bb8261154cd2317ff60e5e642dd9cde1d1f283647b7956756b74a43"
+)
+_SUPPORTED_RADI_METHOD = radi.treutler_ahlrichs
+_SUPPORTED_RADII_ADJUST = radi.treutler_atomic_radii_adjust
+_SUPPORTED_BECKE_SCHEME = gen_grid.original_becke
+_SUPPORTED_GRIDS_RESPONSE = rks_grad.grids_response_cc
+_GRID_WEIGHT_FD_STEP = 1.0e-5
+_GRID_WEIGHT_DERIVATIVE_ATOL = 1.0e-6
+_GRID_WEIGHT_DERIVATIVE_RTOL = 1.0e-7
+_GRID_RESPONSE_WEIGHT_ATOL = 1.0e-180
 
 
 class RKSResponseError(RuntimeError):
@@ -38,6 +52,7 @@ class RKSFunctionalProvenance:
     backend_module: str
     backend_version: str
     backend_reference: str
+    numint_cutoff: float
     xc_type: str
     components: tuple[tuple[int, float], ...]
     hybrid_coefficient: float
@@ -52,6 +67,7 @@ class RKSGridProvenance:
 
     grid_class: str
     generator: str
+    response_generator: str
     atom_grid: tuple[tuple[str, tuple[int, int]], ...]
     radi_method: str
     radii_adjust: str
@@ -65,6 +81,7 @@ class RKSGridProvenance:
     point_count: int
     coordinates_fingerprint: str
     weights_fingerprint: str
+    weight_derivatives_fingerprint: str
     atom_indices_fingerprint: str
     quadrature_weights_fingerprint: str
     nonzero_table_fingerprint: str
@@ -297,9 +314,23 @@ def _functional_provenance(reference) -> RKSFunctionalProvenance:
         raise DeePHFCapabilityError(
             "the initial RKS tier requires the native PySCF LibXC backend"
         )
+    if str(integration.libxc.__version__) != SUPPORTED_LIBXC_VERSION:
+        raise DeePHFCapabilityError(
+            "the initial RKS tier requires the characterized LibXC 7.0.0 backend"
+        )
     if integration.omega is not None:
         raise DeePHFCapabilityError(
             "the initial RKS tier requires an unset NumInt range-separation parameter"
+        )
+    integration_cutoff = integration.cutoff
+    if (
+        isinstance(integration_cutoff, (bool, np.bool_))
+        or not isinstance(integration_cutoff, Real)
+        or not np.isfinite(float(integration_cutoff))
+        or float(integration_cutoff) != SUPPORTED_NUMINT_CUTOFF
+    ):
+        raise DeePHFCapabilityError(
+            "the initial RKS tier requires the native NumInt cutoff"
         )
     custom_hooks = sorted(
         name for name, value in integration.__dict__.items() if callable(value)
@@ -309,11 +340,11 @@ def _functional_provenance(reference) -> RKSFunctionalProvenance:
             "the RKS NumInt object has unsupported instance hooks: "
             + ", ".join(custom_hooks)
         )
-    components = _normalized_functional_components(reference.xc)
     if reference.xc in libxc._CUSTOM_FUNC_R:
         raise DeePHFCapabilityError(
             "the initial RKS tier does not support registered custom LibXC functionals"
         )
+    components = _normalized_functional_components(reference.xc)
     try:
         xc_type = integration._xc_type(reference.xc)
         hybrid_coefficient = float(integration.hybrid_coeff(reference.xc, spin=0))
@@ -376,6 +407,7 @@ def _functional_provenance(reference) -> RKSFunctionalProvenance:
         backend_module=integration.libxc.__name__,
         backend_version=str(integration.libxc.__version__),
         backend_reference=str(integration.libxc.__reference__),
+        numint_cutoff=float(integration_cutoff),
         xc_type=xc_type,
         components=components,
         hybrid_coefficient=hybrid_coefficient,
@@ -445,6 +477,173 @@ def _grid_arrays(grid) -> tuple[np.ndarray, ...]:
     return tuple(np.asarray(value) for value in arrays)
 
 
+def _build_strict_grid(molecule, atom_grid):
+    grid = gen_grid.Grids(molecule)
+    grid.atom_grid = {symbol: specification for symbol, specification in atom_grid}
+    grid.radi_method = _SUPPORTED_RADI_METHOD
+    grid.radii_adjust = _SUPPORTED_RADII_ADJUST
+    grid.atomic_radii = radi.BRAGG_RADII
+    grid.becke_scheme = _SUPPORTED_BECKE_SCHEME
+    grid.prune = None
+    grid.alignment = 1
+    grid.symmetry = False
+    grid.cutoff = SUPPORTED_GRID_CUTOFF
+    grid.build(with_non0tab=True, sort_grids=False)
+    return grid
+
+
+def _finite_difference_grid_weight_derivative(
+    molecule,
+    atom_grid,
+    central_atom_indices: np.ndarray,
+) -> np.ndarray:
+    coordinates = np.asarray(gto_mole.Mole.atom_coords(molecule, unit="Bohr"))
+    derivative = np.empty((molecule.natm, 3, central_atom_indices.size))
+    for atom_index in range(molecule.natm):
+        for axis in range(3):
+            displaced_weights = []
+            for sign in (1.0, -1.0):
+                displaced_coordinates = coordinates.copy()
+                displaced_coordinates[atom_index, axis] += sign * _GRID_WEIGHT_FD_STEP
+                displaced_molecule = gto_mole.Mole.set_geom_(
+                    molecule,
+                    displaced_coordinates,
+                    unit="Bohr",
+                    symmetry=False,
+                    inplace=False,
+                )
+                displaced_grid = _build_strict_grid(displaced_molecule, atom_grid)
+                displaced_atom_indices = np.asarray(displaced_grid.atm_idx)
+                displaced_grid_weights = np.asarray(displaced_grid.weights)
+                if (
+                    displaced_grid_weights.dtype != np.dtype(np.float64)
+                    or displaced_grid_weights.shape != central_atom_indices.shape
+                    or not np.isfinite(displaced_grid_weights).all()
+                    or not np.array_equal(
+                        displaced_atom_indices,
+                        central_atom_indices,
+                    )
+                ):
+                    raise DeePHFCapabilityError(
+                        "the displaced strict RKS grids do not preserve point ordering"
+                    )
+                displaced_weights.append(displaced_grid_weights)
+            derivative[atom_index, axis] = (
+                displaced_weights[0] - displaced_weights[1]
+            ) / (2.0 * _GRID_WEIGHT_FD_STEP)
+    return derivative
+
+
+def _validated_grid_response_blocks(
+    reference,
+    atom_grid,
+    *,
+    audit_weight_derivative: bool,
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...]:
+    if rks_grad.grids_response_cc is not _SUPPORTED_GRIDS_RESPONSE:
+        raise DeePHFCapabilityError(
+            "the native PySCF RKS grid-response generator was modified"
+        )
+    grid = reference.grids
+    molecule = reference.mol
+    coordinates, weights, atom_indices, _quadrature_weights, _nonzero_table = (
+        _grid_arrays(grid)
+    )
+    try:
+        raw_blocks = tuple(_SUPPORTED_GRIDS_RESPONSE(grid))
+    except Exception as error:
+        raise DeePHFCapabilityError(
+            f"the RKS grid-response generator failed: {error}"
+        ) from error
+    if len(raw_blocks) != molecule.natm:
+        raise DeePHFCapabilityError(
+            "the RKS grid-response generator returned an invalid host-atom partition"
+        )
+    blocks = []
+    for host_atom, raw_block in enumerate(raw_blocks):
+        if not isinstance(raw_block, (tuple, list)) or len(raw_block) != 3:
+            raise DeePHFCapabilityError(
+                "the RKS grid-response generator returned an invalid block"
+            )
+        block_coordinates, block_weights, weight_derivative = (
+            np.asarray(value) for value in raw_block
+        )
+        host_points = np.flatnonzero(atom_indices == host_atom)
+        if (
+            host_points.size == 0
+            or not np.array_equal(
+                host_points,
+                np.arange(host_points[0], host_points[-1] + 1),
+            )
+            or block_coordinates.shape != (host_points.size, 3)
+            or block_weights.shape != (host_points.size,)
+            or weight_derivative.shape
+            != (molecule.natm, 3, host_points.size)
+        ):
+            raise DeePHFCapabilityError(
+                "the RKS grid-response host-atom block shape is invalid"
+            )
+        values = (block_coordinates, block_weights, weight_derivative)
+        if any(value.dtype != np.dtype(np.float64) for value in values):
+            raise DeePHFCapabilityError(
+                "the RKS grid-response blocks must use numpy.float64"
+            )
+        if not all(np.isfinite(value).all() for value in values):
+            raise DeePHFCapabilityError(
+                "the RKS grid-response blocks must be finite"
+            )
+        canonical_block_weights = weights[host_points]
+        if not np.array_equal(
+            block_coordinates,
+            coordinates[host_points],
+        ) or not np.allclose(
+            block_weights,
+            canonical_block_weights,
+            rtol=0.0,
+            atol=_GRID_RESPONSE_WEIGHT_ATOL,
+        ):
+            raise DeePHFCapabilityError(
+                "the RKS grid-response host block does not match the energy grid"
+            )
+        blocks.append(
+            (block_coordinates, canonical_block_weights, weight_derivative)
+        )
+    analytic_derivative = np.concatenate(
+        [block[2] for block in blocks],
+        axis=2,
+    )
+    translation_residual = float(
+        np.max(np.abs(np.sum(analytic_derivative, axis=0)), initial=0.0)
+    )
+    if translation_residual > 1.0e-10:
+        raise DeePHFCapabilityError(
+            "the RKS grid-weight derivative violates nuclear translation invariance"
+        )
+    if audit_weight_derivative:
+        finite_difference_derivative = _finite_difference_grid_weight_derivative(
+            molecule,
+            atom_grid,
+            atom_indices,
+        )
+        if not np.allclose(
+            analytic_derivative,
+            finite_difference_derivative,
+            rtol=_GRID_WEIGHT_DERIVATIVE_RTOL,
+            atol=_GRID_WEIGHT_DERIVATIVE_ATOL,
+        ):
+            maximum_residual = float(
+                np.max(
+                    np.abs(analytic_derivative - finite_difference_derivative),
+                    initial=0.0,
+                )
+            )
+            raise DeePHFCapabilityError(
+                "the RKS grid-weight derivative does not match independent finite "
+                f"differences: residual {maximum_residual:.3e}"
+            )
+    return tuple(blocks)
+
+
 def _grid_provenance(reference) -> RKSGridProvenance:
     molecule = reference.mol
     grid = reference.grids
@@ -454,13 +653,13 @@ def _grid_provenance(reference) -> RKSGridProvenance:
         )
     atom_grid = _normalized_atom_grid(molecule, grid.atom_grid)
     required_functions = (
-        (grid.radi_method, radi.treutler_ahlrichs, "radial method"),
+        (grid.radi_method, _SUPPORTED_RADI_METHOD, "radial method"),
         (
             grid.radii_adjust,
-            radi.treutler_atomic_radii_adjust,
+            _SUPPORTED_RADII_ADJUST,
             "atomic-radii adjustment",
         ),
-        (grid.becke_scheme, gen_grid.original_becke, "Becke partition"),
+        (grid.becke_scheme, _SUPPORTED_BECKE_SCHEME, "Becke partition"),
     )
     for actual, expected, name in required_functions:
         if actual is not expected:
@@ -472,6 +671,18 @@ def _grid_provenance(reference) -> RKSGridProvenance:
     if grid.atomic_radii is not radi.BRAGG_RADII:
         raise DeePHFCapabilityError(
             "the initial RKS grid requires the native BRAGG_RADII table"
+        )
+    atomic_radii = np.asarray(grid.atomic_radii)
+    if (
+        type(grid.atomic_radii) is not np.ndarray
+        or atomic_radii.dtype != np.dtype(np.float64)
+        or atomic_radii.shape != (131,)
+        or not np.isfinite(atomic_radii).all()
+        or _array_fingerprint(atomic_radii)
+        != SUPPORTED_BRAGG_RADII_FINGERPRINT
+    ):
+        raise DeePHFCapabilityError(
+            "the native PySCF 2.14 BRAGG_RADII table was modified"
         )
     if isinstance(grid.alignment, (bool, np.bool_)):
         raise DeePHFCapabilityError(
@@ -500,14 +711,16 @@ def _grid_provenance(reference) -> RKSGridProvenance:
         raise DeePHFCapabilityError(
             "the initial RKS grid cutoff must be a finite real scalar"
         )
-    if grid_cutoff != float(gen_grid.CUTOFF):
+    if grid_cutoff != SUPPORTED_GRID_CUTOFF:
         raise DeePHFCapabilityError(
             "the initial RKS grid requires the native PySCF cutoff"
         )
     grid_hooks = sorted(
         name
         for name, value in grid.__dict__.items()
-        if name != "mol" and callable(value)
+        if name
+        not in {"mol", "radi_method", "radii_adjust", "becke_scheme"}
+        and callable(value)
     )
     if grid_hooks:
         raise DeePHFCapabilityError(
@@ -529,11 +742,7 @@ def _grid_provenance(reference) -> RKSGridProvenance:
         for value in (coordinates, weights, quadrature_weights)
     ):
         raise DeePHFCapabilityError("the RKS grid contains nonfinite values")
-    fresh = gen_grid.Grids(molecule)
-    fresh.atom_grid = {symbol: specification for symbol, specification in atom_grid}
-    fresh.prune = None
-    fresh.alignment = 1
-    fresh.build(with_non0tab=True, sort_grids=False)
+    fresh = _build_strict_grid(molecule, atom_grid)
     fresh_arrays = _grid_arrays(fresh)
     names = (
         "coordinates",
@@ -548,29 +757,28 @@ def _grid_provenance(reference) -> RKSGridProvenance:
         names,
         strict=True,
     ):
-        if not np.array_equal(actual, expected):
+        if (
+            actual.dtype != expected.dtype
+            or actual.shape != expected.shape
+            or not np.array_equal(actual, expected)
+        ):
             raise DeePHFCapabilityError(
                 f"the prebuilt RKS grid {name} do not match a fresh deterministic build"
             )
-    try:
-        response_blocks = tuple(rks_grad.grids_response_cc(grid))
-        response_coordinates = np.vstack([block[0] for block in response_blocks])
-        response_weights = np.hstack([block[1] for block in response_blocks])
-    except Exception as error:
-        raise DeePHFCapabilityError(
-            f"the RKS grid-response generator failed: {error}"
-        ) from error
-    if not np.array_equal(response_coordinates, coordinates) or not np.array_equal(
-        response_weights,
-        weights,
-    ):
-        raise DeePHFCapabilityError(
-            "the RKS grid-response generator does not reproduce the energy grid order"
-        )
+    response_blocks = _validated_grid_response_blocks(
+        reference,
+        atom_grid,
+        audit_weight_derivative=True,
+    )
+    weight_derivatives = np.concatenate(
+        [block[2] for block in response_blocks],
+        axis=2,
+    )
     ao_labels = np.asarray(tuple(molecule.ao_labels()), dtype=np.str_)
     return RKSGridProvenance(
         grid_class=_qualified_name(type(grid)),
         generator="pyscf.dft.gen_grid.Grids.build(with_non0tab=True,sort_grids=False)",
+        response_generator=_qualified_name(_SUPPORTED_GRIDS_RESPONSE),
         atom_grid=atom_grid,
         radi_method=_qualified_name(grid.radi_method),
         radii_adjust=_qualified_name(grid.radii_adjust),
@@ -584,6 +792,7 @@ def _grid_provenance(reference) -> RKSGridProvenance:
         point_count=int(weights.size),
         coordinates_fingerprint=_array_fingerprint(coordinates),
         weights_fingerprint=_array_fingerprint(weights),
+        weight_derivatives_fingerprint=_array_fingerprint(weight_derivatives),
         atom_indices_fingerprint=_array_fingerprint(atom_indices),
         quadrature_weights_fingerprint=_array_fingerprint(quadrature_weights),
         nonzero_table_fingerprint=_array_fingerprint(nonzero_table),
@@ -1200,12 +1409,15 @@ class RKSResponseAdapter:
         grid_coordinate = np.zeros(shape)
         grid_weight = np.zeros(shape)
         ao_slices = molecule.aoslice_by_atom()
-        try:
-            blocks = tuple(rks_grad.grids_response_cc(self.reference.grids))
-        except Exception as error:
-            raise RKSResponseError(
-                f"PySCF RKS grid-response generation failed: {error}"
-            ) from error
+        atom_grid = _normalized_atom_grid(
+            molecule,
+            self.reference.grids.atom_grid,
+        )
+        blocks = _validated_grid_response_blocks(
+            self.reference,
+            atom_grid,
+            audit_weight_derivative=False,
+        )
         for host_atom, (coordinates, weights, weight_derivative) in enumerate(blocks):
             coordinates = np.asarray(coordinates)
             weights = np.asarray(weights)
@@ -2598,12 +2810,12 @@ def _native_xc_grid_force_components(reference) -> tuple[np.ndarray, np.ndarray]
     density = np.asarray(reference.make_rdm1())
     coordinate_force = np.zeros((molecule.natm, 3), dtype=np.float64)
     weight_force = np.zeros_like(coordinate_force)
-    try:
-        blocks = tuple(rks_grad.grids_response_cc(reference.grids))
-    except Exception as error:
-        raise RKSResponseError(
-            f"PySCF native RKS grid-response generation failed: {error}"
-        ) from error
+    atom_grid = _normalized_atom_grid(molecule, reference.grids.atom_grid)
+    blocks = _validated_grid_response_blocks(
+        reference,
+        atom_grid,
+        audit_weight_derivative=False,
+    )
     for host_atom, (coordinates, weights, weight_derivative) in enumerate(blocks):
         coordinates = np.asarray(coordinates)
         weights = np.asarray(weights)
