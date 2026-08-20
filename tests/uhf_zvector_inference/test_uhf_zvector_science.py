@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 import torch
+from pyscf import gto, scf
 
 from deepks.deephf import UHFDeePHF
 from deepks.model.model import CorrNet
@@ -262,3 +263,92 @@ def test_zero_and_constant_corrections_reduce_to_native_uhf_gradient(
     )
     np.testing.assert_allclose(actual, native, rtol=2.0e-12, atol=2.0e-12)
     assert driver.adjoint_diagnostics.solve_count == 1
+
+
+def test_distinct_bent_bh2_oracle_matches_direct_and_total_energy_fd(
+    uhf_oracle_case,
+):
+    coordinates = np.array(
+        [
+            [0.22, -0.17, 0.13],
+            [1.62, 0.29, -0.24],
+            [-0.51, 1.47, 0.63],
+        ],
+        dtype=np.float64,
+    )
+    step = 3.0e-4
+    model = uhf_oracle_case.model
+
+    def fresh_reference(current_coordinates):
+        molecule = gto.M(
+            atom=list(zip(("B", "H", "H"), current_coordinates)),
+            basis="sto-3g",
+            unit="Bohr",
+            charge=0,
+            spin=1,
+            symmetry=False,
+            cart=False,
+            verbose=0,
+        )
+        reference = scf.UHF(molecule)
+        reference.conv_tol = 1.0e-13
+        reference.conv_tol_grad = 1.0e-10
+        reference.conv_tol_cpscf = 1.0e-12
+        reference.max_cycle = 100
+        reference.kernel()
+        assert reference.converged
+        return reference
+
+    reference = fresh_reference(coordinates)
+    method = UHFDeePHF(
+        reference,
+        model,
+        projector_basis=ORACLE_PROJECTOR_BASIS,
+    )
+    method.kernel()
+    zdriver = method.nuc_grad_method(backend="zvector").run()
+    direct = method.gradient(backend="direct")
+    finite_difference = np.empty((3, 3), dtype=np.float64)
+    for atom_index in range(3):
+        for coordinate_index in range(3):
+            energies = []
+            for direction in (-1, 1):
+                displaced = coordinates.copy()
+                displaced[atom_index, coordinate_index] += direction * step
+                displaced_method = UHFDeePHF(
+                    fresh_reference(displaced),
+                    model,
+                    projector_basis=ORACLE_PROJECTOR_BASIS,
+                )
+                energies.append(float(displaced_method.kernel()))
+            finite_difference[atom_index, coordinate_index] = (
+                energies[1] - energies[0]
+            ) / (2.0 * step)
+
+    np.testing.assert_allclose(
+        zdriver.de_full,
+        direct,
+        rtol=2.0e-9,
+        atol=1.0e-11,
+    )
+    np.testing.assert_allclose(
+        zdriver.de_full,
+        finite_difference,
+        rtol=3.0e-6,
+        atol=1.0e-7,
+    )
+    np.testing.assert_allclose(
+        zdriver.de_full.sum(axis=0),
+        np.zeros(3),
+        rtol=0.0,
+        atol=2.0e-10,
+    )
+    assert np.min(
+        np.linalg.norm(zdriver.correction_gradient_metric_spin, axis=(1, 2))
+    ) > 1.0e-3
+    assert np.min(
+        np.linalg.norm(
+            zdriver.correction_gradient_occupied_virtual_spin,
+            axis=(1, 2),
+        )
+    ) > 1.0e-4

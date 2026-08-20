@@ -73,6 +73,7 @@ def test_direct_and_adjoint_option_namespaces_are_independent(uhf_oracle_case):
 
     assert method.nuc_grad_method().response_options == {}
     assert method.nuc_grad_method(backend="zvector").adjoint_options == {}
+    assert np.isfinite(method.gradient(backend="zvector")).all()
     with pytest.raises(ValueError, match="unsupported direct backend options"):
         method.nuc_grad_method(
             backend="direct",
