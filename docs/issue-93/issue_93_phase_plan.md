@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, P2, P3A, P3B, and P4A are complete; strict RHF relaxed-force training and scalar-adjoint inference remain based on the P2 RHF direct oracle, and the accepted P4A UHF direct oracle provides complete coupled spin-resolved density response and exact analytic perturbative gradients for its declared UHF domain.
+**Current position:** P0, P1, P2, P3A, P3B, P4A, and P4B are complete; strict RHF relaxed-force training and scalar-adjoint inference remain based on the P2 RHF direct oracle, the accepted P4A UHF direct oracle provides complete coupled spin-resolved response, and the accepted P4B RKS direct oracle provides complete finite-grid closed-shell pure-LDA response and exact analytic perturbative gradients for its declared domain.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -30,7 +30,7 @@ P1 Shared descriptor core and method separation
 P2 RHF DeePHF direct oracle
  |-------------------------|-------------------------|-------------------------|
  v                         v                         v                         v
-P3A Force data/training    P3B RHF Z/inference      P4A UHF direct [done]    P4B RKS direct
+P3A Force data/training    P3B RHF Z/inference      P4A UHF direct [done]    P4B RKS direct [done]
                               |                         |                         |
                               |-------------------------|--> UHF Z                |
                               |---------------------------------------------------> RKS Z
@@ -114,7 +114,7 @@ P3 contains two parallel tracks after P2.
 
 **Major work:**
 
-- Use the accepted UHF direct oracle as the unrestricted-spin correctness reference while validating each separate reference family under its own scientific conventions.
+- The accepted UHF and closed-shell pure-LDA RKS direct oracles serve as correctness references under their separate spin, functional, and finite-grid conventions.
 - Add UHF and RKS Z-vector backends after their direct oracles and the P3B adjoint foundation are accepted.
 - Add UKS direct after the UHF and RKS conventions are stable, then add UKS Z-vector.
 - Maintain and test an explicit capability matrix for every advertised reference and XC tier.
@@ -128,6 +128,16 @@ P3 contains two parallel tracks after P2.
 - Preserve the canonical spin-summed descriptor while exposing additive alpha and beta density, descriptor-response, and correction-gradient partitions.
 - Retain the complete coupled occupied-virtual and AO-metric response as an auditable direct oracle.
 - Keep the RHF force-data, scalar-adjoint, and scanner implementations isolated from the UHF direct object graph.
+
+### P4B — RKS direct oracle
+
+**Status:** Implemented and target-accepted. The exact native closed-shell RKS validator, characterized LibXC 7.0.0 pure-LDA tier, deterministic unpruned atom-centered grid contract, complete Coulomb plus `f_xc` CPKS response, hardened grid-response and `w1` audits, bounded trusted-response reuse, AO-metric and grid-motion partitions, audited native grid-response gradient, finite-difference and cross-molecule oracles, and package-isolation guards are implemented and documented in [P4B RKS DeePHF direct oracle](./p4b_rks_direct_oracle.md).
+
+- The oracle binds the exact finite-grid energy to normalized `LDA_X + LDA_C_VWN` semantics under LibXC `7.0.0`, `NumInt.cutoff=1e-13`, grid cutoff `1e-15`, and byte-reproducible `(20, 50)` atom-grid provenance with the canonical PySCF 2.14 `BRAGG_RADII` content fingerprint.
+- The exact response-generator identity, host-atom block boundaries, cached energy-grid weights, full translational `w1`, and independent `h=1e-5 Bohr` grid-weight finite differences are enforced before CPKS, while provenance records the qualified response-generator identity and weight-derivative fingerprint.
+- Runtime responses retain fixed-grid XC AO motion, grid-coordinate response, grid-weight response, AO-metric response, occupied-virtual response, and complete relaxed descriptor and gradient values as auditable partitions, and each method can reuse up to eight responses that it produced and continues to revalidate.
+- Strict `H2` and `LiH` cross-molecule smoke checks exercise the characterized native functional and deterministic grid domain.
+- Architecture guards keep the RHF force-data, scalar-adjoint, and scanner implementations and the UHF direct implementation isolated from the RKS direct object graph.
 
 ## 8. P5 — Integration and hardening
 
