@@ -4,7 +4,7 @@
 
 **Planning level:** This roadmap defines phase objectives, dependencies, major work, and exit gates. Each phase receives a separate detailed task document when implementation starts.
 
-**Current position:** P0, P1, and P2 are complete; the validated RHF DeePHF direct oracle is the accepted reference for subsequent force-data, Z-vector, and support-domain work.
+**Current position:** P0, P1, P2, and P3A are complete; strict RHF DeePHF relaxed-force data, force-aware training, validation, saved-data testing, and checkpoint reload are accepted, with the validated P2 direct oracle providing their scientific response semantics.
 
 **Technical basis:** [2026-08-19 assessment](./deepks_issue_93_assessment.0819.md)
 
@@ -91,6 +91,8 @@ P5 begins after the accepted P3 and P4 delivery tracks pass their gates.
 P3 contains two parallel tracks after P2.
 
 ### P3A — Force data and training
+
+**Status:** Complete. The strict v1 RHF force-data contract, direct-response producer, relaxed-Jacobian reader and contraction, force-aware training and validation, saved-data testing, compatible checkpoint reload, deterministic acceptance tests, and runnable example are implemented and documented in [P3A RHF relaxed-force data and training](./p3a_rhf_force_training.md).
 
 - Define the force-data schema around the complete relaxed descriptor Jacobian and required provenance.
 - Update data generation, readers, training, validation, saved-data testing, and checkpoint workflows to use the canonical semantics.
