@@ -176,6 +176,7 @@ class AtomicDensityDescriptor:
         self,
         ao_density,
         component_density,
+        raw_atom_indices=None,
     ) -> np.ndarray:
         """Return one additive component of fixed-density descriptor motion."""
         result = dq_dR_explicit_component(
@@ -185,5 +186,6 @@ class AtomicDensityDescriptor:
             self.overlap_shells,
             self.derivative_overlap_shells(),
             self.descriptor_atom_indices,
+            raw_atom_indices,
         )
         return result.detach().cpu().numpy()

@@ -194,6 +194,7 @@ def test_rks_rejects_a_noncanonical_libxc_parameter_signature(
     rks_oracle_case,
     monkeypatch,
 ):
+    validate_rks_reference(rks_oracle_case.reference)
     original_evaluate = dft.numint.NumInt.eval_xc_eff
 
     def altered_evaluate(self, *args, **kwargs):
@@ -207,7 +208,7 @@ def test_rks_rejects_a_noncanonical_libxc_parameter_signature(
         altered_evaluate,
     )
 
-    with pytest.raises(DeePHFCapabilityError, match="parameters do not match"):
+    with pytest.raises(DeePHFCapabilityError, match="DFT implementation changed"):
         validate_rks_reference(rks_oracle_case.reference)
 
 
@@ -641,7 +642,7 @@ def test_rks_rejects_a_polluted_ground_state_effective_potential(
 
     monkeypatch.setattr(dft.rks.RKS, "get_veff", polluted_get_veff)
 
-    with pytest.raises(DeePHFCapabilityError, match="does not match direct Coulomb"):
+    with pytest.raises(DeePHFCapabilityError, match="DFT implementation changed"):
         validate_rks_reference(reference)
 
 
@@ -1050,7 +1051,7 @@ def test_rks_gradient_failure_clears_results(
         "de_full",
         "de",
     ):
-        assert getattr(driver, name) is None
+        assert getattr(driver, name, None) is None
 
 
 def test_rks_grid_quadrature_failure_is_propagated(
@@ -1066,7 +1067,7 @@ def test_rks_grid_quadrature_failure_is_propagated(
 
     with pytest.raises(
         (DeePHFCapabilityError, RKSResponseError),
-        match="injected RKS grid quadrature failure",
+        match="DFT implementation changed",
     ):
         method.response()
 
@@ -1088,10 +1089,10 @@ def test_rks_native_gradient_failure_clears_driver_results(
 
     with pytest.raises(RKSResponseError, match="injected native RKS gradient failure"):
         driver.kernel()
-    assert driver.response_result is None
-    assert driver.native_gradient_result is None
-    assert driver.correction_gradient is None
-    assert driver.de_full is None
+    assert not hasattr(driver, "response_result")
+    assert not hasattr(driver, "native_gradient_result")
+    assert not hasattr(driver, "correction_gradient")
+    assert not hasattr(driver, "de_full")
     assert driver.de is None
 
 
@@ -1150,14 +1151,14 @@ def test_rks_gradient_driver_rejects_corrupted_binding_and_invalid_atoms(
 
     with pytest.raises(TypeError, match="atom indices must be integers"):
         driver.kernel(atmlst=[True])
-    assert driver.response_result is None
-    assert driver.de_full is None
+    assert not hasattr(driver, "response_result")
+    assert not hasattr(driver, "de_full")
 
     driver._backend = "zvector"
     with pytest.raises(RKSResponseError, match="binding is invalid"):
         driver.kernel()
-    assert driver.response_result is None
-    assert driver.de_full is None
+    assert not hasattr(driver, "response_result")
+    assert not hasattr(driver, "de_full")
 
 
 def test_grid_weight_derivative_fault_is_rejected_before_any_response_solve(

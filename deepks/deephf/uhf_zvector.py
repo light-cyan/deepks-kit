@@ -5,14 +5,19 @@ from types import MappingProxyType
 import numpy as np
 
 from .capabilities import science_state_transaction
-from .gradient import _validate_atom_indices
-from .pyscf_uhf import UHFAdjointError
+from .gradient import (
+    _compact_driver_results,
+    _reset_driver_results,
+    _validate_atom_indices,
+    _validate_retain_details,
+)
+from .pyscf_uhf import UHFAdjointError, _native_unrestricted_gradient
 
 
 class UHFDeePHFZVectorGradients:
     """Evaluate one unrestricted correction through a coupled scalar adjoint."""
 
-    def __init__(self, method, adjoint_options=None):
+    def __init__(self, method, adjoint_options=None, retain_details=True):
         from .uhf_method import UHFDeePHF
 
         if type(method) is not UHFDeePHF:
@@ -24,6 +29,7 @@ class UHFDeePHFZVectorGradients:
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "zvector"
+        self.retain_details = _validate_retain_details(retain_details)
         self._adjoint_options = MappingProxyType(dict(adjoint_options or {}))
         self._bound_adjoint_options = self._adjoint_options
         self._reset_results()
@@ -61,33 +67,15 @@ class UHFDeePHFZVectorGradients:
             )
 
     def _reset_results(self) -> None:
-        self.adjoint_result = None
-        self.descriptor_diagnostics = None
-        self.reference_gradient = None
-        self.dq_dR_explicit_spin = None
-        self.dq_dR_explicit = None
-        self.correction_gradient_explicit_spin = None
-        self.correction_gradient_metric_spin = None
-        self.correction_gradient_adjoint_nuclear_spin = None
-        self.correction_gradient_adjoint_metric_spin = None
-        self.correction_gradient_occupied_virtual_spin = None
-        self.correction_gradient_response_spin = None
-        self.correction_gradient_spin = None
-        self.correction_gradient_explicit = None
-        self.correction_gradient_metric = None
-        self.correction_gradient_adjoint_nuclear = None
-        self.correction_gradient_adjoint_metric = None
-        self.correction_gradient_occupied_virtual = None
-        self.correction_gradient_response = None
-        self.correction_gradient = None
-        self.de_full = None
-        self.de = None
+        _reset_driver_results(self)
 
     @property
     def adjoint_diagnostics(self):
-        if self.adjoint_result is None:
-            return None
-        return self.adjoint_result.diagnostics
+        return (
+            self._response_diagnostics
+            if getattr(self, "adjoint_result", None) is None
+            else self.adjoint_result.diagnostics
+        )
 
     @property
     def response_diagnostics(self):
@@ -101,13 +89,15 @@ class UHFDeePHFZVectorGradients:
                 f"the UHF Z-vector {label} partitions are inconsistent"
             )
 
-    def _validated_native_gradient(self) -> np.ndarray:
+    def _validated_native_gradient(self, atom_indices) -> np.ndarray:
         self.base._validate_science_state(
             "UHF Z-vector native gradient evaluation"
         )
         try:
-            gradient = np.asarray(
-                self.base.reference.nuc_grad_method().kernel()
+            gradient = _native_unrestricted_gradient(
+                self.base.reference,
+                self.base.reference.nuc_grad_method(),
+                range(self.mol.natm) if atom_indices is None else atom_indices,
             )
         except Exception as error:
             raise UHFAdjointError(
@@ -116,7 +106,10 @@ class UHFDeePHFZVectorGradients:
         self.base._validate_science_state(
             "UHF Z-vector native gradient evaluation"
         )
-        expected_shape = (self.mol.natm, 3)
+        expected_shape = (
+            self.mol.natm if atom_indices is None else len(atom_indices),
+            3,
+        )
         if gradient.shape != expected_shape:
             raise UHFAdjointError(
                 f"the native UHF gradient has shape {gradient.shape}; "
@@ -130,12 +123,15 @@ class UHFDeePHFZVectorGradients:
             raise UHFAdjointError("the native UHF gradient must be finite")
         return gradient
 
-    def _kernel(self) -> dict:
+    def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
-            self.adjoint_options
+            self.adjoint_options,
+            atom_indices=atom_indices,
         )
-        reference_gradient = self._validated_native_gradient()
-        dq_explicit_spin = self.base.dq_dR_explicit_spin()
+        reference_gradient = self._validated_native_gradient(atom_indices)
+        dq_explicit_spin = self.base.dq_dR_explicit_spin(
+            atom_indices=atom_indices
+        )
         self.base._validate_science_state(
             "UHF Z-vector explicit descriptor gradient evaluation"
         )
@@ -175,11 +171,12 @@ class UHFDeePHFZVectorGradients:
         correction_response = np.asarray(adjoint.correction_gradient_response)
         correction = correction_explicit + correction_response
         total = reference_gradient + correction
-        expected_shape = (self.mol.natm, 3)
-        expected_spin_shape = (2, self.mol.natm, 3)
+        natm = len(adjoint.atom_indices)
+        expected_shape = (natm, 3)
+        expected_spin_shape = (2, natm, 3)
         expected_descriptor_shape = (
             2,
-            self.mol.natm,
+            natm,
             3,
             self.base.n_descriptor_atoms,
             self.base.n_descriptor_features,
@@ -330,13 +327,12 @@ class UHFDeePHFZVectorGradients:
         try:
             self._validate_driver_binding()
             atom_indices = _validate_atom_indices(self.mol, atmlst)
-            results = self._kernel()
+            results = self._kernel(atom_indices)
             for name, value in results.items():
                 setattr(self, name, value)
-            if atom_indices is None:
-                self.de = self.de_full
-            else:
-                self.de = self.de_full[list(atom_indices)]
+            self.de = self.de_full
+            if not self.retain_details:
+                _compact_driver_results(self)
             return self.de
         except Exception:
             self._reset_results()

@@ -536,7 +536,6 @@ def test_deephf_nonadapter_modules_do_not_access_private_molecular_state():
 def test_rks_semiprivate_pyscf_facilities_have_one_adapter_owner():
     semiprivate_symbols = {
         "_CUSTOM_FUNC_R",
-        "_get_vxc_deriv1",
         "_itrf",
         "grids_response_cc",
     }
@@ -556,7 +555,6 @@ def test_rks_semiprivate_pyscf_facilities_have_one_adapter_owner():
 
     assert owners == {
         "_CUSTOM_FUNC_R": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
-        "_get_vxc_deriv1": {"deepks/deephf/pyscf_rks.py", "deepks/deephf/pyscf_uks.py"},
         "_itrf": {"deepks/deephf/pyscf_rks.py"},
         "grids_response_cc": {"deepks/deephf/pyscf_rks.py"},
     }

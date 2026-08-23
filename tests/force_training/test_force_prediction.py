@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+import deepks.model.train as train_module
 from deepks.data import force_checkpoint_metadata
 from deepks.deephf import write_rhf_force_dataset
 from deepks.model.evaluate import predict_correction
@@ -147,6 +148,28 @@ def test_force_training_rejects_output_replacement_hooks():
             predict_correction(model, descriptor, jacobian)
     finally:
         hook.remove()
+
+
+@pytest.mark.parametrize("layer_index", range(3))
+def test_force_training_rejects_linear_leaf_forward_replacement(layer_index):
+    model = _linear_model()
+    layers = (model.linear, *model.densenet.layers)
+    original = layers[layer_index].forward
+    layers[layer_index].forward = lambda values: original(values.detach()) + 0.0 * values
+    descriptor = torch.ones((1, 1, 2), dtype=torch.float64)
+    jacobian = torch.ones((1, 1, 3, 1, 2), dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="linear-layer forward implementation"):
+        predict_correction(model, descriptor, jacobian)
+
+
+def test_force_training_rejects_relu_activation():
+    model = CorrNet(input_dim=2, hidden_sizes=(2,), actv_fn="relu").double()
+    descriptor = torch.ones((1, 1, 2), dtype=torch.float64)
+    jacobian = torch.ones((1, 1, 3, 1, 2), dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="unsupported activation"):
+        predict_correction(model, descriptor, jacobian)
 
 
 def test_nonlinear_normalized_force_matches_descriptor_displacement_energy_fd():
@@ -376,6 +399,64 @@ def test_force_evaluator_reports_nonzero_component_losses_and_metrics(tmp_path):
         result.force_metrics.rmse,
         force_offset.square().mean().sqrt(),
     )
+
+
+def test_force_evaluator_rejects_reader_batch_tensor_mutation(tmp_path):
+    model, descriptor, jacobian, _, force = _force_case()
+    contract, sample = write_force_contract_sample(
+        tmp_path / "mutated-sample",
+        energy=model(descriptor).detach(),
+        descriptor=descriptor,
+        force=force,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
+    evaluator = Evaluator(force_factor=1.0, force_contract=contract)
+    sample["descriptor"].add_(1.0)
+
+    with pytest.raises(ForceTrainingError, match="changed after reader issuance"):
+        evaluator.evaluate(model, sample)
+
+
+def test_force_evaluator_caches_invariant_validation_until_model_update(
+    tmp_path,
+    monkeypatch,
+):
+    model, descriptor, jacobian, _, force = _force_case()
+    contract, sample = write_force_contract_sample(
+        tmp_path / "validation-cache",
+        energy=model(descriptor).detach(),
+        descriptor=descriptor,
+        force=force,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
+    counts = {"architecture": 0, "contract": 0, "state": 0}
+
+    for name, key in (
+        ("validate_force_model_architecture", "architecture"),
+        ("validate_model_force_contract", "contract"),
+        ("_validate_model_state", "state"),
+    ):
+        original = getattr(train_module, name)
+
+        def counted(*args, _original=original, _key=key, **kwargs):
+            counts[_key] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(train_module, name, counted)
+
+    evaluator = Evaluator(force_factor=1.0, force_contract=contract)
+    evaluator.evaluate(model, sample)
+    evaluator.evaluate(model, sample)
+    assert counts == {"architecture": 1, "contract": 1, "state": 1}
+
+    with torch.no_grad():
+        model.linear.bias.add_(0.01)
+    evaluator.evaluate(model, sample)
+    assert counts == {"architecture": 1, "contract": 1, "state": 2}
 
 
 def test_grouped_evaluator_uses_each_validated_sample_contract(tmp_path):

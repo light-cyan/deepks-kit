@@ -225,7 +225,11 @@ def generate_rhf_force_frame(
         "f_target",
     )
 
-    gradient = method.nuc_grad_method(backend="direct", **options)
+    gradient = method.nuc_grad_method(
+        backend="direct",
+        retain_details=True,
+        **options,
+    )
     gradient.kernel()
     descriptor_diagnostics = gradient.descriptor_diagnostics
     if descriptor_diagnostics.structural_zero_blocks:

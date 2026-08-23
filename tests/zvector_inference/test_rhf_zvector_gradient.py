@@ -11,6 +11,25 @@ from deepks.deephf.gradient import RHFDeePHFGradients
 from deepks.model.model import CorrNet
 
 
+def test_rhf_compact_selected_gradient_drivers_retain_one_array(zvector_algebra_case):
+    for backend in ("direct", "zvector"):
+        driver = zvector_algebra_case.method.nuc_grad_method(
+            backend=backend,
+            retain_details=False,
+        ).run(atmlst=(1,))
+        retained_bytes = sum(
+            value.nbytes
+            for value in vars(driver).values()
+            if isinstance(value, np.ndarray)
+        )
+        assert retained_bytes == driver.de.nbytes
+        assert driver.de.shape == (1, 3)
+        assert not hasattr(driver, "de_full")
+        result_name = "response_result" if backend == "direct" else "adjoint_result"
+        assert not hasattr(driver, result_name)
+        assert driver.response_diagnostics is not None
+
+
 def _make_constant_model(template, bias):
     model = deepcopy(template)
     with torch.no_grad():

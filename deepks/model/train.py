@@ -21,17 +21,25 @@ from deepks.data.force_schema import (
     validate_force_data_contract,
     validate_force_checkpoint_metadata,
 )
-from deepks.model.evaluate import CorrectionPrediction, model_reference, predict_correction
+from deepks.model.evaluate import (
+    CorrectionPrediction,
+    _validate_model_state,
+    model_reference,
+    model_state_evidence,
+    predict_correction,
+)
 from deepks.model.model import (
     CorrNet,
     FORCE_JACOBIAN_SEMANTICS,
+    force_model_structure_evidence,
     normalize_force_contract_fingerprint,
+    validate_force_model_architecture,
 )
 from deepks.model.reader import (
     FORCE_MODE_DEEPHF_RELAXED,
     FORCE_MODE_NONE,
-    ForceBatch,
     GroupReader,
+    _force_batch_error,
 )
 from deepks.utils import load_basis, load_dirs, load_elem_table
 
@@ -373,6 +381,29 @@ class Evaluator:
             else ()
         )
         self.force_contract = self.force_contracts[0] if self.force_contracts else None
+        self._validated_model = None
+        self._model_structure_evidence = None
+        self._model_state_evidence = None
+        self._model_device = None
+
+    def _validate_model(self, model, descriptor) -> None:
+        structure = force_model_structure_evidence(model) if self.force_factor > 0 else None
+        if model is not self._validated_model or structure != self._model_structure_evidence:
+            if self.force_factor > 0:
+                validate_force_model_architecture(model, training=model.training)
+                validate_model_force_contract(model, self.force_contract)
+                structure = force_model_structure_evidence(model)
+            _validate_model_state(model, descriptor)
+            self._validated_model = model
+            self._model_structure_evidence = structure
+            self._model_state_evidence = model_state_evidence(model)
+            self._model_device = descriptor.device
+            return
+        state = model_state_evidence(model)
+        if state != self._model_state_evidence or descriptor.device != self._model_device:
+            _validate_model_state(model, descriptor)
+            self._model_state_evidence = state
+            self._model_device = descriptor.device
 
     def __call__(self, model, sample):
         return self.evaluate(model, sample, create_graph=True).total_loss
@@ -401,11 +432,11 @@ class Evaluator:
             )
         energy = energy.to(device=reference.device, non_blocking=True)
         descriptor = descriptor.to(device=reference.device, non_blocking=True)
+        self._validate_model(model, descriptor)
 
         target_force = None
         relaxed_jacobian = None
         if self.force_factor > 0:
-            validate_model_force_contract(model, self.force_contract)
             target_force = _require_sample_tensor(sample, "force", ndim=3)
             relaxed_jacobian = _require_sample_tensor(
                 sample,
@@ -413,17 +444,9 @@ class Evaluator:
                 ndim=5,
                 check_finite=False,
             )
-            if type(sample) is not ForceBatch or not sample.force_contracts:
-                raise ForceTrainingError(
-                    "force-aware samples must come from a validated force-data reader"
-                )
-            if any(
-                not any(source is accepted for accepted in self.force_contracts)
-                for source in sample.force_contracts
-            ):
-                raise ForceTrainingError(
-                    "force-aware sample does not belong to the configured readers"
-                )
+            batch_error = _force_batch_error(sample, self.force_contracts)
+            if batch_error is not None:
+                raise ForceTrainingError(batch_error)
             expected_force_shape = (
                 descriptor.shape[0],
                 relaxed_jacobian.shape[1],
@@ -455,6 +478,7 @@ class Evaluator:
             require_force=self.force_factor > 0,
             create_graph=create_graph,
             _validated_inputs=True,
+            _validated_model=True,
         )
         energy_loss = self.energy_lossfn(prediction.energy, energy)
         if not isinstance(energy_loss, torch.Tensor) or energy_loss.numel() != 1:

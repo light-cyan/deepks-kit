@@ -222,6 +222,7 @@ class RHFDeePHFGradientScanner:
             )
         gradient_driver = method.nuc_grad_method(
             backend=self.backend,
+            retain_details=False,
             **deepcopy(dict(self._driver_backend_options)),
         )
         if gradient_driver.base is not method or gradient_driver.backend != self.backend:

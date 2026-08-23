@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from types import MappingProxyType
 import os,time,sys
 import numpy as np
 import torch
@@ -14,24 +16,91 @@ FORCE_MODE_DEEPHF_RELAXED = "deephf_relaxed"
 FORCE_DATA_MODES = {FORCE_MODE_NONE, FORCE_MODE_DEEPHF_RELAXED}
 
 
-class ForceBatch(dict):
-    """Reader-owned tensor payload carrying contract identities once per batch."""
+_FORCE_BATCH_TOKEN = object()
 
-    def __init__(self, values, force_contracts=()):
-        super().__init__(values)
-        self.force_contracts = tuple(force_contracts)
+
+class _ForceBatchIssuer:
+    __slots__ = ("contract",)
+
+    def __init__(self, contract):
+        self.contract = contract
+
+
+class _ForceBatch(Mapping):
+    """Immutable reader-issued tensors bound to frame selections and versions."""
+
+    __slots__ = ("_values", "_selections", "_versions")
+
+    def __init__(self, values, selections, token):
+        if token is not _FORCE_BATCH_TOKEN:
+            raise TypeError("force batches are issued only by validated readers")
+        values = dict(values)
+        frame_count = next(iter(values.values())).shape[0]
+        if any(value.shape[0] != frame_count for value in values.values()):
+            raise ValueError("force-batch fields must share one frame axis")
+        if sum(len(indices) for _issuer, indices in selections) != frame_count:
+            raise ValueError("force-batch frame selections do not match tensor rows")
+        self._values = MappingProxyType(values)
+        self._selections = tuple(selections)
+        self._versions = tuple(
+            (name, value, value._version) for name, value in values.items()
+        )
+
+    def __getitem__(self, name):
+        return self._values[name]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+
+def _issue_force_batch(values, selections):
+    return _ForceBatch(values, selections, _FORCE_BATCH_TOKEN)
+
+
+def _force_batch_error(batch, accepted_contracts) -> str | None:
+    if type(batch) is not _ForceBatch:
+        return "force-aware samples must come from a validated force-data reader"
+    if any(
+        not any(issuer.contract is contract for contract in accepted_contracts)
+        for issuer, _indices in batch._selections
+    ):
+        return "force-aware sample does not belong to the configured readers"
+    if any(value._version != version for _name, value, version in batch._versions):
+        return "force-aware sample tensors changed after reader issuance"
+    return None
+
+
+def _slice_selections(selections, start, stop):
+    result = []
+    offset = 0
+    for issuer, indices in selections:
+        selection_stop = offset + len(indices)
+        lower = max(start, offset)
+        upper = min(stop, selection_stop)
+        if lower < upper:
+            result.append((issuer, indices[lower - offset : upper - offset]))
+        offset = selection_stop
+    return tuple(result)
 
 
 def concat_batch(tdicts, dim=0):
     keys = tdicts[0].keys()
     assert all(d.keys() == keys for d in tdicts)
     values = {k: torch.cat([d[k] for d in tdicts], dim) for k in keys}
-    contracts = []
-    for batch in tdicts:
-        for contract in getattr(batch, "force_contracts", ()):
-            if not any(contract is existing for existing in contracts):
-                contracts.append(contract)
-    return ForceBatch(values, contracts) if contracts else values
+    strict = [type(batch) is _ForceBatch for batch in tdicts]
+    if any(strict) and not all(strict):
+        raise ValueError("cannot concatenate reader-issued and ordinary batches")
+    if strict and strict[0]:
+        selections = tuple(
+            selection
+            for batch in tdicts
+            for selection in batch._selections
+        )
+        return _issue_force_batch(values, selections)
+    return values
 
 
 def split_batch(tdict, size, dim=0):
@@ -39,8 +108,20 @@ def split_batch(tdict, size, dim=0):
     nsecs = [len(v) for v in dsplit.values()]
     assert all(ns == nsecs[0] for ns in nsecs)
     batches = [{k: v[i] for k, v in dsplit.items()} for i in range(nsecs[0])]
-    contracts = getattr(tdict, "force_contracts", ())
-    return [ForceBatch(batch, contracts) for batch in batches] if contracts else batches
+    if type(tdict) is not _ForceBatch:
+        return batches
+    result = []
+    start = 0
+    for batch in batches:
+        stop = start + next(iter(batch.values())).shape[dim]
+        result.append(
+            _issue_force_batch(
+                batch,
+                _slice_selections(tdict._selections, start, stop),
+            )
+        )
+        start = stop
+    return result
 
 
 class Reader(object):
@@ -61,6 +142,7 @@ class Reader(object):
         self.force_mode = force_mode
         self.converged_filter = converged_filter
         self.force_contract = None
+        self._force_batch_issuer = None
         self._force_arrays = None
         strict_manifest_path = os.path.join(data_path, SCHEMA_FILENAME)
         if force_mode == FORCE_MODE_DEEPHF_RELAXED:
@@ -77,6 +159,7 @@ class Reader(object):
                     "strict DeePHF force data uses canonical dq_dR_relaxed"
                 )
             self.force_contract, self._force_arrays = load_force_dataset(data_path)
+            self._force_batch_issuer = _ForceBatchIssuer(self.force_contract)
         elif os.path.isfile(strict_manifest_path):
             raise ForceDataError(
                 "a strict force dataset must be read with "
@@ -237,12 +320,18 @@ class Reader(object):
         self.idx_queue = self.idx_queue[self.batch_size:]
         values = {k: v[sample_idx] for k, v in self.tensor_data.items()}
         if self.force_contract is not None:
-            return ForceBatch(values, (self.force_contract,))
+            return _issue_force_batch(
+                values,
+                ((self._force_batch_issuer, tuple(map(int, sample_idx))),),
+            )
         return values
 
     def sample_all(self):
         if self.force_contract is not None:
-            return ForceBatch(self.tensor_data, (self.force_contract,))
+            return _issue_force_batch(
+                self.tensor_data,
+                ((self._force_batch_issuer, range(self.nframes)),),
+            )
         return self.tensor_data
 
     def get_train_size(self):

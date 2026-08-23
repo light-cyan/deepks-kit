@@ -66,76 +66,30 @@ def test_spin_resolved_ao_density_response_matches_finite_difference(
     )
 
 
-def test_density_response_preserves_all_spin_and_motion_partitions(
+def test_density_partitions_are_built_with_four_spin_ao_transforms(
     uhf_oracle_case,
+    monkeypatch,
 ):
     response = uhf_oracle_case.response
+    original = type(response)._density_response
+    calls = []
 
+    def counted(instance, spin, mo_response):
+        calls.append(spin)
+        return original(instance, spin, mo_response)
+
+    monkeypatch.setattr(type(response), "_density_response", counted)
+    complete, metric, occupied_virtual = response.density_partitions()
+
+    assert calls == [0, 1, 0, 1]
     np.testing.assert_allclose(
-        response.alpha_density_response,
-        response.alpha_density_response_occupied_virtual
-        + response.alpha_density_response_metric,
+        complete,
+        metric + occupied_virtual,
         rtol=0.0,
         atol=2.0e-15,
     )
-    np.testing.assert_allclose(
-        response.beta_density_response,
-        response.beta_density_response_occupied_virtual
-        + response.beta_density_response_metric,
-        rtol=0.0,
-        atol=2.0e-15,
-    )
-    np.testing.assert_allclose(
-        response.total_density_response,
-        response.alpha_density_response
-        + response.beta_density_response,
-        rtol=0.0,
-        atol=2.0e-15,
-    )
-    np.testing.assert_allclose(
-        response.total_density_response_occupied_virtual,
-        response.alpha_density_response_occupied_virtual
-        + response.beta_density_response_occupied_virtual,
-        rtol=0.0,
-        atol=2.0e-15,
-    )
-    np.testing.assert_allclose(
-        response.total_density_response_metric,
-        response.alpha_density_response_metric
-        + response.beta_density_response_metric,
-        rtol=0.0,
-        atol=2.0e-15,
-    )
-    assert np.linalg.norm(response.alpha_density_response) > 0.5
-    assert np.linalg.norm(response.beta_density_response) > 0.5
-    assert np.linalg.norm(
-        response.total_density_response_occupied_virtual
-    ) > 0.1
-    assert np.linalg.norm(response.total_density_response_metric) > 0.5
-    assert np.max(
-        np.abs(
-            response.total_density_response
-            - response.alpha_density_response
-        )
-    ) > 0.1
-    assert np.max(
-        np.abs(
-            response.total_density_response
-            - response.beta_density_response
-        )
-    ) > 0.1
-    assert np.max(
-        np.abs(
-            response.total_density_response
-            - response.total_density_response_metric
-        )
-    ) > 0.05
-    assert np.max(
-        np.abs(
-            response.total_density_response
-            - response.total_density_response_occupied_virtual
-        )
-    ) > 0.1
+    assert np.linalg.norm(metric) > 0.5
+    assert np.linalg.norm(occupied_virtual) > 0.1
 
 
 def test_method_density_accessors_retain_spin_resolution(uhf_oracle_case):

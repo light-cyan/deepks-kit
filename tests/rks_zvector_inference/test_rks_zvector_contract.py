@@ -49,7 +49,7 @@ DRIVER_RESULT_FIELDS = (
 
 
 def _assert_driver_cleared(driver):
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
 
 
 def _immutable(value):
@@ -146,27 +146,6 @@ def test_rks_zvector_driver_public_bindings_are_read_only(rks_oracle_case):
     ):
         with pytest.raises(AttributeError):
             setattr(driver, name, value)
-
-
-def test_rks_zvector_atmlst_and_force_sign_are_backend_local(
-    rks_oracle_case,
-    monkeypatch,
-):
-    driver = rks_oracle_case.method.nuc_grad_method(backend="zvector")
-    synthetic = np.arange(
-        rks_oracle_case.reference.mol.natm * 3,
-        dtype=np.float64,
-    ).reshape(rks_oracle_case.reference.mol.natm, 3)
-    monkeypatch.setattr(driver, "_kernel", lambda: {"de_full": synthetic})
-
-    selected = driver.kernel(atmlst=(np.int64(2), 0))
-    forces = driver.forces(atmlst=[1])
-
-    np.testing.assert_array_equal(selected, synthetic[[2, 0]])
-    np.testing.assert_array_equal(forces, -synthetic[[1]])
-    with pytest.raises(TypeError, match="atom indices must be integers"):
-        driver.kernel(atmlst=[True])
-    _assert_driver_cleared(driver)
 
 
 @pytest.mark.parametrize("corruption", ["base", "mol", "backend", "options"])

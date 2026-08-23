@@ -55,6 +55,14 @@ def _validate_model_state(model, descriptor_values: torch.Tensor) -> None:
             )
 
 
+def model_state_evidence(model) -> tuple:
+    """Return metadata-only evidence for parameter and buffer mutation."""
+    return tuple(
+        (id(value), value._version, value.dtype, value.device)
+        for value in (*model.parameters(), *model.buffers())
+    )
+
+
 def predict_correction(
     model,
     descriptor: torch.Tensor,
@@ -63,6 +71,7 @@ def predict_correction(
     create_graph: bool = False,
     *,
     _validated_inputs: bool = False,
+    _validated_model: bool = False,
 ) -> CorrectionPrediction:
     """Predict a correction energy and, only from ``dq_dR_relaxed``, its force.
 
@@ -88,7 +97,8 @@ def predict_correction(
 
     calculate_force = dq_dR_relaxed is not None
     if calculate_force:
-        validate_force_model_architecture(model, training=model.training)
+        if not _validated_model:
+            validate_force_model_architecture(model, training=model.training)
         dq_dR_relaxed = _require_float64_tensor(
             dq_dR_relaxed,
             "dq_dR_relaxed",
@@ -117,7 +127,8 @@ def predict_correction(
         if dq_dR_relaxed.device != descriptor.device:
             raise ValueError("descriptor and dq_dR_relaxed must be on the same device")
 
-    _validate_model_state(model, descriptor)
+    if not _validated_model:
+        _validate_model_state(model, descriptor)
     values = descriptor
     if calculate_force and not values.requires_grad:
         values = values.detach().requires_grad_(True)

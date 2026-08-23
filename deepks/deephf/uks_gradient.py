@@ -3,13 +3,14 @@
 import numpy as np
 
 from .pyscf_uks import UKSNativeGradient, UKSResponseError, native_uks_gradient
+from .gradient import _validate_retain_details
 from .uhf_gradient import UHFDeePHFGradients
 
 
 class UKSDeePHFGradients(UHFDeePHFGradients):
     """Contract the complete coupled UKS response with one correction model."""
 
-    def __init__(self, method, response_options=None):
+    def __init__(self, method, response_options=None, retain_details=True):
         from .uks_method import UKSDeePHF
 
         if type(method) is not UKSDeePHF:
@@ -19,6 +20,7 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "direct"
+        self.retain_details = _validate_retain_details(retain_details)
         self.response_options = dict(response_options or {})
         self._reset_results()
 
@@ -36,28 +38,31 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
 
     def _reset_results(self) -> None:
         super()._reset_results()
-        self.native_gradient_result = None
-        self.reference_gradient_without_grid_response = None
-        self.reference_gradient_xc_grid_coordinate = None
-        self.reference_gradient_xc_grid_weight = None
-        self.reference_gradient_reconstruction_residual = None
 
-    def _validated_native_gradient(self) -> UKSNativeGradient:
-        native = native_uks_gradient(self.base.reference)
+    def _validated_native_gradient(self, atom_indices) -> UKSNativeGradient:
+        native = native_uks_gradient(
+            self.base.reference,
+            atom_indices=atom_indices,
+        )
         if type(native) is not UKSNativeGradient:
             raise UKSResponseError("the native UKS gradient adapter returned an invalid result type")
         return native
 
-    def _kernel(self) -> dict:
+    def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response = self.base._solve_response(self.response_options)
+        response = self.base._solve_response(
+            self.response_options,
+            atom_indices=atom_indices,
+        )
         self.base._validate_science_state("UKS native gradient evaluation")
-        native = self._validated_native_gradient()
+        native = self._validated_native_gradient(atom_indices)
         self.base._validate_science_state("UKS native gradient evaluation")
-        dq_explicit_spin = self.base.dq_dR_explicit_spin()
+        dq_explicit_spin = self.base.dq_dR_explicit_spin(
+            atom_indices=atom_indices
+        )
         dq_dP = self.base.dq_dP()
-        spin_density_response = np.stack(
-            (response.alpha_density_response, response.beta_density_response)
+        spin_density_response, metric_density, ov_density = (
+            response.density_partitions()
         )
         dq_response_spin = np.einsum(
             "apij,sbxij->sbxap",
@@ -70,8 +75,6 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
         dq_relaxed = dq_relaxed_spin.sum(axis=0)
         objective = self.base._correction_ao_potential(sensitivity, dq_dP)
         correction_explicit_spin = np.einsum("sbxap,ap->sbx", dq_explicit_spin, sensitivity)
-        metric_density = np.stack((response.alpha_density_response_metric, response.beta_density_response_metric))
-        ov_density = np.stack((response.alpha_density_response_occupied_virtual, response.beta_density_response_occupied_virtual))
         correction_metric_spin = np.einsum("ij,sbxij->sbx", objective, metric_density)
         correction_ov_spin = np.einsum("ij,sbxij->sbx", objective, ov_density)
         correction_response_spin = np.einsum("sbxap,ap->sbx", dq_response_spin, sensitivity)

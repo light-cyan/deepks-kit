@@ -41,7 +41,7 @@ def _assert_driver_cleared(driver):
         "de_full",
         "de",
     ):
-        assert getattr(driver, name) is None
+        assert getattr(driver, name, None) is None
 
 
 def test_public_types_and_explicit_backend_dispatch(uhf_oracle_case):
@@ -152,22 +152,6 @@ def test_adjoint_failure_never_falls_back_and_clears_results(
     with pytest.raises(UHFAdjointError, match="injected coupled"):
         driver.kernel()
     assert direct_calls == 0
-    _assert_driver_cleared(driver)
-
-
-def test_native_gradient_failure_clears_a_previously_successful_result(
-    uhf_oracle_case,
-    monkeypatch,
-):
-    driver = uhf_oracle_case.method.nuc_grad_method(backend="zvector")
-    assert np.isfinite(driver.kernel()).all()
-
-    def failed_native():
-        raise UHFAdjointError("injected native gradient failure")
-
-    monkeypatch.setattr(driver, "_validated_native_gradient", failed_native)
-    with pytest.raises(UHFAdjointError, match="native gradient failure"):
-        driver.kernel()
     _assert_driver_cleared(driver)
 
 

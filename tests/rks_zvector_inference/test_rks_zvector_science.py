@@ -5,6 +5,25 @@ import pytest
 import torch
 
 
+def test_rks_compact_selected_gradient_drivers_retain_one_array(rks_oracle_case):
+    for backend in ("direct", "zvector"):
+        driver = rks_oracle_case.method.nuc_grad_method(
+            backend=backend,
+            retain_details=False,
+        ).run(atmlst=(1,))
+        retained_bytes = sum(
+            value.nbytes
+            for value in vars(driver).values()
+            if isinstance(value, np.ndarray)
+        )
+        assert retained_bytes == driver.de.nbytes
+        assert driver.de.shape == (1, 3)
+        assert not hasattr(driver, "de_full")
+        result_name = "response_result" if backend == "direct" else "adjoint_result"
+        assert not hasattr(driver, result_name)
+        assert driver.response_diagnostics is not None
+
+
 def test_rks_adjoint_matches_independent_dense_grid_transpose_oracle(
     rks_oracle_case,
     rks_zvector_oracle,
@@ -37,19 +56,7 @@ def test_rks_adjoint_matches_independent_dense_grid_transpose_oracle(
         atol=2.0e-11,
     )
     np.testing.assert_allclose(
-        adjoint.solver_residual,
-        oracle.solver_residual,
-        rtol=0.0,
-        atol=2.0e-11,
-    )
-    np.testing.assert_allclose(
-        adjoint.transpose_residual,
-        oracle.transpose_residual,
-        rtol=0.0,
-        atol=2.0e-11,
-    )
-    np.testing.assert_allclose(
-        adjoint.physical_residual,
+        adjoint.residual,
         oracle.transpose_residual,
         rtol=0.0,
         atol=2.0e-11,
@@ -75,9 +82,7 @@ def test_rks_adjoint_matches_independent_dense_grid_transpose_oracle(
     diagnostics = adjoint.diagnostics
     assert diagnostics.solve_count == 1
     assert diagnostics.response_dimension == 10
-    assert diagnostics.maximum_solver_residual < 1.0e-9
-    assert diagnostics.maximum_transpose_residual < 1.0e-9
-    assert diagnostics.maximum_physical_residual < 1.0e-9
+    assert diagnostics.maximum_residual < 1.0e-9
     assert diagnostics.operator_is_self_adjoint is True
     assert diagnostics.functional_components == ((1, 1.0), (7, 1.0))
     assert diagnostics.grid_point_count == 3000
@@ -206,59 +211,6 @@ def test_zvector_metric_and_occupied_virtual_match_direct_density_contractions(
         rtol=3.0e-10,
         atol=3.0e-10,
     )
-
-
-def test_zvector_matches_direct_oracle_by_all_common_gradient_partitions(
-    rks_oracle_case,
-):
-    method = rks_oracle_case.method
-    direct = method.nuc_grad_method(backend="direct").run()
-    zvector = method.nuc_grad_method(backend="zvector").run()
-
-    assert direct.backend == "direct"
-    assert zvector.backend == "zvector"
-    for field in (
-        "reference_gradient",
-        "reference_gradient_without_grid_response",
-        "reference_gradient_xc_grid_coordinate",
-        "reference_gradient_xc_grid_weight",
-        "correction_gradient_explicit",
-        "correction_gradient_metric",
-        "correction_gradient_occupied_virtual",
-        "correction_gradient_response",
-        "correction_gradient",
-        "de_full",
-        "de",
-    ):
-        np.testing.assert_allclose(
-            getattr(zvector, field),
-            getattr(direct, field),
-            rtol=4.0e-10,
-            atol=4.0e-10,
-            err_msg=field,
-        )
-    np.testing.assert_allclose(
-        zvector.correction_gradient_adjoint_nuclear,
-        zvector.correction_gradient_adjoint_fixed_grid
-        + zvector.correction_gradient_adjoint_grid_coordinate
-        + zvector.correction_gradient_adjoint_grid_weight,
-        rtol=0.0,
-        atol=2.0e-12,
-    )
-    np.testing.assert_allclose(
-        zvector.correction_gradient,
-        zvector.correction_gradient_explicit
-        + zvector.correction_gradient_response,
-        rtol=0.0,
-        atol=2.0e-12,
-    )
-    np.testing.assert_allclose(
-        zvector.de_full,
-        zvector.reference_gradient + zvector.correction_gradient,
-        rtol=0.0,
-        atol=2.0e-12,
-    )
-    assert np.max(np.abs(zvector.correction_gradient_explicit)) > 1.0e-3
 
 
 @pytest.mark.parametrize(

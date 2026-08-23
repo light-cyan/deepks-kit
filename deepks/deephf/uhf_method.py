@@ -89,8 +89,11 @@ class UHFDeePHF(DeePHF):
         self._assert_science_state("spin-resolved AO density evaluation")
         return density
 
-    def dq_dR_explicit_spin(self) -> np.ndarray:
+    def dq_dR_explicit_spin(self, atom_indices=None) -> np.ndarray:
         """Return additive alpha and beta components of fixed-density dq/dR."""
+        from .gradient import _validate_atom_indices
+
+        atom_indices = _validate_atom_indices(self.mol, atom_indices)
         spin_density = self.spin_ao_density()
         total_density = spin_density.sum(axis=0)
         components = np.stack(
@@ -98,6 +101,7 @@ class UHFDeePHF(DeePHF):
                 self._descriptor.dq_dR_explicit_component(
                     total_density,
                     spin_density[spin_index],
+                    raw_atom_indices=atom_indices,
                 )
                 for spin_index in range(2)
             ]
@@ -110,7 +114,7 @@ class UHFDeePHF(DeePHF):
         self.validate_force_compatibility()
         return self._solve_response(response_options)
 
-    def _solve_response(self, response_options) -> UHFResponse:
+    def _solve_response(self, response_options, atom_indices=None) -> UHFResponse:
         """Solve one response after the caller has validated descriptor semantics."""
         options = _validated_backend_options(
             self.response_options,
@@ -118,7 +122,9 @@ class UHFDeePHF(DeePHF):
             _DIRECT_RESPONSE_OPTIONS,
             "direct",
         )
-        response = UHFResponseAdapter(self.reference, **options).solve()
+        response = UHFResponseAdapter(self.reference, **options).solve(
+            atom_indices=atom_indices
+        )
         self._seal_response(response)
         return response
 
@@ -232,7 +238,7 @@ class UHFDeePHF(DeePHF):
         """Solve one audited correction-specific coupled UHF adjoint."""
         return self._zvector_inputs(adjoint_options)[2]
 
-    def _zvector_inputs(self, adjoint_options):
+    def _zvector_inputs(self, adjoint_options, atom_indices=None):
         """Build one UHF sensitivity and one scalar adjoint."""
         self._validate_reference_object(self.reference)
         descriptor_diagnostics, sensitivity = self._force_inputs()
@@ -244,10 +250,13 @@ class UHFDeePHF(DeePHF):
             "zvector",
         )
         objective = self._correction_ao_potential(sensitivity)
-        adjoint = UHFAdjointAdapter(self.reference, **options).solve(objective)
+        adjoint = UHFAdjointAdapter(self.reference, **options).solve(
+            objective,
+            atom_indices=atom_indices,
+        )
         return descriptor_diagnostics, sensitivity, adjoint
 
-    def nuc_grad_method(self, *, backend="direct", **backend_options):
+    def nuc_grad_method(self, *, backend="direct", retain_details=True, **backend_options):
         """Build one explicitly selected strict UHF gradient backend."""
         if type(backend) is not str or backend not in {"direct", "zvector"}:
             raise ValueError(
@@ -265,6 +274,7 @@ class UHFDeePHF(DeePHF):
             return UHFDeePHFGradients(
                 self,
                 response_options=backend_options,
+                retain_details=retain_details,
             )
         _validated_backend_options(
             self.adjoint_options,
@@ -277,4 +287,5 @@ class UHFDeePHF(DeePHF):
         return UHFDeePHFZVectorGradients(
             self,
             adjoint_options=backend_options,
+            retain_details=retain_details,
         )

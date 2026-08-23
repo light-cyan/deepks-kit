@@ -41,10 +41,50 @@ def _validate_atom_indices(mol, atmlst):
     return tuple(validated_indices)
 
 
+def _validate_retain_details(value) -> bool:
+    if type(value) is not bool:
+        raise TypeError("retain_details must be a Boolean")
+    return value
+
+
+_DRIVER_CONFIGURATION = frozenset(
+    {
+        "_base",
+        "_bound_base",
+        "_mol",
+        "_bound_mol",
+        "_backend",
+        "response_options",
+        "_adjoint_options",
+        "_bound_adjoint_options",
+        "retain_details",
+    }
+)
+
+
+def _reset_driver_results(driver) -> None:
+    for name in tuple(vars(driver)):
+        if name not in _DRIVER_CONFIGURATION:
+            delattr(driver, name)
+    driver._response_diagnostics = None
+    driver.descriptor_diagnostics = None
+    driver.de = None
+
+
+def _compact_driver_results(driver) -> None:
+    diagnostics = driver.response_diagnostics
+    descriptor_diagnostics = driver.descriptor_diagnostics
+    gradient = driver.de
+    driver._reset_results()
+    driver._response_diagnostics = diagnostics
+    driver.descriptor_diagnostics = descriptor_diagnostics
+    driver.de = gradient
+
+
 class RHFDeePHFGradients:
     """Contract the complete relaxed descriptor response with one correction model."""
 
-    def __init__(self, method, response_options=None):
+    def __init__(self, method, response_options=None, retain_details=True):
         from .method import DeePHF
 
         if type(method) is not DeePHF:
@@ -56,6 +96,7 @@ class RHFDeePHFGradients:
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "direct"
+        self.retain_details = _validate_retain_details(retain_details)
         self.response_options = dict(response_options or {})
         self._reset_results()
 
@@ -86,25 +127,15 @@ class RHFDeePHFGradients:
             )
 
     def _reset_results(self):
-        self.response_result = None
-        self.descriptor_diagnostics = None
-        self.reference_gradient = None
-        self.dq_dR_explicit = None
-        self.dq_dR_response = None
-        self.dq_dR_relaxed = None
-        self.correction_gradient_explicit = None
-        self.correction_gradient_metric = None
-        self.correction_gradient_occupied_virtual = None
-        self.correction_gradient_response = None
-        self.correction_gradient = None
-        self.de_full = None
-        self.de = None
+        _reset_driver_results(self)
 
     @property
     def response_diagnostics(self):
-        if self.response_result is None:
-            return None
-        return self.response_result.diagnostics
+        return (
+            self._response_diagnostics
+            if getattr(self, "response_result", None) is None
+            else self.response_result.diagnostics
+        )
 
     def _blocked_response(
         self,
@@ -146,20 +177,23 @@ class RHFDeePHFGradients:
             atom_indices=atom_indices,
         ):
             target = [result_positions[atom_index] for atom_index in block_atoms]
+            density, density_metric, density_occupied_virtual = (
+                response.density_partitions()
+            )
             dq_response[target] = np.einsum(
                 "apij,bxij->bxap",
                 dq_dP,
-                response.density_response,
+                density,
             )
             metric_gradient[target] = np.einsum(
                 "ij,bxij->bx",
                 objective_ao_potential,
-                response.density_response_metric,
+                density_metric,
             )
             occupied_virtual_gradient[target] = np.einsum(
                 "ij,bxij->bx",
                 objective_ao_potential,
-                response.density_response_occupied_virtual,
+                density_occupied_virtual,
             )
             block_diagnostics.append(
                 (len(block_atoms), response.diagnostics)
@@ -254,20 +288,23 @@ class RHFDeePHFGradients:
                 self.base.reference,
                 **response_options,
             ).solve(atom_indices=calculation_atom_indices)
+            density, density_metric, density_occupied_virtual = (
+                self.response_result.density_partitions()
+            )
             self.dq_dR_response = np.einsum(
                 "apij,bxij->bxap",
                 dq_dP,
-                self.response_result.density_response,
+                density,
             )
             self.correction_gradient_metric = np.einsum(
                 "ij,bxij->bx",
                 objective_ao_potential,
-                self.response_result.density_response_metric,
+                density_metric,
             )
             self.correction_gradient_occupied_virtual = np.einsum(
                 "ij,bxij->bx",
                 objective_ao_potential,
-                self.response_result.density_response_occupied_virtual,
+                density_occupied_virtual,
             )
         else:
             (
@@ -310,6 +347,8 @@ class RHFDeePHFGradients:
         if not np.isfinite(self.de_full).all():
             raise RHFResponseError("the RHF DeePHF analytic gradient is nonfinite")
         self.de = self.de_full
+        if not self.retain_details:
+            _compact_driver_results(self)
         return self.de
 
     def run(self, atmlst=None):

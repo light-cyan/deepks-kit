@@ -51,7 +51,7 @@ def test_corrupted_cphf_solution_fails_without_explicit_fallback(
     ):
         gradient_driver.kernel()
 
-    assert gradient_driver.response_result is None
-    assert gradient_driver.dq_dR_relaxed is None
-    assert gradient_driver.de_full is None
+    assert not hasattr(gradient_driver, "response_result")
+    assert not hasattr(gradient_driver, "dq_dR_relaxed")
+    assert not hasattr(gradient_driver, "de_full")
     assert gradient_driver.de is None

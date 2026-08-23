@@ -46,6 +46,39 @@ _SUPPORTED_RADI_METHOD = radi.treutler_ahlrichs
 _SUPPORTED_RADII_ADJUST = radi.treutler_atomic_radii_adjust
 _SUPPORTED_BECKE_SCHEME = gen_grid.original_becke
 _SUPPORTED_GRIDS_RESPONSE = rks_grad.grids_response_cc
+_SUPPORTED_NUMINT_IMPLEMENTATIONS = tuple(
+    (name, getattr(numint.NumInt, name))
+    for name in (
+        "_xc_type",
+        "eval_ao",
+        "eval_xc_eff",
+        "hybrid_coeff",
+        "nr_rks",
+        "nr_rks_fxc",
+        "rsh_coeff",
+    )
+)
+_SUPPORTED_LIBXC_IMPLEMENTATIONS = tuple(
+    (name, getattr(libxc, name))
+    for name in (
+        "XCFunctionalCache",
+        "eval_xc1",
+        "is_nlc",
+        "parse_xc",
+        "test_deriv_order",
+    )
+)
+_UKS_REFERENCE_TYPE = getattr(getattr(dft, "uks"), "UKS")
+_SUPPORTED_REFERENCE_IMPLEMENTATIONS = {
+    "RKS": tuple(
+        (name, getattr(dft.rks.RKS, name))
+        for name in ("get_hcore", "get_ovlp", "get_veff", "make_rdm1")
+    ),
+    "UKS": tuple(
+        (name, getattr(_UKS_REFERENCE_TYPE, name))
+        for name in ("get_hcore", "get_ovlp", "get_veff", "make_rdm1")
+    ),
+}
 _GRID_WEIGHT_FD_STEP = 1.0e-5
 _GRID_WEIGHT_DERIVATIVE_ATOL = 1.0e-6
 _GRID_WEIGHT_DERIVATIVE_RTOL = 1.0e-7
@@ -128,7 +161,6 @@ class RKSResponseDiagnostics:
     level_shift: float
     response_dimension: int
     operator_is_self_adjoint: bool
-    fixed_grid_xc_reconstruction_residual: float
     hamiltonian_reconstruction_residual: float
     metric_residual: float
     idempotency_residual: float
@@ -145,7 +177,6 @@ class RKSResponse(RHFResponse):
     functional_provenance: RKSFunctionalProvenance
     grid_provenance: RKSGridProvenance
     hamiltonian_derivative_fixed_grid: np.ndarray
-    xc_hamiltonian_derivative_ao_motion: np.ndarray
     xc_hamiltonian_derivative_grid_coordinate: np.ndarray
     xc_hamiltonian_derivative_grid_weight: np.ndarray
     diagnostics: RKSResponseDiagnostics
@@ -178,7 +209,6 @@ class RKSAdjointDiagnostics:
     orbital_gap_tolerance: float
     response_dimension: int
     operator_is_self_adjoint: bool
-    fixed_grid_xc_reconstruction_residual: float
     hamiltonian_reconstruction_residual: float
     objective_symmetry_tolerance: float
     objective_symmetry_residual: float
@@ -188,12 +218,8 @@ class RKSAdjointDiagnostics:
     solve_count: int
     objective_gradient_norm: float
     solution_norm: float
-    maximum_solver_residual: float
-    solver_residual_rms: float
-    maximum_transpose_residual: float
-    transpose_residual_rms: float
-    maximum_physical_residual: float
-    physical_residual_rms: float
+    maximum_residual: float
+    residual_rms: float
     max_cycle: int
     krylov_restart: int
     iteration_count: int
@@ -207,14 +233,13 @@ class RKSAdjoint:
     state_fingerprint: str
     integrity_fingerprint: str
     operator_fingerprint: str
+    atom_indices: tuple[int, ...]
     functional_provenance: RKSFunctionalProvenance
     grid_provenance: RKSGridProvenance
     objective_ao_potential: np.ndarray
     objective_orbital_gradient: np.ndarray
     zvector: np.ndarray
-    solver_residual: np.ndarray
-    transpose_residual: np.ndarray
-    physical_residual: np.ndarray
+    residual: np.ndarray
     adjoint_ao_density: np.ndarray
     adjoint_ao_potential: np.ndarray
     correction_gradient_metric: np.ndarray
@@ -343,6 +368,29 @@ def _normalized_functional_components(xc_code: str) -> tuple[tuple[int, float], 
     return normalized
 
 
+def _validate_dft_implementations(method: str) -> None:
+    changed = [
+        f"NumInt.{name}"
+        for name, implementation in _SUPPORTED_NUMINT_IMPLEMENTATIONS
+        if getattr(numint.NumInt, name) is not implementation
+    ]
+    changed.extend(
+        f"libxc.{name}"
+        for name, implementation in _SUPPORTED_LIBXC_IMPLEMENTATIONS
+        if getattr(libxc, name) is not implementation
+    )
+    reference_type = getattr(dft, method.lower()).__dict__[method]
+    changed.extend(
+        f"{method}.{name}"
+        for name, implementation in _SUPPORTED_REFERENCE_IMPLEMENTATIONS[method]
+        if getattr(reference_type, name) is not implementation
+    )
+    if changed:
+        raise DeePHFCapabilityError(
+            f"the strict {method} DFT implementation changed: {', '.join(changed)}"
+        )
+
+
 def _evaluate_libxc_cache(cache, density: np.ndarray) -> np.ndarray:
     """Evaluate LDA energy density, potential, and kernel for one cache."""
     density = np.ascontiguousarray(density, dtype=np.float64)
@@ -364,6 +412,7 @@ def _evaluate_libxc_cache(cache, density: np.ndarray) -> np.ndarray:
 
 
 def _functional_provenance(reference) -> RKSFunctionalProvenance:
+    _validate_dft_implementations("RKS")
     integration = reference._numint
     if type(integration) is not numint.NumInt:
         raise DeePHFCapabilityError(
@@ -1217,6 +1266,8 @@ def _audit_rks_reference(reference):
 
 
 def _dft_reference_validation_fingerprint(reference) -> str:
+    method = "RKS" if type(reference) is dft.rks.RKS else "UKS"
+    _validate_dft_implementations(method)
     grid = reference.grids
     integration = reference._numint
     decorations = tuple(
@@ -1234,7 +1285,7 @@ def _dft_reference_validation_fingerprint(reference) -> str:
         np.asarray(reference.mo_occ),
         reference.xc,
         reference.nlc,
-        float(reference.small_rho_cutoff),
+        reference.small_rho_cutoff,
         decorations,
         _qualified_name(type(integration)),
         integration.libxc is libxc,
@@ -1242,6 +1293,14 @@ def _dft_reference_validation_fingerprint(reference) -> str:
         integration.omega,
         integration.cutoff,
         reference.xc in getattr(integration.libxc, "_CUSTOM_FUNC_R", ()),
+        tuple(
+            getattr(numint.NumInt, name) is implementation
+            for name, implementation in _SUPPORTED_NUMINT_IMPLEMENTATIONS
+        ),
+        tuple(
+            getattr(libxc, name) is implementation
+            for name, implementation in _SUPPORTED_LIBXC_IMPLEMENTATIONS
+        ),
         tuple(sorted(name for name, value in integration.__dict__.items() if callable(value))),
         _qualified_name(type(grid)),
         grid.mol is reference.mol,
@@ -1524,6 +1583,12 @@ class _RKSLinearResponseCore:
     def molecule(self):
         return self.reference.mol
 
+    def _response_atom_indices(self, atom_indices) -> tuple[int, ...]:
+        from .gradient import _validate_atom_indices
+
+        selected = _validate_atom_indices(self.molecule, atom_indices)
+        return tuple(range(self.molecule.natm)) if selected is None else selected
+
     def _state(self):
         coefficient = np.asarray(self.reference.mo_coeff)
         energy = np.asarray(self.reference.mo_energy)
@@ -1539,8 +1604,9 @@ class _RKSLinearResponseCore:
             )
         return coefficient, energy, occupation, occupied, virtual, minimum_gap
 
-    def _overlap_derivative(self) -> np.ndarray:
+    def _overlap_derivative(self, atom_indices=None) -> np.ndarray:
         molecule = self.molecule
+        atom_indices = self._response_atom_indices(atom_indices)
         try:
             integral = -molecule.intor("int1e_ipovlp", comp=3)
         except Exception as error:
@@ -1552,11 +1618,13 @@ class _RKSLinearResponseCore:
             (3, molecule.nao, molecule.nao),
             "overlap-derivative integral",
         )
-        result = np.zeros((molecule.natm, 3, molecule.nao, molecule.nao))
-        for atom_index, atom_slice in enumerate(molecule.aoslice_by_atom()):
+        result = np.zeros((len(atom_indices), 3, molecule.nao, molecule.nao))
+        atom_slices = molecule.aoslice_by_atom()
+        for result_index, atom_index in enumerate(atom_indices):
+            atom_slice = atom_slices[atom_index]
             ao_start, ao_stop = atom_slice[2:]
-            result[atom_index, :, ao_start:ao_stop] += integral[:, ao_start:ao_stop]
-            result[atom_index, :, :, ao_start:ao_stop] += integral[
+            result[result_index, :, ao_start:ao_stop] += integral[:, ao_start:ao_stop]
+            result[result_index, :, :, ao_start:ao_stop] += integral[
                 :, ao_start:ao_stop
             ].transpose(0, 2, 1)
         return result
@@ -1585,14 +1653,18 @@ class _RKSLinearResponseCore:
     def _xc_nuclear_derivative_components(
         self,
         density: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        atom_indices=None,
+    ) -> tuple[np.ndarray, np.ndarray]:
         molecule = self.molecule
+        atom_indices = self._response_atom_indices(atom_indices)
+        result_positions = {
+            atom_index: result_index
+            for result_index, atom_index in enumerate(atom_indices)
+        }
         integration = self.reference._numint
-        shape = (molecule.natm, 3, molecule.nao, molecule.nao)
-        ao_motion = np.zeros(shape)
+        shape = (len(atom_indices), 3, molecule.nao, molecule.nao)
         grid_coordinate = np.zeros(shape)
         grid_weight = np.zeros(shape)
-        ao_slices = molecule.aoslice_by_atom()
         atom_grid = _normalized_atom_grid(
             molecule,
             self.reference.grids.atom_grid,
@@ -1646,7 +1718,7 @@ class _RKSLinearResponseCore:
                 raise RKSResponseError("RKS LDA nuclear quadrature is nonfinite")
             grid_weight += np.einsum(
                 "axg,g,gp,gq->axpq",
-                weight_derivative,
+                weight_derivative[list(atom_indices)],
                 potential,
                 values,
                 values,
@@ -1694,31 +1766,27 @@ class _RKSLinearResponseCore:
                     optimize=True,
                 )
 
-            for atom_index, atom_slice in enumerate(ao_slices):
-                ao_start, ao_stop = atom_slice[2:]
+            if host_atom in result_positions:
+                result_index = result_positions[host_atom]
                 for axis in range(3):
-                    center_derivative = np.zeros_like(values)
-                    center_derivative[:, ao_start:ao_stop] = -gradients[
-                        axis, :, ao_start:ao_stop
-                    ]
-                    accumulate(ao_motion, atom_index, axis, center_derivative)
-                    if atom_index == host_atom:
-                        accumulate(
-                            grid_coordinate,
-                            atom_index,
-                            axis,
-                            gradients[axis],
-                        )
-        return ao_motion, grid_coordinate, grid_weight
+                    accumulate(
+                        grid_coordinate,
+                        result_index,
+                        axis,
+                        gradients[axis],
+                    )
+        return grid_coordinate, grid_weight
 
     def _hamiltonian_derivative(
         self,
         coefficient: np.ndarray,
         occupation: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+        atom_indices=None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        atom_indices = self._response_atom_indices(atom_indices)
         density = np.asarray(self.reference.make_rdm1(coefficient, occupation))
         expected_shape = (
-            self.molecule.natm,
+            len(atom_indices),
             3,
             self.molecule.nao,
             self.molecule.nao,
@@ -1728,14 +1796,11 @@ class _RKSLinearResponseCore:
             fixed_grid_hamiltonian = hessian.make_h1(
                 coefficient,
                 occupation,
-                atmlst=range(self.molecule.natm),
+                atmlst=atom_indices,
             )
-            pyscf_fixed_grid_xc = rks_hessian._get_vxc_deriv1(
-                hessian,
-                coefficient,
-                occupation,
-                max(2000, self.reference.max_memory),
-            )
+            fixed_grid_hamiltonian = [
+                fixed_grid_hamiltonian[index] for index in atom_indices
+            ]
         except Exception as error:
             raise RKSResponseError(
                 f"PySCF RKS Hamiltonian derivative construction failed: {error}"
@@ -1745,36 +1810,19 @@ class _RKSLinearResponseCore:
             expected_shape,
             "fixed-grid Hamiltonian derivative",
         )
-        pyscf_fixed_grid_xc = _validated_float64_array(
-            pyscf_fixed_grid_xc,
-            expected_shape,
-            "PySCF fixed-grid XC derivative",
+        grid_coordinate, grid_weight = (
+            self._xc_nuclear_derivative_components(density, atom_indices)
         )
-        ao_motion, grid_coordinate, grid_weight = (
-            self._xc_nuclear_derivative_components(density)
-        )
-        fixed_grid_xc_residual = float(
-            np.max(np.abs(pyscf_fixed_grid_xc - ao_motion), initial=0.0)
-        )
-        if fixed_grid_xc_residual > self.invariant_tolerance:
-            raise RKSResponseError(
-                "the independently reconstructed fixed-grid LDA derivative does not "
-                "match PySCF: residual "
-                f"{fixed_grid_xc_residual:.3e}"
-            )
-        core_coulomb = fixed_grid_hamiltonian - pyscf_fixed_grid_xc
-        reconstructed_fixed_grid = core_coulomb + ao_motion
-        full_hamiltonian = reconstructed_fixed_grid + grid_coordinate + grid_weight
+        full_hamiltonian = fixed_grid_hamiltonian + grid_coordinate + grid_weight
         arrays = (
             full_hamiltonian,
-            reconstructed_fixed_grid,
-            ao_motion,
+            fixed_grid_hamiltonian,
             grid_coordinate,
             grid_weight,
         )
         if not all(np.isfinite(value).all() for value in arrays):
             raise RKSResponseError("the complete RKS Hamiltonian derivative is nonfinite")
-        return (*arrays, fixed_grid_xc_residual)
+        return arrays
 
     def _induced_potential_components(
         self,
@@ -2283,9 +2331,10 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             residual_history.append(float(np.max(np.abs(residual), initial=0.0)))
         return response, residual, tuple(residual_history)
 
-    def solve(self) -> RKSResponse:
-        """Return the audited complete finite-grid first-order AO density."""
+    def solve(self, atom_indices=None) -> RKSResponse:
+        """Return the audited finite-grid response for selected atoms."""
         validate_rks_reference(self.reference)
+        atom_indices = self._response_atom_indices(atom_indices)
         initial_fingerprint = rks_reference_fingerprint(self.reference)
         functional_provenance = _functional_provenance(self.reference)
         grid_provenance = _grid_provenance(self.reference)
@@ -2294,15 +2343,13 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             np.count_nonzero(virtual)
         )
         overlap = np.asarray(self.reference.get_ovlp())
-        overlap_derivative = self._overlap_derivative()
+        overlap_derivative = self._overlap_derivative(atom_indices)
         (
             hamiltonian_derivative,
             hamiltonian_derivative_fixed_grid,
-            xc_ao_motion,
             xc_grid_coordinate,
             xc_grid_weight,
-            fixed_grid_xc_reconstruction_residual,
-        ) = self._hamiltonian_derivative(coefficient, occupation)
+        ) = self._hamiltonian_derivative(coefficient, occupation, atom_indices)
         occupied_coefficients = coefficient[:, occupied]
         hamiltonian_mo = np.einsum(
             "mp,...mn,ni->...pi",
@@ -2389,8 +2436,10 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             np.einsum("...ij,ji->...", density_response, overlap)
             + np.einsum("ij,...ji->...", density_ground, overlap_derivative)
         )
-        translation_residual = float(
-            np.max(np.abs(np.sum(density_response, axis=0)), initial=0.0)
+        translation_residual = (
+            float(np.max(np.abs(np.sum(density_response, axis=0)), initial=0.0))
+            if len(atom_indices) == self.molecule.natm
+            else 0.0
         )
         try:
             ao = self.reference._numint.eval_ao(
@@ -2432,9 +2481,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             level_shift=self.level_shift,
             response_dimension=response_dimension,
             operator_is_self_adjoint=True,
-            fixed_grid_xc_reconstruction_residual=(
-                fixed_grid_xc_reconstruction_residual
-            ),
             hamiltonian_reconstruction_residual=hamiltonian_reconstruction_residual,
             metric_residual=metric_residual,
             idempotency_residual=float(np.max(np.abs(idempotency), initial=0.0)),
@@ -2455,7 +2501,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "overlap_derivative": overlap_derivative,
             "hamiltonian_derivative": hamiltonian_derivative,
             "hamiltonian_derivative_fixed_grid": hamiltonian_derivative_fixed_grid,
-            "xc_hamiltonian_derivative_ao_motion": xc_ao_motion,
             "xc_hamiltonian_derivative_grid_coordinate": xc_grid_coordinate,
             "xc_hamiltonian_derivative_grid_weight": xc_grid_weight,
             "orbital_response_residual": residual,
@@ -2477,7 +2522,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 f"refinement history: {history}"
             )
         invariant_failures = {
-            "fixed-grid XC": diagnostics.fixed_grid_xc_reconstruction_residual,
             "Hamiltonian reconstruction": diagnostics.hamiltonian_reconstruction_residual,
             "metric": diagnostics.metric_residual,
             "idempotency": diagnostics.idempotency_residual,
@@ -2504,7 +2548,7 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             reference_identity=id(self.reference),
             state_fingerprint=initial_fingerprint,
             integrity_fingerprint="",
-            atom_indices=tuple(range(self.molecule.natm)),
+            atom_indices=atom_indices,
             mo_response=_immutable_array(mo_response),
             _mo_coefficients=_immutable_array(coefficient),
             _mo_occupations=_immutable_array(occupation),
@@ -2516,7 +2560,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             hamiltonian_derivative_fixed_grid=_immutable_array(
                 hamiltonian_derivative_fixed_grid
             ),
-            xc_hamiltonian_derivative_ao_motion=_immutable_array(xc_ao_motion),
             xc_hamiltonian_derivative_grid_coordinate=_immutable_array(
                 xc_grid_coordinate
             ),
@@ -2561,7 +2604,10 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         nmo = coefficient.shape[1]
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))
-        perturbation_shape = (self.molecule.natm, 3)
+        atom_indices = self._response_atom_indices(response.atom_indices)
+        if atom_indices != response.atom_indices:
+            raise RKSResponseError("the supplied RKS response atom selection is invalid")
+        perturbation_shape = (len(atom_indices), 3)
         mo_shape = (*perturbation_shape, nmo, nocc)
         coefficient_shape = (*perturbation_shape, self.molecule.nao, nocc)
         density_shape = (
@@ -2583,7 +2629,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "overlap_derivative": density_shape,
             "hamiltonian_derivative": density_shape,
             "hamiltonian_derivative_fixed_grid": density_shape,
-            "xc_hamiltonian_derivative_ao_motion": density_shape,
             "xc_hamiltonian_derivative_grid_coordinate": density_shape,
             "xc_hamiltonian_derivative_grid_weight": density_shape,
             "orbital_response_residual": residual_shape,
@@ -2595,15 +2640,13 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                     f"the supplied RKS response {name} must be an immutable ndarray"
                 )
             _validated_float64_array(value, expected_shape, f"supplied {name}")
-        expected_overlap_derivative = self._overlap_derivative()
+        expected_overlap_derivative = self._overlap_derivative(atom_indices)
         (
             expected_hamiltonian_derivative,
             expected_hamiltonian_fixed_grid,
-            expected_xc_ao_motion,
             expected_xc_grid_coordinate,
             expected_xc_grid_weight,
-            fixed_grid_xc_reconstruction_residual,
-        ) = self._hamiltonian_derivative(coefficient, occupation)
+        ) = self._hamiltonian_derivative(coefficient, occupation, atom_indices)
         derivative_fields = (
             (
                 response.overlap_derivative,
@@ -2619,11 +2662,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 response.hamiltonian_derivative_fixed_grid,
                 expected_hamiltonian_fixed_grid,
                 "fixed-grid Hamiltonian derivative",
-            ),
-            (
-                response.xc_hamiltonian_derivative_ao_motion,
-                expected_xc_ao_motion,
-                "AO-motion XC Hamiltonian derivative",
             ),
             (
                 response.xc_hamiltonian_derivative_grid_coordinate,
@@ -2838,9 +2876,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
-            "fixed_grid_xc_reconstruction_residual": (
-                fixed_grid_xc_reconstruction_residual
-            ),
             "hamiltonian_reconstruction_residual": (
                 hamiltonian_reconstruction_residual
             ),
@@ -2917,7 +2952,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 "the supplied RKS response physical residual exceeds tolerance"
             )
         invariant_names = (
-            "fixed_grid_xc_reconstruction_residual",
             "hamiltonian_reconstruction_residual",
             "metric_residual",
             "idempotency_residual",
@@ -3063,16 +3097,16 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         occupation: np.ndarray,
         occupied: np.ndarray,
         virtual: np.ndarray,
-    ) -> tuple[dict[str, np.ndarray], float, float]:
-        overlap_derivative = self._overlap_derivative()
+        atom_indices=None,
+    ) -> tuple[dict[str, np.ndarray], float]:
+        atom_indices = self._response_atom_indices(atom_indices)
+        overlap_derivative = self._overlap_derivative(atom_indices)
         (
             hamiltonian_derivative,
             hamiltonian_fixed_grid,
-            _xc_ao_motion,
             hamiltonian_grid_coordinate,
             hamiltonian_grid_weight,
-            fixed_grid_xc_reconstruction_residual,
-        ) = self._hamiltonian_derivative(coefficient, occupation)
+        ) = self._hamiltonian_derivative(coefficient, occupation, atom_indices)
         hamiltonian_reconstruction_residual = float(
             np.max(
                 np.abs(
@@ -3178,12 +3212,11 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             ),
             "correction_gradient_response": correction_gradient_response,
         }
-        expected_shape = (self.molecule.natm, 3)
+        expected_shape = (len(atom_indices), 3)
         for name, value in partitions.items():
             _validated_float64_array(value, expected_shape, f"RKS {name}")
         return (
             partitions,
-            fixed_grid_xc_reconstruction_residual,
             hamiltonian_reconstruction_residual,
         )
 
@@ -3209,10 +3242,10 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             "correction occupied-virtual objective gradient",
         )
 
-    def solve(self, objective_ao_potential: np.ndarray) -> RKSAdjoint:
-        """Return one audited RKS Z-vector and its complete nuclear contraction."""
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RKSAdjoint:
+        """Return one audited RKS Z-vector and selected nuclear contractions."""
         try:
-            return self._solve(objective_ao_potential)
+            return self._solve(objective_ao_potential, atom_indices)
         except DeePHFCapabilityError:
             raise
         except RKSAdjointError:
@@ -3222,8 +3255,9 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
                 f"RKS adjoint evaluation failed: {error}"
             ) from error
 
-    def _solve(self, objective_ao_potential: np.ndarray) -> RKSAdjoint:
+    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RKSAdjoint:
         validate_rks_reference(self.reference)
+        atom_indices = self._response_atom_indices(atom_indices)
         initial_fingerprint = rks_reference_fingerprint(self.reference)
         functional_provenance = _functional_provenance(self.reference)
         grid_provenance = _grid_provenance(self.reference)
@@ -3309,7 +3343,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             )
         (
             partitions,
-            fixed_grid_xc_reconstruction_residual,
             hamiltonian_reconstruction_residual,
         ) = self._gradient_partitions(
             objective_ao_potential,
@@ -3320,6 +3353,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             occupation,
             occupied,
             virtual,
+            atom_indices,
         )
         self._require_close(
             partitions["correction_gradient_adjoint_nuclear"],
@@ -3340,10 +3374,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             + partitions["correction_gradient_occupied_virtual"],
             "response gradient partition",
         )
-        if fixed_grid_xc_reconstruction_residual > self.invariant_tolerance:
-            raise RKSAdjointError(
-                "the RKS adjoint fixed-grid XC reconstruction exceeds tolerance"
-            )
         if hamiltonian_reconstruction_residual > self.invariant_tolerance:
             raise RKSAdjointError(
                 "the RKS adjoint Hamiltonian reconstruction exceeds tolerance"
@@ -3367,9 +3397,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             orbital_gap_tolerance=self.orbital_gap_tolerance,
             response_dimension=response_dimension,
             operator_is_self_adjoint=True,
-            fixed_grid_xc_reconstruction_residual=(
-                fixed_grid_xc_reconstruction_residual
-            ),
             hamiltonian_reconstruction_residual=(
                 hamiltonian_reconstruction_residual
             ),
@@ -3385,22 +3412,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             solve_count=linear_diagnostics.solve_count,
             objective_gradient_norm=linear_diagnostics.objective_gradient_norm,
             solution_norm=linear_diagnostics.solution_norm,
-            maximum_solver_residual=(
-                linear_diagnostics.maximum_solver_residual
-            ),
-            solver_residual_rms=linear_diagnostics.solver_residual_rms,
-            maximum_transpose_residual=(
-                linear_diagnostics.maximum_transpose_residual
-            ),
-            transpose_residual_rms=(
-                linear_diagnostics.transpose_residual_rms
-            ),
-            maximum_physical_residual=(
-                linear_diagnostics.maximum_physical_residual
-            ),
-            physical_residual_rms=(
-                linear_diagnostics.physical_residual_rms
-            ),
+            maximum_residual=linear_diagnostics.maximum_residual,
+            residual_rms=linear_diagnostics.residual_rms,
             max_cycle=self.max_cycle,
             krylov_restart=self.krylov_restart,
             iteration_count=linear_diagnostics.iteration_count,
@@ -3410,6 +3423,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             state_fingerprint=initial_fingerprint,
             integrity_fingerprint="",
             operator_fingerprint=linear_result.operator_fingerprint,
+            atom_indices=atom_indices,
             functional_provenance=functional_provenance,
             grid_provenance=grid_provenance,
             objective_ao_potential=_immutable_array(objective_ao_potential),
@@ -3417,14 +3431,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
                 objective_orbital_gradient
             ),
             zvector=_immutable_array(zvector),
-            solver_residual=_immutable_array(
-                linear_result.solver_residual.reshape(nvir, nocc)
-            ),
-            transpose_residual=_immutable_array(
-                linear_result.transpose_residual.reshape(nvir, nocc)
-            ),
-            physical_residual=_immutable_array(
-                linear_result.physical_residual.reshape(nvir, nocc)
+            residual=_immutable_array(
+                linear_result.residual.reshape(nvir, nocc)
             ),
             adjoint_ao_density=_immutable_array(adjoint_ao_density),
             adjoint_ao_potential=_immutable_array(adjoint_ao_potential),
@@ -3545,7 +3553,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             diagnostics.residual_tolerance,
             diagnostics.invariant_tolerance,
             diagnostics.orbital_gap_tolerance,
-            diagnostics.fixed_grid_xc_reconstruction_residual,
             diagnostics.hamiltonian_reconstruction_residual,
             diagnostics.objective_symmetry_tolerance,
             diagnostics.objective_symmetry_residual,
@@ -3553,12 +3560,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             diagnostics.adjoint_potential_symmetry_residual,
             diagnostics.objective_gradient_norm,
             diagnostics.solution_norm,
-            diagnostics.maximum_solver_residual,
-            diagnostics.solver_residual_rms,
-            diagnostics.maximum_transpose_residual,
-            diagnostics.transpose_residual_rms,
-            diagnostics.maximum_physical_residual,
-            diagnostics.physical_residual_rms,
+            diagnostics.maximum_residual,
+            diagnostics.residual_rms,
         )
         if any(
             isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
@@ -3615,15 +3618,16 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))
         dimension = nocc * nvir
-        natm = int(self.molecule.natm)
+        atom_indices = self._response_atom_indices(adjoint.atom_indices)
+        if atom_indices != adjoint.atom_indices:
+            raise RKSAdjointError("the supplied RKS adjoint atom selection is invalid")
+        natm = len(atom_indices)
         nao = int(self.molecule.nao)
         array_shapes = {
             "objective_ao_potential": (nao, nao),
             "objective_orbital_gradient": (nvir, nocc),
             "zvector": (nvir, nocc),
-            "solver_residual": (nvir, nocc),
-            "transpose_residual": (nvir, nocc),
-            "physical_residual": (nvir, nocc),
+            "residual": (nvir, nocc),
             "adjoint_ao_density": (nao, nao),
             "adjoint_ao_potential": (nao, nao),
             "correction_gradient_metric": (natm, 3),
@@ -3669,18 +3673,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             )
         objective_vector = expected_objective_gradient.reshape(dimension)
         zvector = adjoint.zvector
-        solver_residual = (
-            self._apply_occupied_virtual_operator(
-                zvector,
-                coefficient,
-                energy,
-                occupation,
-                occupied,
-                virtual,
-            ).reshape(dimension)
-            - objective_vector
-        ).reshape(nvir, nocc)
-        physical_residual = (
+        residual = (
             self._apply_occupied_virtual_operator(
                 zvector,
                 coefficient,
@@ -3692,19 +3685,9 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             - objective_vector
         ).reshape(nvir, nocc)
         self._require_close(
-            adjoint.solver_residual,
-            solver_residual,
-            "literal transpose residual",
-        )
-        self._require_close(
-            adjoint.transpose_residual,
-            physical_residual,
-            "independent transpose-action residual",
-        )
-        self._require_close(
-            adjoint.physical_residual,
-            physical_residual,
-            "physical operator residual",
+            adjoint.residual,
+            residual,
+            "independent residual",
         )
         expected_adjoint_density = self._adjoint_density(
             zvector,
@@ -3730,7 +3713,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         )
         (
             expected_partitions,
-            fixed_grid_xc_reconstruction_residual,
             hamiltonian_reconstruction_residual,
         ) = self._gradient_partitions(
             expected_objective_ao_potential,
@@ -3741,6 +3723,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             occupation,
             occupied,
             virtual,
+            atom_indices,
         )
         for name, expected in expected_partitions.items():
             self._require_close(getattr(adjoint, name), expected, name)
@@ -3763,12 +3746,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             + adjoint.correction_gradient_occupied_virtual,
             "response gradient partition",
         )
-        maximum_solver_residual, solver_residual_rms = (
-            self._residual_statistics(solver_residual)
-        )
-        maximum_physical_residual, physical_residual_rms = (
-            self._residual_statistics(physical_residual)
-        )
+        maximum_residual, residual_rms = self._residual_statistics(residual)
         objective_symmetry_residual = float(
             np.max(
                 np.abs(
@@ -3796,9 +3774,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
-            "fixed_grid_xc_reconstruction_residual": (
-                fixed_grid_xc_reconstruction_residual
-            ),
             "hamiltonian_reconstruction_residual": (
                 hamiltonian_reconstruction_residual
             ),
@@ -3809,12 +3784,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
                 np.linalg.norm(expected_objective_gradient)
             ),
             "solution_norm": float(np.linalg.norm(zvector)),
-            "maximum_solver_residual": maximum_solver_residual,
-            "solver_residual_rms": solver_residual_rms,
-            "maximum_transpose_residual": maximum_physical_residual,
-            "transpose_residual_rms": physical_residual_rms,
-            "maximum_physical_residual": maximum_physical_residual,
-            "physical_residual_rms": physical_residual_rms,
+            "maximum_residual": maximum_residual,
+            "residual_rms": residual_rms,
         }
         for name, expected in measured.items():
             stored = getattr(diagnostics, name)
@@ -3832,11 +3803,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
                     f"the supplied RKS adjoint {name} diagnostic is inconsistent"
                 )
         if (
-            maximum_solver_residual > diagnostics.residual_tolerance
-            or maximum_physical_residual > diagnostics.residual_tolerance
+            maximum_residual > diagnostics.residual_tolerance
             or minimum_gap <= diagnostics.orbital_gap_tolerance
-            or fixed_grid_xc_reconstruction_residual
-            > diagnostics.invariant_tolerance
             or hamiltonian_reconstruction_residual
             > diagnostics.invariant_tolerance
             or objective_symmetry_residual
@@ -3856,13 +3824,20 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             )
 
 
-def _native_xc_grid_force_components(reference) -> tuple[np.ndarray, np.ndarray]:
+def _native_xc_grid_force_components(
+    reference,
+    atom_indices,
+) -> tuple[np.ndarray, np.ndarray]:
     """Rebuild the LDA grid-coordinate and partition-weight nuclear forces."""
     molecule = reference.mol
     integration = reference._numint
     density = np.asarray(reference.make_rdm1())
-    coordinate_force = np.zeros((molecule.natm, 3), dtype=np.float64)
+    coordinate_force = np.zeros((len(atom_indices), 3), dtype=np.float64)
     weight_force = np.zeros_like(coordinate_force)
+    result_positions = {
+        atom_index: result_index
+        for result_index, atom_index in enumerate(atom_indices)
+    }
     atom_grid = _normalized_atom_grid(molecule, reference.grids.atom_grid)
     blocks = _validated_grid_response_blocks(
         reference,
@@ -3911,7 +3886,7 @@ def _native_xc_grid_force_components(reference) -> tuple[np.ndarray, np.ndarray]
             "g,g,axg->ax",
             energy_density,
             rho,
-            weight_derivative,
+            weight_derivative[list(atom_indices)],
             optimize=True,
         )
         density_gradient = 2.0 * np.einsum(
@@ -3921,21 +3896,31 @@ def _native_xc_grid_force_components(reference) -> tuple[np.ndarray, np.ndarray]
             values,
             optimize=True,
         )
-        coordinate_force[host_atom] += np.einsum(
-            "g,g,xg->x",
-            weights,
-            potential,
-            density_gradient,
-            optimize=True,
-        )
+        if host_atom in result_positions:
+            coordinate_force[result_positions[host_atom]] += np.einsum(
+                "g,g,xg->x",
+                weights,
+                potential,
+                density_gradient,
+                optimize=True,
+            )
     return coordinate_force, weight_force
 
 
-def native_rks_gradient(reference) -> RKSNativeGradient:
+def native_rks_gradient(reference, atom_indices=None) -> RKSNativeGradient:
     """Return the native finite-grid RKS gradient with grid response enforced."""
     validate_rks_reference(reference)
+    from .gradient import _validate_atom_indices
+
+    selected = _validate_atom_indices(reference.mol, atom_indices)
+    atom_indices = (
+        tuple(range(reference.mol.natm)) if selected is None else selected
+    )
     initial_fingerprint = rks_reference_fingerprint(reference)
-    coordinate_force, weight_force = _native_xc_grid_force_components(reference)
+    coordinate_force, weight_force = _native_xc_grid_force_components(
+        reference,
+        atom_indices,
+    )
     try:
         full_driver = rks_grad.Gradients(reference)
         fixed_driver = rks_grad.Gradients(reference)
@@ -3945,15 +3930,17 @@ def native_rks_gradient(reference) -> RKSNativeGradient:
         fixed_driver.grids = reference.grids
         full_driver.grid_response = True
         fixed_driver.grid_response = False
-        gradient = full_driver.kernel()
-        gradient_without_grid_response = fixed_driver.kernel()
+        gradient = full_driver.kernel(atmlst=list(atom_indices))
+        gradient_without_grid_response = fixed_driver.kernel(
+            atmlst=list(atom_indices)
+        )
     except RKSResponseError:
         raise
     except Exception as error:
         raise RKSResponseError(
             f"PySCF native RKS grid-response gradient failed: {error}"
         ) from error
-    expected_shape = (reference.mol.natm, 3)
+    expected_shape = (len(atom_indices), 3)
     gradient = _validated_float64_array(
         gradient,
         expected_shape,

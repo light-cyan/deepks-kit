@@ -4,7 +4,7 @@ import torch
 
 from deepks.deephf import write_rhf_force_dataset
 from deepks.model.model import CorrNet
-from deepks.model.reader import ForceBatch
+from deepks.model.reader import split_batch
 from deepks.model.train import (
     Evaluator,
     ForceTrainingError,
@@ -188,10 +188,7 @@ def test_train_returns_separate_energy_and_force_metrics(tmp_path):
         tmp_path / "strict-sample"
     )
     reader = _SingleFrameReader()
-    reader.sample = ForceBatch(
-        {name: value[:1].clone() for name, value in two_frame_sample.items()},
-        (contract,),
-    )
+    reader.sample = split_batch(two_frame_sample, 1)[0]
     reader.force_contract = contract
     reader.force_contracts = (contract,)
 
@@ -222,10 +219,7 @@ def test_public_train_rejects_strict_reader_in_energy_only_mode(tmp_path):
         tmp_path / "strict-sample"
     )
     reader = _SingleFrameReader()
-    reader.sample = ForceBatch(
-        {name: value[:1].clone() for name, value in two_frame_sample.items()},
-        (contract,),
-    )
+    reader.sample = split_batch(two_frame_sample, 1)[0]
     reader.force_contract = contract
     reader.force_contracts = (contract,)
 

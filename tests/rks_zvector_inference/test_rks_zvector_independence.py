@@ -50,9 +50,7 @@ def test_reference_neutral_adjoint_uses_literal_transpose_for_nonsymmetric_case(
     )
     assert np.max(np.abs(result.solution - incorrect_forward)) > 1.0e-2
     assert result.diagnostics.solve_count == 1
-    assert result.diagnostics.maximum_solver_residual < 1.0e-14
-    assert result.diagnostics.maximum_transpose_residual < 1.0e-14
-    assert result.diagnostics.maximum_physical_residual > 1.0e-2
+    assert result.diagnostics.maximum_residual < 1.0e-14
 
 
 def test_rks_zvector_never_enters_direct_or_coordinate_density_paths(
@@ -106,9 +104,13 @@ def test_one_rks_scalar_correction_performs_exactly_one_adjoint_solve(
     scalar_calls = []
     dense_calls = []
 
-    def counted_adapter_solve(self, objective):
+    def counted_adapter_solve(self, objective, atom_indices=None):
         adapter_calls.append(np.asarray(objective).shape)
-        return original_adapter_solve(self, objective)
+        return original_adapter_solve(
+            self,
+            objective,
+            atom_indices=atom_indices,
+        )
 
     def counted_scalar_solve(problem, objective, **options):
         scalar_calls.append((problem.dimension, np.asarray(objective).shape))

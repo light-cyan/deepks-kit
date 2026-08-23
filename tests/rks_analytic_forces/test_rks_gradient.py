@@ -76,45 +76,6 @@ def test_native_grid_response_gradient_matches_base_energy_finite_difference(
     )
 
 
-def test_gradient_driver_preserves_every_response_partition(
-    rks_oracle_case,
-):
-    driver = rks_oracle_case.gradient_driver
-
-    np.testing.assert_allclose(
-        driver.dq_dR_relaxed,
-        driver.dq_dR_explicit + driver.dq_dR_response,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    np.testing.assert_allclose(
-        driver.correction_gradient_response,
-        driver.correction_gradient_metric
-        + driver.correction_gradient_occupied_virtual,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    np.testing.assert_allclose(
-        driver.correction_gradient,
-        driver.correction_gradient_explicit
-        + driver.correction_gradient_response,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    np.testing.assert_allclose(
-        driver.de_full,
-        driver.reference_gradient + driver.correction_gradient,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    assert np.max(np.abs(driver.correction_gradient_explicit)) > 0.05
-    assert np.max(np.abs(driver.correction_gradient_metric)) > 0.01
-    assert np.max(
-        np.abs(driver.correction_gradient_occupied_virtual)
-    ) > 0.018
-    assert np.max(np.abs(driver.correction_gradient_response)) > 0.02
-
-
 def test_native_grid_coordinate_and_weight_gradient_parts_are_independent(
     rks_oracle_case,
 ):

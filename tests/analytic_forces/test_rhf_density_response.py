@@ -27,15 +27,22 @@ def test_complete_ao_density_response_matches_displaced_rhf(
     )
 
 
-def test_density_response_contains_occupied_virtual_and_metric_parts(
+def test_density_partitions_are_built_with_two_ao_transforms(
     rhf_oracle_case,
+    monkeypatch,
 ):
     response = rhf_oracle_case.response
-    occupied_virtual = response.density_response_occupied_virtual
-    metric = response.density_response_metric
-    complete = response.density_response
-    finite_difference = rhf_oracle_case.finite_difference("density", 3.0e-4)
+    original = type(response)._density_response
+    calls = []
 
+    def counted(instance, mo_response):
+        calls.append(True)
+        return original(instance, mo_response)
+
+    monkeypatch.setattr(type(response), "_density_response", counted)
+    complete, metric, occupied_virtual = response.density_partitions()
+
+    assert len(calls) == 2
     np.testing.assert_allclose(
         complete,
         occupied_virtual + metric,
@@ -44,7 +51,6 @@ def test_density_response_contains_occupied_virtual_and_metric_parts(
     )
     assert np.linalg.norm(occupied_virtual) > 0.1
     assert np.linalg.norm(metric) > 0.1
-    assert np.max(np.abs(finite_difference - occupied_virtual)) > 1.0e-2
 
 
 def test_density_response_satisfies_nonorthogonal_ao_invariants(

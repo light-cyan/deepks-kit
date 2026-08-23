@@ -189,8 +189,8 @@ def test_gradient_rejects_noninteger_atom_indices_before_response(
     with pytest.raises(TypeError, match="atom indices must be integers"):
         driver.kernel(atmlst=[invalid_index])
 
-    assert driver.response_result is None
-    assert driver.de_full is None
+    assert not hasattr(driver, "response_result")
+    assert not hasattr(driver, "de_full")
 
 
 @pytest.mark.parametrize(
@@ -213,7 +213,7 @@ def test_gradient_rejects_invalid_atom_selections_before_response(
     with pytest.raises(error, match=message):
         driver.kernel(atmlst=atom_indices)
 
-    assert driver.response_result is None
+    assert not hasattr(driver, "response_result")
 
 
 def test_direct_gradient_evaluates_the_force_model_once(

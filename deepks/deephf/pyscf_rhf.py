@@ -408,6 +408,12 @@ class RHFResponse:
         )
         return _immutable_array(density + density.swapaxes(-1, -2))
 
+    def density_partitions(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build complete, metric, and occupied-virtual AO densities once."""
+        metric = self._density_response(self._mo_partition(False))
+        occupied_virtual = self._density_response(self._mo_partition(True))
+        return _immutable_array(metric + occupied_virtual), metric, occupied_virtual
+
     @property
     def mo_response_occupied_virtual(self) -> np.ndarray:
         return self._mo_partition(True)
@@ -484,12 +490,8 @@ class RHFAdjointDiagnostics:
     solve_count: int
     objective_gradient_norm: float
     solution_norm: float
-    maximum_solver_residual: float
-    solver_residual_rms: float
-    maximum_transpose_residual: float
-    transpose_residual_rms: float
-    maximum_physical_residual: float
-    physical_residual_rms: float
+    maximum_residual: float
+    residual_rms: float
     max_cycle: int
     krylov_restart: int
     iteration_count: int
@@ -503,12 +505,11 @@ class RHFAdjoint:
     state_fingerprint: str
     integrity_fingerprint: str
     operator_fingerprint: str
+    atom_indices: tuple[int, ...]
     objective_ao_potential: np.ndarray
     objective_orbital_gradient: np.ndarray
     zvector: np.ndarray
-    solver_residual: np.ndarray
-    transpose_residual: np.ndarray
-    physical_residual: np.ndarray
+    residual: np.ndarray
     adjoint_ao_density: np.ndarray
     adjoint_ao_potential: np.ndarray
     correction_gradient_metric: np.ndarray
@@ -2532,12 +2533,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             diagnostics.adjoint_potential_symmetry_residual,
             diagnostics.objective_gradient_norm,
             diagnostics.solution_norm,
-            diagnostics.maximum_solver_residual,
-            diagnostics.solver_residual_rms,
-            diagnostics.maximum_transpose_residual,
-            diagnostics.transpose_residual_rms,
-            diagnostics.maximum_physical_residual,
-            diagnostics.physical_residual_rms,
+            diagnostics.maximum_residual,
+            diagnostics.residual_rms,
         )
         if any(
             isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
@@ -2583,15 +2580,16 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))
         dimension = nocc * nvir
-        natm = int(self.molecule.natm)
+        atom_indices = self._response_atom_indices(adjoint.atom_indices)
+        if atom_indices != adjoint.atom_indices:
+            raise RHFAdjointError("the supplied RHF adjoint atom selection is invalid")
+        natm = len(atom_indices)
         nao = int(self.molecule.nao)
         arrays = {
             "objective_ao_potential": (nao, nao),
             "objective_orbital_gradient": (nvir, nocc),
             "zvector": (nvir, nocc),
-            "solver_residual": (nvir, nocc),
-            "transpose_residual": (nvir, nocc),
-            "physical_residual": (nvir, nocc),
+            "residual": (nvir, nocc),
             "adjoint_ao_density": (nao, nao),
             "adjoint_ao_potential": (nao, nao),
             "correction_gradient_metric": (natm, 3),
@@ -2643,7 +2641,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             )
         zvector = adjoint.zvector
         objective_vector = expected_objective_gradient.reshape(dimension)
-        physical_residual = (
+        residual = (
             self._apply_occupied_virtual_operator(
                 zvector,
                 coefficient,
@@ -2654,21 +2652,10 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             ).reshape(dimension)
             - objective_vector
         ).reshape(nvir, nocc)
-        solver_residual = physical_residual
         self._require_close(
-            adjoint.solver_residual,
-            solver_residual,
-            "matrix-free solver residual",
-        )
-        self._require_close(
-            adjoint.transpose_residual,
-            physical_residual,
-            "independent transpose residual",
-        )
-        self._require_close(
-            adjoint.physical_residual,
-            physical_residual,
-            "physical residual",
+            adjoint.residual,
+            residual,
+            "independent residual",
         )
         occupied_coefficients = coefficient[:, occupied]
         virtual_coefficients = coefficient[:, virtual]
@@ -2693,10 +2680,11 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             expected_adjoint_potential,
             "AO potential",
         )
-        overlap_derivative = self._overlap_derivative()
+        overlap_derivative = self._overlap_derivative(atom_indices)
         hamiltonian_derivative = self._hamiltonian_derivative(
             coefficient,
             occupation,
+            atom_indices,
         )
         overlap_mo = np.einsum(
             "mp,...mn,ni->...pi",
@@ -2779,12 +2767,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
                 float(np.sqrt(np.mean(np.square(value)))),
             )
 
-        maximum_solver_residual, solver_residual_rms = residual_statistics(
-            solver_residual
-        )
-        maximum_physical_residual, physical_residual_rms = residual_statistics(
-            physical_residual
-        )
+        maximum_residual, residual_rms = residual_statistics(residual)
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
@@ -2818,12 +2801,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
                 np.linalg.norm(expected_objective_gradient)
             ),
             "solution_norm": float(np.linalg.norm(zvector)),
-            "maximum_solver_residual": maximum_solver_residual,
-            "solver_residual_rms": solver_residual_rms,
-            "maximum_transpose_residual": maximum_physical_residual,
-            "transpose_residual_rms": physical_residual_rms,
-            "maximum_physical_residual": maximum_physical_residual,
-            "physical_residual_rms": physical_residual_rms,
+            "maximum_residual": maximum_residual,
+            "residual_rms": residual_rms,
         }
         for name, expected in measured.items():
             stored = getattr(diagnostics, name)
@@ -2841,8 +2820,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
                     f"the supplied RHF adjoint {name} diagnostic is inconsistent"
                 )
         if (
-            maximum_solver_residual > diagnostics.residual_tolerance
-            or maximum_physical_residual > diagnostics.residual_tolerance
+            maximum_residual > diagnostics.residual_tolerance
             or minimum_gap <= diagnostics.orbital_gap_tolerance
             or measured["objective_symmetry_residual"]
             > diagnostics.objective_symmetry_tolerance
@@ -2856,10 +2834,10 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             )
         validate_reference(self.reference)
 
-    def solve(self, objective_ao_potential: np.ndarray) -> RHFAdjoint:
-        """Return one audited Z-vector and its complete nuclear contraction."""
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RHFAdjoint:
+        """Return one audited Z-vector and selected nuclear contractions."""
         try:
-            return self._solve(objective_ao_potential)
+            return self._solve(objective_ao_potential, atom_indices)
         except DeePHFCapabilityError:
             raise
         except RHFAdjointError:
@@ -2867,8 +2845,9 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         except (AdjointError, RHFResponseError) as error:
             raise RHFAdjointError(f"RHF adjoint evaluation failed: {error}") from error
 
-    def _solve(self, objective_ao_potential: np.ndarray) -> RHFAdjoint:
+    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RHFAdjoint:
         validate_reference(self.reference)
+        atom_indices = self._response_atom_indices(atom_indices)
         objective_ao_potential = self._validated_objective_potential(
             objective_ao_potential
         )
@@ -2967,10 +2946,11 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
                 f"{adjoint_potential_symmetry_residual:.3e} > "
                 f"{self.objective_symmetry_tolerance:.3e}"
             )
-        overlap_derivative = self._overlap_derivative()
+        overlap_derivative = self._overlap_derivative(atom_indices)
         hamiltonian_derivative = self._hamiltonian_derivative(
             coefficient,
             occupation,
+            atom_indices,
         )
         overlap_mo = np.einsum(
             "mp,...mn,ni->...pi",
@@ -3039,7 +3019,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         for name, value in gradient_fields.items():
             _validated_float64_array(
                 value,
-                (self.molecule.natm, 3),
+                (len(atom_indices), 3),
                 name,
             )
         validate_reference(self.reference)
@@ -3066,22 +3046,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
                 linear_diagnostics.objective_gradient_norm
             ),
             solution_norm=linear_diagnostics.solution_norm,
-            maximum_solver_residual=(
-                linear_diagnostics.maximum_solver_residual
-            ),
-            solver_residual_rms=linear_diagnostics.solver_residual_rms,
-            maximum_transpose_residual=(
-                linear_diagnostics.maximum_transpose_residual
-            ),
-            transpose_residual_rms=(
-                linear_diagnostics.transpose_residual_rms
-            ),
-            maximum_physical_residual=(
-                linear_diagnostics.maximum_physical_residual
-            ),
-            physical_residual_rms=(
-                linear_diagnostics.physical_residual_rms
-            ),
+            maximum_residual=linear_diagnostics.maximum_residual,
+            residual_rms=linear_diagnostics.residual_rms,
             max_cycle=self.max_cycle,
             krylov_restart=self.krylov_restart,
             iteration_count=linear_diagnostics.iteration_count,
@@ -3091,19 +3057,14 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             state_fingerprint=state_fingerprint,
             integrity_fingerprint="",
             operator_fingerprint=linear_result.operator_fingerprint,
+            atom_indices=atom_indices,
             objective_ao_potential=_immutable_array(objective_ao_potential),
             objective_orbital_gradient=_immutable_array(
                 objective_orbital_gradient
             ),
             zvector=_immutable_array(zvector),
-            solver_residual=_immutable_array(
-                linear_result.solver_residual.reshape(nvir, nocc)
-            ),
-            transpose_residual=_immutable_array(
-                linear_result.transpose_residual.reshape(nvir, nocc)
-            ),
-            physical_residual=_immutable_array(
-                linear_result.physical_residual.reshape(nvir, nocc)
+            residual=_immutable_array(
+                linear_result.residual.reshape(nvir, nocc)
             ),
             adjoint_ao_density=_immutable_array(adjoint_ao_density),
             adjoint_ao_potential=_immutable_array(adjoint_ao_potential),

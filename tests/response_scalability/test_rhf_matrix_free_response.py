@@ -32,9 +32,15 @@ class _MatrixFreeProblem:
     def precondition(self, vector):
         return vector / np.diag(self.matrix)
 
+    @property
+    def operator_fingerprint(self):
+        import hashlib
+
+        return hashlib.sha256(self.matrix.tobytes()).hexdigest()
+
 
 class _StateFingerprintProblem(_MatrixFreeProblem):
-    operator_fingerprint = "1" * 64
+    pass
 
 
 @pytest.fixture(scope="module")
@@ -90,7 +96,7 @@ def test_generic_gmres_adjoint_never_requests_a_dense_operator():
     assert result.diagnostics.iteration_count > 0
 
 
-def test_operator_fingerprint_combines_state_and_action_evidence():
+def test_operator_fingerprint_uses_supplied_state_evidence_without_actions():
     problem = _StateFingerprintProblem(np.eye(3, dtype=np.float64))
     initial = scalar_operator_fingerprint(problem)
     problem.matrix = np.diag(np.array([1.0, 1.0, 1.5]))
@@ -116,7 +122,7 @@ def test_rhf_zvector_never_uses_the_dense_debug_audit(
     assert adjoint.diagnostics.response_dimension > 1
     assert adjoint.diagnostics.operator_is_self_adjoint is True
     assert adjoint.diagnostics.iteration_count > 0
-    assert adjoint.diagnostics.maximum_solver_residual < 1.0e-9
+    assert adjoint.diagnostics.maximum_residual < 1.0e-9
 
 
 def test_direct_coordinate_blocks_match_full_response_without_retaining_it(

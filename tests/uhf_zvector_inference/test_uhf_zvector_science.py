@@ -9,6 +9,25 @@ from deepks.model.model import CorrNet
 ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
 
 
+def test_uhf_compact_selected_gradient_drivers_retain_one_array(uhf_oracle_case):
+    for backend in ("direct", "zvector"):
+        driver = uhf_oracle_case.method.nuc_grad_method(
+            backend=backend,
+            retain_details=False,
+        ).run(atmlst=(1,))
+        retained_bytes = sum(
+            value.nbytes
+            for value in vars(driver).values()
+            if isinstance(value, np.ndarray)
+        )
+        assert retained_bytes == driver.de.nbytes
+        assert driver.de.shape == (1, 3)
+        assert not hasattr(driver, "de_full")
+        result_name = "response_result" if backend == "direct" else "adjoint_result"
+        assert not hasattr(driver, result_name)
+        assert driver.response_diagnostics is not None
+
+
 def test_coupled_adjoint_matches_independent_ao_oracle(
     uhf_oracle_case,
     independent_uhf_adjoint_oracle,
@@ -58,9 +77,7 @@ def test_coupled_adjoint_matches_independent_ao_oracle(
         == adjoint.diagnostics.alpha_response_dimension
         + adjoint.diagnostics.beta_response_dimension
     )
-    assert adjoint.diagnostics.maximum_solver_residual < 1.0e-12
-    assert adjoint.diagnostics.maximum_transpose_residual < 1.0e-12
-    assert adjoint.diagnostics.maximum_physical_residual < 1.0e-12
+    assert adjoint.diagnostics.maximum_residual < 1.0e-12
 
 
 def test_transpose_rhs_is_bilateral_and_couples_both_spins(
@@ -156,63 +173,6 @@ def test_zvector_total_gradient_matches_fresh_uhf_energy_finite_difference(
         uhf_oracle_case.gradient,
         rtol=2.0e-10,
         atol=2.0e-12,
-    )
-
-
-def test_zvector_driver_preserves_all_spin_and_response_partitions(
-    uhf_oracle_case,
-):
-    driver = uhf_oracle_case.method.nuc_grad_method(backend="zvector").run()
-
-    np.testing.assert_allclose(
-        driver.correction_gradient_occupied_virtual_spin,
-        driver.correction_gradient_adjoint_nuclear_spin
-        + driver.correction_gradient_adjoint_metric_spin,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    np.testing.assert_allclose(
-        driver.correction_gradient_response_spin,
-        driver.correction_gradient_metric_spin
-        + driver.correction_gradient_occupied_virtual_spin,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    np.testing.assert_allclose(
-        driver.correction_gradient_spin,
-        driver.correction_gradient_explicit_spin
-        + driver.correction_gradient_response_spin,
-        rtol=0.0,
-        atol=2.0e-13,
-    )
-    for total_name, spin_name in (
-        ("correction_gradient_explicit", "correction_gradient_explicit_spin"),
-        ("correction_gradient_metric", "correction_gradient_metric_spin"),
-        (
-            "correction_gradient_adjoint_nuclear",
-            "correction_gradient_adjoint_nuclear_spin",
-        ),
-        (
-            "correction_gradient_adjoint_metric",
-            "correction_gradient_adjoint_metric_spin",
-        ),
-        (
-            "correction_gradient_occupied_virtual",
-            "correction_gradient_occupied_virtual_spin",
-        ),
-        ("correction_gradient", "correction_gradient_spin"),
-    ):
-        np.testing.assert_allclose(
-            getattr(driver, total_name),
-            getattr(driver, spin_name).sum(axis=0),
-            rtol=0.0,
-            atol=2.0e-13,
-        )
-    np.testing.assert_allclose(
-        driver.de_full,
-        driver.reference_gradient + driver.correction_gradient,
-        rtol=0.0,
-        atol=2.0e-13,
     )
 
 

@@ -688,11 +688,12 @@ _FORCE_CORRNET_FORWARD = CorrNet.forward
 _FORCE_DENSENET_FORWARD = DenseNet.forward
 _FORCE_TRACE_FORWARD = TraceEmbedding.forward
 _FORCE_THERMAL_FORWARD = ThermalEmbedding.forward
+_FORCE_LINEAR_FORWARD = nn.Linear.forward
+_FORCE_MODULE_CALL = nn.Module._call_impl
 _FORCE_ACTIVATIONS = frozenset(
     {
         torch.sigmoid,
         torch.tanh,
-        torch.relu,
         F.softplus,
         F.silu,
         F.gelu,
@@ -721,6 +722,8 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         raise ValueError("the force CorrNet forward implementation was replaced")
     if type(model.linear) is not nn.Linear or type(model.densenet) is not DenseNet:
         raise ValueError("the force CorrNet has an unsupported network structure")
+    if nn.Module._call_impl is not _FORCE_MODULE_CALL:
+        raise ValueError("the force module execution implementation was replaced")
     if "forward" in vars(model.densenet) or DenseNet.forward is not _FORCE_DENSENET_FORWARD:
         raise ValueError("the force DenseNet forward implementation was replaced")
     if model.densenet.actv_fn not in _FORCE_ACTIVATIONS:
@@ -729,6 +732,11 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         type(layer) is not nn.Linear for layer in model.densenet.layers
     ):
         raise ValueError("the force CorrNet contains unsupported dense layers")
+    linear_layers = (model.linear, *model.densenet.layers)
+    if nn.Linear.forward is not _FORCE_LINEAR_FORWARD or any(
+        "forward" in vars(layer) for layer in linear_layers
+    ):
+        raise ValueError("a force linear-layer forward implementation was replaced")
     if model.densenet.dts is not None and type(model.densenet.dts) is not nn.ParameterList:
         raise ValueError("the force CorrNet residual scaling is invalid")
     embedder = model.embedder
@@ -771,3 +779,59 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
             "the force correction model cannot contain module execution hooks; "
             f"active hooks: {', '.join(active_hooks)}"
         )
+
+
+def force_model_structure_evidence(model):
+    """Return cheap identity evidence that invalidates cached graph validation."""
+    try:
+        layers = (model.linear, *model.densenet.layers)
+        modules = (model, model.densenet, *layers)
+        if model.embedder is not None:
+            modules += (model.embedder,)
+        hooks = tuple(
+            (
+                id(getattr(module, field_name)),
+                tuple(
+                    (key, id(value))
+                    for key, value in getattr(module, field_name).items()
+                ),
+            )
+            for module in modules
+            for _hook_name, field_name in _FORCE_MODULE_HOOK_FIELDS
+        )
+        global_hooks = tuple(
+            (
+                id(getattr(torch.nn.modules.module, field_name)),
+                tuple(
+                    (key, id(value))
+                    for key, value in getattr(
+                        torch.nn.modules.module,
+                        field_name,
+                    ).items()
+                ),
+            )
+            for _hook_name, field_name in _FORCE_GLOBAL_HOOK_FIELDS
+        )
+        return (
+            id(model),
+            id(model.densenet),
+            tuple(id(layer) for layer in layers),
+            id(model.embedder),
+            id(model.densenet.actv_fn),
+            id(model.densenet.dts),
+            repr(model.input_dim),
+            repr(model._pbas),
+            repr(model.elem_table),
+            tuple("forward" in vars(module) for module in modules),
+            tuple(module.training for module in modules),
+            id(CorrNet.forward),
+            id(DenseNet.forward),
+            id(TraceEmbedding.forward),
+            id(ThermalEmbedding.forward),
+            id(nn.Linear.forward),
+            id(nn.Module._call_impl),
+            hooks,
+            global_hooks,
+        )
+    except Exception:
+        return None

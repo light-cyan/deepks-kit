@@ -3,14 +3,19 @@
 import numpy as np
 
 from .capabilities import science_state_transaction
-from .gradient import _validate_atom_indices
+from .gradient import (
+    _compact_driver_results,
+    _reset_driver_results,
+    _validate_atom_indices,
+    _validate_retain_details,
+)
 from .pyscf_rhf import RHFAdjointError
 
 
 class RHFDeePHFZVectorGradients:
     """Evaluate the correction response through one RHF scalar adjoint."""
 
-    def __init__(self, method, adjoint_options=None):
+    def __init__(self, method, adjoint_options=None, retain_details=True):
         from .method import DeePHF
 
         if type(method) is not DeePHF:
@@ -20,6 +25,7 @@ class RHFDeePHFZVectorGradients:
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "zvector"
+        self.retain_details = _validate_retain_details(retain_details)
         self.response_options = dict(adjoint_options or {})
         self._reset_results()
 
@@ -50,25 +56,15 @@ class RHFDeePHFZVectorGradients:
             )
 
     def _reset_results(self):
-        self.adjoint_result = None
-        self.descriptor_diagnostics = None
-        self.reference_gradient = None
-        self.dq_dR_explicit = None
-        self.correction_gradient_explicit = None
-        self.correction_gradient_metric = None
-        self.correction_gradient_adjoint_nuclear = None
-        self.correction_gradient_adjoint_metric = None
-        self.correction_gradient_occupied_virtual = None
-        self.correction_gradient_response = None
-        self.correction_gradient = None
-        self.de_full = None
-        self.de = None
+        _reset_driver_results(self)
 
     @property
     def adjoint_diagnostics(self):
-        if self.adjoint_result is None:
-            return None
-        return self.adjoint_result.diagnostics
+        return (
+            self._response_diagnostics
+            if getattr(self, "adjoint_result", None) is None
+            else self.adjoint_result.diagnostics
+        )
 
     @property
     def response_diagnostics(self):
@@ -82,15 +78,18 @@ class RHFDeePHFZVectorGradients:
         self._validate_driver_binding()
         atom_indices = _validate_atom_indices(self.mol, atmlst)
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
-            self.response_options
+            self.response_options,
+            atom_indices=atom_indices,
         )
         self.base._assert_science_state("native RHF gradient evaluation")
         reference_gradient = np.asarray(
-            self.base.reference.nuc_grad_method().kernel()
+            self.base.reference.nuc_grad_method().kernel(
+                atmlst=None if atom_indices is None else list(atom_indices)
+            )
         )
         self.base._validate_science_state("native RHF gradient evaluation")
         self.base._assert_science_state("explicit descriptor gradient evaluation")
-        dq_dR_explicit = self.base.dq_dR_explicit()
+        dq_dR_explicit = self.base.dq_dR_explicit(atom_indices=atom_indices)
         self.base._assert_science_state("explicit descriptor gradient evaluation")
         correction_gradient_explicit = np.einsum(
             "bxap,ap->bx",
@@ -116,7 +115,7 @@ class RHFDeePHFZVectorGradients:
             correction_gradient_explicit + correction_gradient_response
         )
         de_full = reference_gradient + correction_gradient
-        expected_shape = (self.mol.natm, 3)
+        expected_shape = (len(adjoint.atom_indices), 3)
         result_fields = {
             "reference gradient": reference_gradient,
             "explicit correction gradient": correction_gradient_explicit,
@@ -165,11 +164,6 @@ class RHFDeePHFZVectorGradients:
             raise RHFAdjointError(
                 "the RHF scalar-adjoint response partitions are inconsistent"
             )
-        selected_gradient = (
-            de_full
-            if atom_indices is None
-            else de_full[list(atom_indices)]
-        )
         self.base._assert_science_state("Z-vector gradient assembly")
         self.adjoint_result = adjoint
         self.descriptor_diagnostics = descriptor_diagnostics
@@ -189,7 +183,9 @@ class RHFDeePHFZVectorGradients:
         self.correction_gradient_response = correction_gradient_response
         self.correction_gradient = correction_gradient
         self.de_full = de_full
-        self.de = selected_gradient
+        self.de = de_full
+        if not self.retain_details:
+            _compact_driver_results(self)
         return self.de
 
     def run(self, atmlst=None):

@@ -3,7 +3,12 @@
 import numpy as np
 
 from .capabilities import science_state_transaction
-from .gradient import _validate_atom_indices
+from .gradient import (
+    _compact_driver_results,
+    _reset_driver_results,
+    _validate_atom_indices,
+    _validate_retain_details,
+)
 from .pyscf_rks import (
     RKSNativeGradient,
     RKSResponseError,
@@ -14,7 +19,7 @@ from .pyscf_rks import (
 class RKSDeePHFGradients:
     """Contract the complete pure-LDA RKS response with one correction model."""
 
-    def __init__(self, method, response_options=None):
+    def __init__(self, method, response_options=None, retain_details=True):
         from .rks_method import RKSDeePHF
 
         if type(method) is not RKSDeePHF:
@@ -26,6 +31,7 @@ class RKSDeePHFGradients:
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "direct"
+        self.retain_details = _validate_retain_details(retain_details)
         self.response_options = dict(response_options or {})
         self._reset_results()
 
@@ -56,38 +62,23 @@ class RKSDeePHFGradients:
             )
 
     def _reset_results(self) -> None:
-        self.response_result = None
-        self.descriptor_diagnostics = None
-        self.native_gradient_result = None
-        self.reference_gradient = None
-        self.reference_gradient_without_grid_response = None
-        self.reference_gradient_xc_grid_coordinate = None
-        self.reference_gradient_xc_grid_weight = None
-        self.reference_gradient_reconstruction_residual = None
-        self.dq_dR_explicit = None
-        self.dq_dR_response = None
-        self.dq_dR_relaxed = None
-        self.correction_gradient_explicit = None
-        self.correction_gradient_metric = None
-        self.correction_gradient_occupied_virtual = None
-        self.correction_gradient_response = None
-        self.correction_gradient = None
-        self.de_full = None
-        self.de = None
+        _reset_driver_results(self)
 
     @property
     def response_diagnostics(self):
-        if self.response_result is None:
-            return None
-        return self.response_result.diagnostics
+        return (
+            self._response_diagnostics
+            if getattr(self, "response_result", None) is None
+            else self.response_result.diagnostics
+        )
 
-    def _validated_native_gradient(self) -> RKSNativeGradient:
-        native = native_rks_gradient(self.base.reference)
+    def _validated_native_gradient(self, atom_indices) -> RKSNativeGradient:
+        native = native_rks_gradient(self.base.reference, atom_indices=atom_indices)
         if type(native) is not RKSNativeGradient:
             raise RKSResponseError(
                 "the native RKS gradient adapter returned an invalid result type"
             )
-        expected_shape = (self.mol.natm, 3)
+        expected_shape = (len(atom_indices), 3)
         partitions = {
             "complete native RKS gradient": native.gradient,
             "native RKS gradient without grid response": (
@@ -139,18 +130,24 @@ class RKSDeePHFGradients:
             )
         return native
 
-    def _kernel(self) -> dict:
+    def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response_result = self.base._solve_response(self.response_options)
+        response_result = self.base._solve_response(
+            self.response_options,
+            atom_indices=atom_indices,
+        )
         self.base._validate_science_state("RKS native gradient evaluation")
-        native_gradient_result = self._validated_native_gradient()
+        native_gradient_result = self._validated_native_gradient(atom_indices)
         self.base._validate_science_state("RKS native gradient evaluation")
-        dq_explicit = self.base.dq_dR_explicit()
+        dq_explicit = self.base.dq_dR_explicit(atom_indices=atom_indices)
         dq_dP = self.base.dq_dP()
+        density, density_metric, density_occupied_virtual = (
+            response_result.density_partitions()
+        )
         dq_response = np.einsum(
             "apij,bxij->bxap",
             dq_dP,
-            response_result.density_response,
+            density,
         )
         dq_relaxed = dq_explicit + dq_response
         objective_ao_potential = self.base._correction_ao_potential(
@@ -165,12 +162,12 @@ class RKSDeePHFGradients:
         correction_metric = np.einsum(
             "ij,bxij->bx",
             objective_ao_potential,
-            response_result.density_response_metric,
+            density_metric,
         )
         correction_occupied_virtual = np.einsum(
             "ij,bxij->bx",
             objective_ao_potential,
-            response_result.density_response_occupied_virtual,
+            density_occupied_virtual,
         )
         correction_response = np.einsum(
             "bxap,ap->bx",
@@ -247,13 +244,17 @@ class RKSDeePHFGradients:
         try:
             self._validate_driver_binding()
             atom_indices = _validate_atom_indices(self.mol, atmlst)
-            results = self._kernel()
+            calculation_atom_indices = (
+                tuple(range(self.mol.natm))
+                if atom_indices is None
+                else atom_indices
+            )
+            results = self._kernel(calculation_atom_indices)
             for name, value in results.items():
                 setattr(self, name, value)
-            if atom_indices is None:
-                self.de = self.de_full
-            else:
-                self.de = self.de_full[list(atom_indices)]
+            self.de = self.de_full
+            if not self.retain_details:
+                _compact_driver_results(self)
             return self.de
         except Exception:
             self._reset_results()

@@ -528,7 +528,7 @@ class DeePHF:
         """Solve one audited correction-specific RHF scalar adjoint."""
         return self._zvector_inputs(adjoint_options)[2]
 
-    def _zvector_inputs(self, adjoint_options):
+    def _zvector_inputs(self, adjoint_options, atom_indices=None):
         """Build one sensitivity and one scalar adjoint."""
         self._assert_science_state("Z-vector input evaluation")
         self._validate_reference_object(self.reference)
@@ -542,7 +542,8 @@ class DeePHF:
         )
         objective_ao_potential = self._correction_ao_potential(sensitivity)
         adjoint = RHFAdjointAdapter(self.reference, **options).solve(
-            objective_ao_potential
+            objective_ao_potential,
+            atom_indices=atom_indices,
         )
         return descriptor_diagnostics, sensitivity, adjoint
 
@@ -606,7 +607,13 @@ class DeePHF:
             **response_options,
         )
 
-    def nuc_grad_method(self, *, backend="direct", **backend_options):
+    def nuc_grad_method(
+        self,
+        *,
+        backend="direct",
+        retain_details=True,
+        **backend_options,
+    ):
         """Build one explicitly selected strict analytic-gradient backend."""
         if type(backend) is not str or backend not in {"direct", "zvector"}:
             raise ValueError("gradient backend must be 'direct' or 'zvector'")
@@ -622,6 +629,7 @@ class DeePHF:
             return RHFDeePHFGradients(
                 self,
                 response_options=backend_options,
+                retain_details=retain_details,
             )
         from .zvector import RHFDeePHFZVectorGradients
 
@@ -634,12 +642,14 @@ class DeePHF:
         return RHFDeePHFZVectorGradients(
             self,
             adjoint_options=backend_options,
+            retain_details=retain_details,
         )
 
     def gradient(self, *, backend="direct", **backend_options) -> np.ndarray:
         """Evaluate the strict analytic nuclear energy gradient."""
         return self.nuc_grad_method(
             backend=backend,
+            retain_details=False,
             **backend_options,
         ).kernel()
 

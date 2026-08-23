@@ -199,7 +199,7 @@ def test_corrupted_adjoint_solver_fails_without_fallback_and_clears_results(
         with pytest.raises(RHFAdjointError, match=match):
             driver.kernel()
 
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
     direct = method.nuc_grad_method(backend="direct").kernel()
     assert np.isfinite(direct).all()
 
@@ -272,7 +272,7 @@ def test_model_failure_propagates_and_clears_a_previously_successful_driver(
     ):
         driver.kernel()
 
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
 
 
 def test_projector_model_metadata_mismatch_is_not_deferred_to_a_backend(
@@ -331,7 +331,7 @@ def test_mutating_a_shared_projector_basis_rejects_stale_energy_and_zvector(
         match="projector metadata does not match projector_basis",
     ):
         driver.kernel()
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
 
     fresh_method = DeePHF(
         case.reference,
@@ -379,7 +379,7 @@ def test_mutating_bound_descriptor_state_is_rejected_before_evaluation(
         match="DeePHF scientific state changed",
     ):
         driver.kernel()
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
 
 
 def test_nondifferentiable_descriptor_failure_propagates_before_adjoint():
@@ -423,7 +423,7 @@ def test_nondifferentiable_descriptor_failure_propagates_before_adjoint():
     ):
         driver.kernel()
 
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
 
 
 @pytest.mark.parametrize(
@@ -520,7 +520,43 @@ def test_replaced_model_forward_fails_and_clears_the_driver(
         match="forward implementation was replaced",
     ):
         driver.kernel()
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
+
+
+@pytest.mark.parametrize("layer_index", range(3))
+def test_replaced_linear_leaf_forward_fails_before_inference(
+    zvector_algebra_case,
+    layer_index,
+):
+    method = _fresh_method(zvector_algebra_case)
+    layers = (method.model.linear, *method.model.densenet.layers)
+    original = layers[layer_index].forward
+    layers[layer_index].forward = lambda values: original(values.detach()) + 0.0 * values
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="linear-layer forward implementation",
+    ):
+        method.gradient(backend="zvector")
+
+
+def test_relu_model_is_outside_the_analytic_force_domain(zvector_algebra_case):
+    case = zvector_algebra_case
+    model = CorrNet(
+        input_dim=4,
+        hidden_sizes=(3,),
+        actv_fn="relu",
+        use_resnet=False,
+        proj_basis=case.model._pbas,
+    ).double().eval()
+    method = DeePHF(
+        case.reference,
+        model,
+        projector_basis=model._pbas,
+    )
+
+    with pytest.raises(DeePHFCapabilityError, match="unsupported activation"):
+        method.gradient(backend="zvector")
 
 
 def test_standalone_zvector_rejects_paired_mode_restoring_hooks_before_forward(
@@ -696,4 +732,4 @@ def test_zvector_driver_rejects_corrupted_internal_provenance(
 
     with pytest.raises(RHFAdjointError, match="driver binding is invalid"):
         driver.kernel()
-    assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
+    assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)

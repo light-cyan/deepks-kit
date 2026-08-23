@@ -104,6 +104,7 @@ def dq_dR_explicit_component(
     overlap_shells: Sequence[torch.Tensor],
     derivative_overlap_shells: Sequence[torch.Tensor],
     descriptor_atom_indices: Sequence[int],
+    raw_atom_indices: Sequence[int] | None = None,
 ) -> torch.Tensor:
     """Return one additive fixed-density component of the descriptor derivative."""
     if component_density.shape != ao_density.shape:
@@ -122,6 +123,7 @@ def dq_dR_explicit_component(
         overlap_shells,
         derivative_overlap_shells,
         descriptor_atom_indices,
+        raw_atom_indices,
     )
     shell_results = [
         torch.einsum("bxapq,avpq->bxav", coordinate, eigenvalue)

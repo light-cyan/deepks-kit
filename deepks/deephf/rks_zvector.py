@@ -5,7 +5,12 @@ from types import MappingProxyType
 import numpy as np
 
 from .capabilities import science_state_transaction
-from .gradient import _validate_atom_indices
+from .gradient import (
+    _compact_driver_results,
+    _reset_driver_results,
+    _validate_atom_indices,
+    _validate_retain_details,
+)
 from .pyscf_rks import (
     RKSAdjointError,
     RKSNativeGradient,
@@ -16,7 +21,7 @@ from .pyscf_rks import (
 class RKSDeePHFZVectorGradients:
     """Evaluate one pure-LDA RKS correction through a scalar adjoint."""
 
-    def __init__(self, method, adjoint_options=None):
+    def __init__(self, method, adjoint_options=None, retain_details=True):
         from .rks_method import RKSDeePHF
 
         if type(method) is not RKSDeePHF:
@@ -28,6 +33,7 @@ class RKSDeePHFZVectorGradients:
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "zvector"
+        self.retain_details = _validate_retain_details(retain_details)
         self._adjoint_options = MappingProxyType(dict(adjoint_options or {}))
         self._bound_adjoint_options = self._adjoint_options
         self._reset_results()
@@ -65,48 +71,31 @@ class RKSDeePHFZVectorGradients:
             )
 
     def _reset_results(self) -> None:
-        self.adjoint_result = None
-        self.descriptor_diagnostics = None
-        self.native_gradient_result = None
-        self.reference_gradient = None
-        self.reference_gradient_without_grid_response = None
-        self.reference_gradient_xc_grid_coordinate = None
-        self.reference_gradient_xc_grid_weight = None
-        self.reference_gradient_reconstruction_residual = None
-        self.dq_dR_explicit = None
-        self.correction_gradient_explicit = None
-        self.correction_gradient_metric = None
-        self.correction_gradient_adjoint_fixed_grid = None
-        self.correction_gradient_adjoint_grid_coordinate = None
-        self.correction_gradient_adjoint_grid_weight = None
-        self.correction_gradient_adjoint_nuclear = None
-        self.correction_gradient_adjoint_metric = None
-        self.correction_gradient_grid_coordinate = None
-        self.correction_gradient_grid_weight = None
-        self.correction_gradient_occupied_virtual = None
-        self.correction_gradient_response = None
-        self.correction_gradient = None
-        self.de_full = None
-        self.de = None
+        _reset_driver_results(self)
 
     @property
     def adjoint_diagnostics(self):
-        if self.adjoint_result is None:
-            return None
-        return self.adjoint_result.diagnostics
+        return (
+            self._response_diagnostics
+            if getattr(self, "adjoint_result", None) is None
+            else self.adjoint_result.diagnostics
+        )
 
     @property
     def response_diagnostics(self):
         """Return scalar-adjoint diagnostics under the common driver name."""
         return self.adjoint_diagnostics
 
-    def _validated_native_gradient(self) -> RKSNativeGradient:
-        native = native_rks_gradient(self.base.reference)
+    def _validated_native_gradient(self, atom_indices) -> RKSNativeGradient:
+        native = native_rks_gradient(self.base.reference, atom_indices=atom_indices)
         if type(native) is not RKSNativeGradient:
             raise RKSAdjointError(
                 "the native RKS gradient adapter returned an invalid result type"
             )
-        expected_shape = (self.mol.natm, 3)
+        expected_shape = (
+            self.mol.natm if atom_indices is None else len(atom_indices),
+            3,
+        )
         partitions = {
             "complete native RKS gradient": native.gradient,
             "native RKS gradient without grid response": (
@@ -168,18 +157,19 @@ class RKSDeePHFZVectorGradients:
                 f"the RKS Z-vector {label} partitions are inconsistent"
             )
 
-    def _kernel(self) -> dict:
+    def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
-            self.adjoint_options
+            self.adjoint_options,
+            atom_indices=atom_indices,
         )
         self.base._validate_science_state(
             "RKS Z-vector native gradient evaluation"
         )
-        native = self._validated_native_gradient()
+        native = self._validated_native_gradient(atom_indices)
         self.base._validate_science_state(
             "RKS Z-vector native gradient evaluation"
         )
-        dq_explicit = self.base.dq_dR_explicit()
+        dq_explicit = self.base.dq_dR_explicit(atom_indices=atom_indices)
         self.base._validate_science_state(
             "RKS Z-vector explicit descriptor gradient evaluation"
         )
@@ -212,7 +202,7 @@ class RKSDeePHFZVectorGradients:
         )
         correction = correction_explicit + correction_response
         total = native.gradient + correction
-        expected_shape = (self.mol.natm, 3)
+        expected_shape = (len(adjoint.atom_indices), 3)
         arrays = {
             "explicit descriptor derivative": dq_explicit,
             "explicit correction gradient": correction_explicit,
@@ -236,7 +226,7 @@ class RKSDeePHFZVectorGradients:
             "RKS DeePHF Z-vector gradient": total,
         }
         expected_descriptor_shape = (
-            self.mol.natm,
+            len(adjoint.atom_indices),
             3,
             self.base.n_descriptor_atoms,
             self.base.n_descriptor_features,
@@ -332,13 +322,12 @@ class RKSDeePHFZVectorGradients:
         try:
             self._validate_driver_binding()
             atom_indices = _validate_atom_indices(self.mol, atmlst)
-            results = self._kernel()
+            results = self._kernel(atom_indices)
             for name, value in results.items():
                 setattr(self, name, value)
-            if atom_indices is None:
-                self.de = self.de_full
-            else:
-                self.de = self.de_full[list(atom_indices)]
+            self.de = self.de_full
+            if not self.retain_details:
+                _compact_driver_results(self)
             return self.de
         except Exception:
             self._reset_results()

@@ -68,7 +68,7 @@ class UKSDeePHF(UHFDeePHF):
         self.validate_force_compatibility()
         return self._solve_response(response_options)
 
-    def _solve_response(self, response_options) -> UKSResponse:
+    def _solve_response(self, response_options, atom_indices=None) -> UKSResponse:
         """Solve one response after the caller has validated descriptor semantics."""
         options = _validated_backend_options(
             self.response_options,
@@ -77,7 +77,7 @@ class UKSDeePHF(UHFDeePHF):
             "direct",
         )
         adapter = UKSResponseAdapter(self.reference, **options)
-        response = adapter.solve()
+        response = adapter.solve(atom_indices=atom_indices)
         self._seal_response(response)
         return response
 
@@ -101,7 +101,7 @@ class UKSDeePHF(UHFDeePHF):
         """Solve one audited correction-specific coupled UKS adjoint."""
         return self._zvector_inputs(adjoint_options)[2]
 
-    def _zvector_inputs(self, adjoint_options):
+    def _zvector_inputs(self, adjoint_options, atom_indices=None):
         """Build one UKS sensitivity and one scalar adjoint."""
         self._validate_reference_object(self.reference)
         descriptor_diagnostics, sensitivity = self._force_inputs()
@@ -113,10 +113,13 @@ class UKSDeePHF(UHFDeePHF):
             "zvector",
         )
         objective = self._correction_ao_potential(sensitivity)
-        adjoint = UKSAdjointAdapter(self.reference, **options).solve(objective)
+        adjoint = UKSAdjointAdapter(self.reference, **options).solve(
+            objective,
+            atom_indices=atom_indices,
+        )
         return descriptor_diagnostics, sensitivity, adjoint
 
-    def nuc_grad_method(self, *, backend="direct", **backend_options):
+    def nuc_grad_method(self, *, backend="direct", retain_details=True, **backend_options):
         """Build one explicitly selected finite-grid UKS gradient backend."""
         if type(backend) is not str or backend not in {"direct", "zvector"}:
             raise ValueError("UKS gradient backend must be 'direct' or 'zvector'")
@@ -124,11 +127,19 @@ class UKSDeePHF(UHFDeePHF):
             _validated_backend_options(self.response_options, backend_options, _DIRECT_RESPONSE_OPTIONS, backend)
             from .uks_gradient import UKSDeePHFGradients
 
-            return UKSDeePHFGradients(self, response_options=backend_options)
+            return UKSDeePHFGradients(
+                self,
+                response_options=backend_options,
+                retain_details=retain_details,
+            )
         _validated_backend_options(self.adjoint_options, backend_options, _UKS_ZVECTOR_OPTIONS, backend)
         from .uks_zvector import UKSDeePHFZVectorGradients
 
-        return UKSDeePHFZVectorGradients(self, adjoint_options=backend_options)
+        return UKSDeePHFZVectorGradients(
+            self,
+            adjoint_options=backend_options,
+            retain_details=retain_details,
+        )
 
 
 __all__ = ["UKSDeePHF"]

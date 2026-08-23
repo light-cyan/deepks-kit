@@ -1,8 +1,22 @@
 import numpy as np
 import pytest
+from pyscf import dft
 
 import deepks.deephf.pyscf_uks as pyscf_uks
 from deepks.deephf import UKSResponse, UKSResponseAdapter
+from deepks.deephf.capabilities import DeePHFCapabilityError
+
+
+def test_cached_uks_rejects_a_changed_numint_implementation(uks_case, monkeypatch):
+    pyscf_uks.validate_uks_reference(uks_case.reference)
+    original = dft.numint.NumInt.eval_xc_eff
+
+    def replacement(self, *args, **kwargs):
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(dft.numint.NumInt, "eval_xc_eff", replacement)
+    with pytest.raises(DeePHFCapabilityError, match="DFT implementation changed"):
+        pyscf_uks.validate_uks_reference(uks_case.reference)
 
 
 @pytest.mark.parametrize(

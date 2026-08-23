@@ -157,10 +157,6 @@ def test_xc_nuclear_hamiltonian_contains_every_grid_motion_term(
             independent.hamiltonian_derivative_fixed_grid,
         ),
         (
-            response.xc_hamiltonian_derivative_ao_motion,
-            independent.xc_hamiltonian_derivative_ao_motion,
-        ),
-        (
             response.xc_hamiltonian_derivative_grid_coordinate,
             independent.xc_hamiltonian_derivative_grid_coordinate,
         ),
@@ -187,9 +183,6 @@ def test_xc_nuclear_hamiltonian_contains_every_grid_motion_term(
         rtol=0.0,
         atol=2.0e-15,
     )
-    assert np.max(
-        np.abs(response.xc_hamiltonian_derivative_ao_motion)
-    ) > 0.32
     assert np.max(
         np.abs(response.xc_hamiltonian_derivative_grid_coordinate)
     ) > 0.29

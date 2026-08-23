@@ -3,14 +3,19 @@
 import numpy as np
 
 from .capabilities import science_state_transaction
-from .gradient import _validate_atom_indices
-from .pyscf_uhf import UHFResponseError
+from .gradient import (
+    _compact_driver_results,
+    _reset_driver_results,
+    _validate_atom_indices,
+    _validate_retain_details,
+)
+from .pyscf_uhf import UHFResponseError, _native_unrestricted_gradient
 
 
 class UHFDeePHFGradients:
     """Contract the complete coupled UHF response with one correction model."""
 
-    def __init__(self, method, response_options=None):
+    def __init__(self, method, response_options=None, retain_details=True):
         from .uhf_method import UHFDeePHF
 
         if type(method) is not UHFDeePHF:
@@ -22,6 +27,7 @@ class UHFDeePHFGradients:
         self._mol = method.mol
         self._bound_mol = method.mol
         self._backend = "direct"
+        self.retain_details = _validate_retain_details(retain_details)
         self.response_options = dict(response_options or {})
         self._reset_results()
 
@@ -52,49 +58,35 @@ class UHFDeePHFGradients:
             )
 
     def _reset_results(self) -> None:
-        self.response_result = None
-        self.descriptor_diagnostics = None
-        self.reference_gradient = None
-        self.dq_dR_explicit_spin = None
-        self.dq_dR_response_spin = None
-        self.dq_dR_relaxed_spin = None
-        self.dq_dR_explicit = None
-        self.dq_dR_response = None
-        self.dq_dR_relaxed = None
-        self.correction_gradient_explicit_spin = None
-        self.correction_gradient_metric_spin = None
-        self.correction_gradient_occupied_virtual_spin = None
-        self.correction_gradient_response_spin = None
-        self.correction_gradient_spin = None
-        self.correction_gradient_explicit = None
-        self.correction_gradient_metric = None
-        self.correction_gradient_occupied_virtual = None
-        self.correction_gradient_response = None
-        self.correction_gradient = None
-        self.de_full = None
-        self.de = None
+        _reset_driver_results(self)
 
     @property
     def response_diagnostics(self):
-        if self.response_result is None:
-            return None
-        return self.response_result.diagnostics
+        return (
+            self._response_diagnostics
+            if getattr(self, "response_result", None) is None
+            else self.response_result.diagnostics
+        )
 
-    def _kernel(self) -> dict:
+    def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response_result = self.base._solve_response(self.response_options)
-        self.base._validate_science_state("UHF native gradient evaluation")
-        reference_gradient = np.asarray(
-            self.base.reference.nuc_grad_method().kernel()
+        response_result = self.base._solve_response(
+            self.response_options,
+            atom_indices=atom_indices,
         )
         self.base._validate_science_state("UHF native gradient evaluation")
-        dq_explicit_spin = self.base.dq_dR_explicit_spin()
+        reference_gradient = _native_unrestricted_gradient(
+            self.base.reference,
+            self.base.reference.nuc_grad_method(),
+            atom_indices,
+        )
+        self.base._validate_science_state("UHF native gradient evaluation")
+        dq_explicit_spin = self.base.dq_dR_explicit_spin(
+            atom_indices=atom_indices
+        )
         dq_dP = self.base.dq_dP()
-        spin_density_response = np.stack(
-            (
-                response_result.alpha_density_response,
-                response_result.beta_density_response,
-            )
+        spin_density_response, metric_density, occupied_virtual_density = (
+            response_result.density_partitions()
         )
         dq_response_spin = np.einsum(
             "apij,sbxij->sbxap",
@@ -113,18 +105,6 @@ class UHFDeePHFGradients:
             "sbxap,ap->sbx",
             dq_explicit_spin,
             sensitivity,
-        )
-        metric_density = np.stack(
-            (
-                response_result.alpha_density_response_metric,
-                response_result.beta_density_response_metric,
-            )
-        )
-        occupied_virtual_density = np.stack(
-            (
-                response_result.alpha_density_response_occupied_virtual,
-                response_result.beta_density_response_occupied_virtual,
-            )
         )
         correction_metric_spin = np.einsum(
             "ij,sbxij->sbx",
@@ -217,13 +197,17 @@ class UHFDeePHFGradients:
         try:
             self._validate_driver_binding()
             atom_indices = _validate_atom_indices(self.mol, atmlst)
-            results = self._kernel()
+            calculation_atom_indices = (
+                tuple(range(self.mol.natm))
+                if atom_indices is None
+                else atom_indices
+            )
+            results = self._kernel(calculation_atom_indices)
             for name, value in results.items():
                 setattr(self, name, value)
-            if atom_indices is None:
-                self.de = self.de_full
-            else:
-                self.de = self.de_full[list(atom_indices)]
+            self.de = self.de_full
+            if not self.retain_details:
+                _compact_driver_results(self)
             return self.de
         except Exception:
             self._reset_results()

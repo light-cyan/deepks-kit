@@ -39,6 +39,51 @@ class UHFAdjointError(AdjointError):
     """Raised when a correction-specific UHF adjoint fails its contract."""
 
 
+def _native_unrestricted_gradient(reference, driver, atom_indices) -> np.ndarray:
+    """Evaluate a selected UHF-family gradient around PySCF's broken selector."""
+    molecule = reference.mol
+    atom_indices = tuple(atom_indices)
+    coefficient = np.asarray(reference.mo_coeff)
+    energy = np.asarray(reference.mo_energy)
+    occupation = np.asarray(reference.mo_occ)
+    hcore_derivative = driver.hcore_generator(molecule)
+    overlap_derivative = driver.get_ovlp(molecule)
+    density = driver._tag_rdm1(
+        reference.make_rdm1(coefficient, occupation),
+        mo_coeff=coefficient,
+        mo_occ=occupation,
+    )
+    energy_density = driver.make_rdm1e(energy, coefficient, occupation)
+    spin_density = density.sum(axis=0)
+    spin_energy_density = energy_density.sum(axis=0)
+    effective_derivative = driver.get_veff(molecule, density)
+    result = np.zeros((len(atom_indices), 3), dtype=np.float64)
+    ao_slices = molecule.aoslice_by_atom()
+    for result_index, atom_index in enumerate(atom_indices):
+        _shell_start, _shell_stop, ao_start, ao_stop = ao_slices[atom_index]
+        hcore = hcore_derivative(atom_index)
+        result[result_index] += np.einsum("xij,ij->x", hcore, spin_density)
+        result[result_index] += 2.0 * np.einsum(
+            "sxij,sij->x",
+            effective_derivative[:, :, ao_start:ao_stop],
+            density[:, ao_start:ao_stop],
+        )
+        result[result_index] -= 2.0 * np.einsum(
+            "xij,ij->x",
+            overlap_derivative[:, ao_start:ao_stop],
+            spin_energy_density[ao_start:ao_stop],
+        )
+        grid_response = getattr(effective_derivative, "exc1_grid", None)
+        if grid_response is not None:
+            result[result_index] += grid_response[atom_index]
+    result += driver.grad_nuc(molecule, atmlst=list(atom_indices))
+    return _validated_float64_array(
+        result,
+        (len(atom_indices), 3),
+        "native unrestricted gradient",
+    )
+
+
 @dataclass(frozen=True)
 class UHFResponseDiagnostics:
     """Independent diagnostics for one complete coupled UHF response solve."""
@@ -81,6 +126,7 @@ class UHFResponse:
     reference_identity: int
     state_fingerprint: str
     integrity_fingerprint: str
+    atom_indices: tuple[int, ...]
     alpha_mo_response: np.ndarray
     beta_mo_response: np.ndarray
     _mo_coefficients: np.ndarray
@@ -91,6 +137,26 @@ class UHFResponse:
     alpha_orbital_response_residual: np.ndarray
     beta_orbital_response_residual: np.ndarray
     diagnostics: UHFResponseDiagnostics
+
+    def density_partitions(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build complete, metric, and occupied-virtual spin densities once."""
+        metric = np.stack(
+            (
+                self._density_response(0, self.alpha_mo_response_metric),
+                self._density_response(1, self.beta_mo_response_metric),
+            )
+        )
+        occupied_virtual = np.stack(
+            (
+                self._density_response(0, self.alpha_mo_response_occupied_virtual),
+                self._density_response(1, self.beta_mo_response_occupied_virtual),
+            )
+        )
+        return (
+            _immutable_array(metric + occupied_virtual),
+            _immutable_array(metric),
+            _immutable_array(occupied_virtual),
+        )
 
     def _mo_partition(self, spin: int, occupied_virtual: bool) -> np.ndarray:
         response = (self.alpha_mo_response, self.beta_mo_response)[spin]
@@ -223,12 +289,8 @@ class UHFAdjointDiagnostics:
     solve_count: int
     objective_gradient_norm: float
     solution_norm: float
-    maximum_solver_residual: float
-    solver_residual_rms: float
-    maximum_transpose_residual: float
-    transpose_residual_rms: float
-    maximum_physical_residual: float
-    physical_residual_rms: float
+    maximum_residual: float
+    residual_rms: float
     max_cycle: int
     krylov_restart: int
     iteration_count: int
@@ -242,17 +304,14 @@ class UHFAdjoint:
     state_fingerprint: str
     integrity_fingerprint: str
     operator_fingerprint: str
+    atom_indices: tuple[int, ...]
     objective_ao_potential: np.ndarray
     alpha_objective_orbital_gradient: np.ndarray
     beta_objective_orbital_gradient: np.ndarray
     alpha_zvector: np.ndarray
     beta_zvector: np.ndarray
-    alpha_solver_residual: np.ndarray
-    beta_solver_residual: np.ndarray
-    alpha_transpose_residual: np.ndarray
-    beta_transpose_residual: np.ndarray
-    alpha_physical_residual: np.ndarray
-    beta_physical_residual: np.ndarray
+    alpha_residual: np.ndarray
+    beta_residual: np.ndarray
     alpha_adjoint_ao_density: np.ndarray
     beta_adjoint_ao_density: np.ndarray
     alpha_adjoint_ao_potential: np.ndarray
@@ -863,6 +922,12 @@ class _UHFLinearResponseCore:
     def molecule(self):
         return self.reference.mol
 
+    def _response_atom_indices(self, atom_indices) -> tuple[int, ...]:
+        from .gradient import _validate_atom_indices
+
+        selected = _validate_atom_indices(self.molecule, atom_indices)
+        return tuple(range(self.molecule.natm)) if selected is None else selected
+
     def _state(self):
         coefficient = np.asarray(self.reference.mo_coeff)
         energy = np.asarray(self.reference.mo_energy)
@@ -888,8 +953,9 @@ class _UHFLinearResponseCore:
             minimum_gaps.append(minimum_gap)
         return coefficient, energy, occupation, occupied, virtual, tuple(minimum_gaps)
 
-    def _overlap_derivative(self) -> np.ndarray:
+    def _overlap_derivative(self, atom_indices=None) -> np.ndarray:
         molecule = self.molecule
+        atom_indices = self._response_atom_indices(atom_indices)
         try:
             integral = -molecule.intor("int1e_ipovlp", comp=3)
         except Exception as error:
@@ -901,13 +967,15 @@ class _UHFLinearResponseCore:
             (3, molecule.nao, molecule.nao),
             "overlap-derivative integral",
         )
-        result = np.zeros((molecule.natm, 3, molecule.nao, molecule.nao))
-        for atom_index, atom_slice in enumerate(molecule.aoslice_by_atom()):
+        result = np.zeros((len(atom_indices), 3, molecule.nao, molecule.nao))
+        atom_slices = molecule.aoslice_by_atom()
+        for result_index, atom_index in enumerate(atom_indices):
+            atom_slice = atom_slices[atom_index]
             ao_start, ao_stop = atom_slice[2:]
-            result[atom_index, :, ao_start:ao_stop] += integral[
+            result[result_index, :, ao_start:ao_stop] += integral[
                 :, ao_start:ao_stop
             ]
-            result[atom_index, :, :, ao_start:ao_stop] += integral[
+            result[result_index, :, :, ao_start:ao_stop] += integral[
                 :, ao_start:ao_stop
             ].transpose(0, 2, 1)
         return result
@@ -916,12 +984,14 @@ class _UHFLinearResponseCore:
         self,
         coefficient: np.ndarray,
         occupation: np.ndarray,
+        atom_indices=None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        atom_indices = self._response_atom_indices(atom_indices)
         try:
             derivatives = uhf_hessian.Hessian(self.reference).make_h1(
                 coefficient,
                 occupation,
-                atmlst=range(self.molecule.natm),
+                atmlst=atom_indices,
             )
         except Exception as error:
             raise UHFResponseError(
@@ -929,10 +999,10 @@ class _UHFLinearResponseCore:
             ) from error
         if derivatives is None or len(derivatives) != 2:
             raise UHFResponseError("PySCF UHF Hamiltonian derivative is incomplete")
-        expected = (self.molecule.natm, 3, self.molecule.nao, self.molecule.nao)
+        expected = (len(atom_indices), 3, self.molecule.nao, self.molecule.nao)
         return tuple(
             _validated_float64_array(
-                spin_derivative,
+                [spin_derivative[index] for index in atom_indices],
                 expected,
                 f"{spin_name} Hamiltonian derivative",
             )
@@ -1458,15 +1528,20 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             float(np.max(np.abs(particle_number), initial=0.0)),
         )
 
-    def solve(self) -> UHFResponse:
-        """Return the audited complete spin-resolved AO density response."""
+    def solve(self, atom_indices=None) -> UHFResponse:
+        """Return the audited spin response for selected atoms."""
         self._validate_reference(self.reference)
+        atom_indices = self._response_atom_indices(atom_indices)
         coefficient, energy, occupation, occupied, virtual, minimum_gaps = self._state()
         *_, alpha_dimension, beta_dimension = self._dimensions(occupied, virtual)
         response_dimension = alpha_dimension + beta_dimension
         overlap = np.asarray(self.reference.get_ovlp())
-        overlap_derivative = self._overlap_derivative()
-        hamiltonian_derivative = self._hamiltonian_derivative(coefficient, occupation)
+        overlap_derivative = self._overlap_derivative(atom_indices)
+        hamiltonian_derivative = self._hamiltonian_derivative(
+            coefficient,
+            occupation,
+            atom_indices,
+        )
         hamiltonian_mo = tuple(
             np.einsum(
                 "mp,...mn,ni->...pi",
@@ -1520,15 +1595,20 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 )
             )
         total_density = density_responses[0] + density_responses[1]
-        alpha_translation_residual = float(
-            np.max(np.abs(np.sum(density_responses[0], axis=0)), initial=0.0)
-        )
-        beta_translation_residual = float(
-            np.max(np.abs(np.sum(density_responses[1], axis=0)), initial=0.0)
-        )
-        translation_residual = float(
-            np.max(np.abs(np.sum(total_density, axis=0)), initial=0.0)
-        )
+        if len(atom_indices) == self.molecule.natm:
+            alpha_translation_residual = float(
+                np.max(np.abs(np.sum(density_responses[0], axis=0)), initial=0.0)
+            )
+            beta_translation_residual = float(
+                np.max(np.abs(np.sum(density_responses[1], axis=0)), initial=0.0)
+            )
+            translation_residual = float(
+                np.max(np.abs(np.sum(total_density, axis=0)), initial=0.0)
+            )
+        else:
+            alpha_translation_residual = 0.0
+            beta_translation_residual = 0.0
+            translation_residual = 0.0
         density_ground = np.asarray(self.reference.make_rdm1())
         invariants = [
             self._invariants(
@@ -1628,6 +1708,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             reference_identity=id(self.reference),
             state_fingerprint=self._reference_fingerprint(self.reference),
             integrity_fingerprint="",
+            atom_indices=atom_indices,
             alpha_mo_response=_immutable_array(responses[0]),
             beta_mo_response=_immutable_array(responses[1]),
             _mo_coefficients=_immutable_array(coefficient),
@@ -1651,7 +1732,10 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> None:
-        coordinate_shape = (self.molecule.natm, 3)
+        atom_indices = self._response_atom_indices(response.atom_indices)
+        if atom_indices != response.atom_indices:
+            raise UHFResponseError("the supplied UHF response atom selection is invalid")
+        coordinate_shape = (len(atom_indices), 3)
         nao = self.molecule.nao
         alpha_nocc = int(np.count_nonzero(occupied[0]))
         beta_nocc = int(np.count_nonzero(occupied[1]))
@@ -1877,8 +1961,12 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             )
         *_, alpha_dimension, beta_dimension = self._dimensions(occupied, virtual)
         overlap = np.asarray(self.reference.get_ovlp())
-        overlap_derivative = self._overlap_derivative()
-        hamiltonian_derivative = self._hamiltonian_derivative(coefficient, occupation)
+        overlap_derivative = self._overlap_derivative(response.atom_indices)
+        hamiltonian_derivative = self._hamiltonian_derivative(
+            coefficient,
+            occupation,
+            response.atom_indices,
+        )
         expected_derivatives = (
             (response.overlap_derivative, overlap_derivative, "overlap derivative"),
             (
@@ -2448,11 +2536,14 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         occupation,
         occupied,
         virtual,
+        atom_indices=None,
     ):
-        overlap_derivative = self._overlap_derivative()
+        atom_indices = self._response_atom_indices(atom_indices)
+        overlap_derivative = self._overlap_derivative(atom_indices)
         hamiltonian_derivative = self._hamiltonian_derivative(
             coefficient,
             occupation,
+            atom_indices,
         )
         metric_spin = []
         nuclear_spin = []
@@ -2548,10 +2639,10 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             reconstruction_residual,
         )
 
-    def solve(self, objective_ao_potential: np.ndarray) -> UHFAdjoint:
-        """Return one audited coupled UHF adjoint and nuclear contraction."""
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> UHFAdjoint:
+        """Return one audited UHF adjoint and selected nuclear contractions."""
         try:
-            return self._solve(objective_ao_potential)
+            return self._solve(objective_ao_potential, atom_indices)
         except DeePHFCapabilityError:
             raise
         except UHFAdjointError:
@@ -2559,8 +2650,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         except (AdjointError, UHFResponseError) as error:
             raise UHFAdjointError(f"UHF adjoint evaluation failed: {error}") from error
 
-    def _solve(self, objective_ao_potential: np.ndarray) -> UHFAdjoint:
+    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> UHFAdjoint:
         self._validate_reference(self.reference)
+        atom_indices = self._response_atom_indices(atom_indices)
         objective = self._validated_objective_potential(objective_ao_potential)
         objective_symmetry_residual = float(
             np.max(np.abs(objective - objective.T), initial=0.0)
@@ -2601,18 +2693,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             occupied,
             virtual,
         )
-        solver_residual = self._split_occupied_virtual(
-            linear_result.solver_residual,
-            occupied,
-            virtual,
-        )
-        transpose_residual = self._split_occupied_virtual(
-            linear_result.transpose_residual,
-            occupied,
-            virtual,
-        )
-        physical_residual = self._split_occupied_virtual(
-            linear_result.physical_residual,
+        residual = self._split_occupied_virtual(
+            linear_result.residual,
             occupied,
             virtual,
         )
@@ -2637,6 +2719,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             occupation,
             occupied,
             virtual,
+            atom_indices,
         )
         if partitions[-1] > self.invariant_tolerance:
             raise UHFAdjointError(
@@ -2658,9 +2741,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             strict=True,
         ):
             expected_shape = (
-                (2, self.molecule.natm, 3)
+                (2, len(atom_indices), 3)
                 if "spin" in name
-                else (self.molecule.natm, 3)
+                else (len(atom_indices), 3)
             )
             _validated_float64_array(value, expected_shape, f"UHF adjoint {name}")
         self._validate_reference(self.reference)
@@ -2687,16 +2770,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             solve_count=linear_diagnostics.solve_count,
             objective_gradient_norm=linear_diagnostics.objective_gradient_norm,
             solution_norm=linear_diagnostics.solution_norm,
-            maximum_solver_residual=linear_diagnostics.maximum_solver_residual,
-            solver_residual_rms=linear_diagnostics.solver_residual_rms,
-            maximum_transpose_residual=(
-                linear_diagnostics.maximum_transpose_residual
-            ),
-            transpose_residual_rms=linear_diagnostics.transpose_residual_rms,
-            maximum_physical_residual=(
-                linear_diagnostics.maximum_physical_residual
-            ),
-            physical_residual_rms=linear_diagnostics.physical_residual_rms,
+            maximum_residual=linear_diagnostics.maximum_residual,
+            residual_rms=linear_diagnostics.residual_rms,
             max_cycle=self.max_cycle,
             krylov_restart=self.krylov_restart,
             iteration_count=linear_diagnostics.iteration_count,
@@ -2706,6 +2781,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             state_fingerprint=self._reference_fingerprint(self.reference),
             integrity_fingerprint="",
             operator_fingerprint=linear_result.operator_fingerprint,
+            atom_indices=atom_indices,
             objective_ao_potential=_immutable_array(objective),
             alpha_objective_orbital_gradient=_immutable_array(
                 objective_gradients[0]
@@ -2715,12 +2791,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             ),
             alpha_zvector=_immutable_array(zvector[0]),
             beta_zvector=_immutable_array(zvector[1]),
-            alpha_solver_residual=_immutable_array(solver_residual[0]),
-            beta_solver_residual=_immutable_array(solver_residual[1]),
-            alpha_transpose_residual=_immutable_array(transpose_residual[0]),
-            beta_transpose_residual=_immutable_array(transpose_residual[1]),
-            alpha_physical_residual=_immutable_array(physical_residual[0]),
-            beta_physical_residual=_immutable_array(physical_residual[1]),
+            alpha_residual=_immutable_array(residual[0]),
+            beta_residual=_immutable_array(residual[1]),
             alpha_adjoint_ao_density=_immutable_array(adjoint_density[0]),
             beta_adjoint_ao_density=_immutable_array(adjoint_density[1]),
             alpha_adjoint_ao_potential=_immutable_array(adjoint_potential[0]),
@@ -2859,7 +2931,10 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         alpha_nocc, beta_nocc, alpha_nvir, beta_nvir = dimensions[:4]
         alpha_dimension, beta_dimension = dimensions[-2:]
         dimension = alpha_dimension + beta_dimension
-        natm = int(self.molecule.natm)
+        atom_indices = self._response_atom_indices(adjoint.atom_indices)
+        if atom_indices != adjoint.atom_indices:
+            raise UHFAdjointError("the supplied UHF adjoint atom selection is invalid")
+        natm = len(atom_indices)
         nao = int(self.molecule.nao)
         alpha_shape = (alpha_nvir, alpha_nocc)
         beta_shape = (beta_nvir, beta_nocc)
@@ -2869,12 +2944,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             "beta_objective_orbital_gradient": beta_shape,
             "alpha_zvector": alpha_shape,
             "beta_zvector": beta_shape,
-            "alpha_solver_residual": alpha_shape,
-            "beta_solver_residual": beta_shape,
-            "alpha_transpose_residual": alpha_shape,
-            "beta_transpose_residual": beta_shape,
-            "alpha_physical_residual": alpha_shape,
-            "beta_physical_residual": beta_shape,
+            "alpha_residual": alpha_shape,
+            "beta_residual": beta_shape,
             "alpha_adjoint_ao_density": (nao, nao),
             "beta_adjoint_ao_density": (nao, nao),
             "alpha_adjoint_ao_potential": (nao, nao),
@@ -2936,19 +3007,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         objective_flat = np.concatenate(
             tuple(value.reshape(-1) for value in objective_gradients)
         )
-        solver_residual = self._split_occupied_virtual(
-            self._apply_occupied_virtual_operator(
-                zflat,
-                coefficient,
-                energy,
-                occupied,
-                virtual,
-            )
-            - objective_flat,
-            occupied,
-            virtual,
-        )
-        physical_residual = self._split_occupied_virtual(
+        residual = self._split_occupied_virtual(
             self._apply_occupied_virtual_operator(
                 zflat,
                 coefficient,
@@ -2962,19 +3021,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         )
         for spin, spin_name in enumerate(("alpha", "beta")):
             self._require_close(
-                getattr(adjoint, f"{spin_name}_solver_residual"),
-                solver_residual[spin],
-                f"{spin_name} literal transpose residual",
-            )
-            self._require_close(
-                getattr(adjoint, f"{spin_name}_transpose_residual"),
-                physical_residual[spin],
-                f"{spin_name} independent transpose residual",
-            )
-            self._require_close(
-                getattr(adjoint, f"{spin_name}_physical_residual"),
-                physical_residual[spin],
-                f"{spin_name} physical residual",
+                getattr(adjoint, f"{spin_name}_residual"),
+                residual[spin],
+                f"{spin_name} independent residual",
             )
         (
             expected_density,
@@ -3008,6 +3057,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             occupation,
             occupied,
             virtual,
+            atom_indices,
         )
         partition_fields = (
             "correction_gradient_metric_spin",
@@ -3022,11 +3072,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         )
         for name, expected in zip(partition_fields, partitions[:-1], strict=True):
             self._require_close(getattr(adjoint, name), expected, name)
-        combined_solver = np.concatenate(
-            tuple(value.reshape(-1) for value in solver_residual)
-        )
-        combined_physical = np.concatenate(
-            tuple(value.reshape(-1) for value in physical_residual)
+        combined_residual = np.concatenate(
+            tuple(value.reshape(-1) for value in residual)
         )
         measured = {
             "minimum_alpha_orbital_gap": minimum_gaps[0],
@@ -3044,23 +3091,11 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             "gradient_reconstruction_residual": partitions[-1],
             "objective_gradient_norm": float(np.linalg.norm(objective_flat)),
             "solution_norm": float(np.linalg.norm(zflat)),
-            "maximum_solver_residual": float(
-                np.max(np.abs(combined_solver), initial=0.0)
+            "maximum_residual": float(
+                np.max(np.abs(combined_residual), initial=0.0)
             ),
-            "solver_residual_rms": float(
-                np.sqrt(np.mean(np.square(combined_solver)))
-            ),
-            "maximum_transpose_residual": float(
-                np.max(np.abs(combined_physical), initial=0.0)
-            ),
-            "transpose_residual_rms": float(
-                np.sqrt(np.mean(np.square(combined_physical)))
-            ),
-            "maximum_physical_residual": float(
-                np.max(np.abs(combined_physical), initial=0.0)
-            ),
-            "physical_residual_rms": float(
-                np.sqrt(np.mean(np.square(combined_physical)))
+            "residual_rms": float(
+                np.sqrt(np.mean(np.square(combined_residual)))
             ),
         }
         for name, expected in measured.items():
@@ -3073,11 +3108,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 raise UHFAdjointError(
                     f"the supplied UHF adjoint {name} diagnostic is inconsistent"
                 )
-        if max(
-            measured["maximum_solver_residual"],
-            measured["maximum_transpose_residual"],
-            measured["maximum_physical_residual"],
-        ) > self.residual_tolerance:
+        if measured["maximum_residual"] > self.residual_tolerance:
             raise UHFAdjointError(
                 "the supplied UHF adjoint residual exceeds its tolerance"
             )

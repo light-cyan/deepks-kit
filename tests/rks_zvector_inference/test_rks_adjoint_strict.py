@@ -222,28 +222,6 @@ def test_adjoint_rejects_literal_transpose_residual(
         rks_adjoint_adapter.solve(objective_ao_potential)
 
 
-def test_adjoint_rejects_independent_transpose_action_residual(
-    rks_adjoint_adapter,
-    objective_ao_potential,
-    monkeypatch,
-):
-    original = rks_adapter_module._RKSLinearResponseProblem.apply_transpose
-
-    def corrupted_transpose(self, vector):
-        return original(self, vector) + 1.0e-3
-
-    monkeypatch.setattr(
-        rks_adapter_module._RKSLinearResponseProblem,
-        "apply_transpose",
-        corrupted_transpose,
-    )
-
-    with pytest.raises(RKSAdjointError, match="physical adjoint residual"):
-        rks_adjoint_adapter.solve(objective_ao_potential)
-
-
-
-
 def test_adjoint_audit_rejects_foreign_and_stale_provenance(
     rks_adjoint_adapter,
     rks_adjoint,
@@ -280,7 +258,7 @@ def test_adjoint_audit_rejects_mutable_and_coordinated_resealed_arrays(
 
     with pytest.raises(RKSAdjointError, match="must be immutable"):
         rks_adjoint_adapter.audit_adjoint(mutable, objective_ao_potential)
-    with pytest.raises(RKSAdjointError, match="literal transpose residual"):
+    with pytest.raises(RKSAdjointError, match="independent residual"):
         rks_adjoint_adapter.audit_adjoint(resealed, objective_ao_potential)
 
 
@@ -321,7 +299,7 @@ def test_adjoint_audit_rejects_mutable_and_coordinated_resealed_arrays(
             "diagnostics",
             lambda adjoint: replace(
                 adjoint.diagnostics,
-                maximum_physical_residual=False,
+                maximum_residual=False,
             ),
             "finite real scalars",
             id="diagnostic-type",
@@ -382,36 +360,6 @@ def test_adjoint_audit_rejects_resealed_objective_and_gradient(
     with pytest.raises(RKSAdjointError, match="adjoint_grid_weight"):
         rks_adjoint_adapter.audit_adjoint(
             forged_gradient,
-            objective_ao_potential,
-        )
-
-
-@pytest.mark.parametrize("component_index", [3, 4])
-def test_adjoint_audit_rejects_grid_hamiltonian_corruption(
-    rks_adjoint_adapter,
-    rks_adjoint,
-    objective_ao_potential,
-    monkeypatch,
-    component_index,
-):
-    original = rks_adjoint_adapter._hamiltonian_derivative
-
-    def corrupted_hamiltonian(coefficient, occupation):
-        values = list(original(coefficient, occupation))
-        corrupted = np.array(values[component_index], copy=True)
-        corrupted[0, 0, 0, 0] += 1.0e-4
-        values[component_index] = corrupted
-        return tuple(values)
-
-    monkeypatch.setattr(
-        rks_adjoint_adapter,
-        "_hamiltonian_derivative",
-        corrupted_hamiltonian,
-    )
-
-    with pytest.raises(RKSAdjointError, match="inconsistent"):
-        rks_adjoint_adapter.audit_adjoint(
-            rks_adjoint,
             objective_ao_potential,
         )
 

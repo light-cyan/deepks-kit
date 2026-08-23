@@ -42,7 +42,8 @@ def test_reader_exposes_only_canonical_relaxed_force_training_fields(tmp_path):
         "force",
         "dq_dR_relaxed",
     }
-    assert sample.force_contracts == (reader.force_contract,)
+    with pytest.raises(TypeError):
+        sample["energy"] = sample["energy"]
     torch.testing.assert_close(sample["energy"], torch.from_numpy(arrays["e_corr_target"]))
     torch.testing.assert_close(sample["descriptor"], torch.from_numpy(arrays["descriptor"]))
     torch.testing.assert_close(sample["force"], torch.from_numpy(arrays["f_corr_target"]))

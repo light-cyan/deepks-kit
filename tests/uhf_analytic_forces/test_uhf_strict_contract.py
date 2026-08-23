@@ -538,7 +538,7 @@ def test_uhf_gradient_failure_clears_results_without_any_fallback(
         "de_full",
         "de",
     ):
-        assert getattr(driver, name) is None
+        assert getattr(driver, name, None) is None
 
 
 def test_response_and_response_options_are_mutually_exclusive(
@@ -651,11 +651,11 @@ def test_uhf_gradient_driver_rejects_corrupted_binding_and_invalid_atoms(
 
     with pytest.raises(TypeError, match="atom indices must be integers"):
         driver.kernel(atmlst=[True])
-    assert driver.response_result is None
-    assert driver.de_full is None
+    assert not hasattr(driver, "response_result")
+    assert not hasattr(driver, "de_full")
 
     driver._backend = "zvector"
     with pytest.raises(UHFResponseError, match="binding is invalid"):
         driver.kernel()
-    assert driver.response_result is None
-    assert driver.de_full is None
+    assert not hasattr(driver, "response_result")
+    assert not hasattr(driver, "de_full")

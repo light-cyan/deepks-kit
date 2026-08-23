@@ -35,6 +35,7 @@ from .pyscf_rks import (
     _grid_provenance,
     _normalized_atom_grid,
     _normalized_functional_components,
+    _validate_dft_implementations,
     _validated_grid_response_blocks,
 )
 from .pyscf_uhf import (
@@ -47,6 +48,7 @@ from .pyscf_uhf import (
     UHFResponseDiagnostics,
     UHFResponseError,
     _immutable_array,
+    _native_unrestricted_gradient,
     _response_real_control,
     _validated_float64_array,
     uhf_adjoint_integrity_fingerprint,
@@ -71,7 +73,6 @@ class UKSResponseDiagnostics:
     core: UHFResponseDiagnostics
     functional: RKSFunctionalProvenance
     grid: RKSGridProvenance
-    fixed_grid_xc_residual: float
     hamiltonian_reconstruction_residual: float
 
     def __getattr__(self, name):
@@ -86,7 +87,6 @@ class UKSResponse:
     functional: RKSFunctionalProvenance
     grid: RKSGridProvenance
     hamiltonian_derivative_fixed_grid_spin: np.ndarray
-    xc_hamiltonian_derivative_ao_motion_spin: np.ndarray
     xc_hamiltonian_derivative_grid_coordinate_spin: np.ndarray
     xc_hamiltonian_derivative_grid_weight_spin: np.ndarray
     diagnostics: UKSResponseDiagnostics
@@ -103,7 +103,6 @@ class UKSAdjointDiagnostics:
     core: UHFAdjointDiagnostics
     functional: RKSFunctionalProvenance
     grid: RKSGridProvenance
-    fixed_grid_xc_residual: float
     nuclear_partition_residual: float
 
     def __getattr__(self, name):
@@ -191,6 +190,7 @@ def uks_adjoint_integrity_fingerprint(adjoint: UKSAdjoint) -> str:
 
 
 def _uks_functional_provenance(reference) -> RKSFunctionalProvenance:
+    _validate_dft_implementations("UKS")
     integration = reference._numint
     if type(integration) is not numint.NumInt:
         raise DeePHFCapabilityError(
@@ -560,14 +560,17 @@ class _UKSLinearResponseMixin:
     def _reference_fingerprint(reference) -> str:
         return uks_reference_fingerprint(reference)
 
-    def _xc_nuclear_derivative_components(self, density: np.ndarray):
+    def _xc_nuclear_derivative_components(self, density: np.ndarray, atom_indices=None):
         molecule = self.molecule
+        atom_indices = self._response_atom_indices(atom_indices)
+        result_positions = {
+            atom_index: result_index
+            for result_index, atom_index in enumerate(atom_indices)
+        }
         integration = self.reference._numint
-        shape = (2, molecule.natm, 3, molecule.nao, molecule.nao)
-        ao_motion = np.zeros(shape)
+        shape = (2, len(atom_indices), 3, molecule.nao, molecule.nao)
         grid_coordinate = np.zeros(shape)
         grid_weight = np.zeros(shape)
-        ao_slices = molecule.aoslice_by_atom()
         blocks = _validated_grid_response_blocks(
             self.reference,
             _normalized_atom_grid(molecule, self.reference.grids.atom_grid),
@@ -611,7 +614,7 @@ class _UKSLinearResponseMixin:
                 raise UKSResponseError("the UKS LDA nuclear quadrature is nonfinite")
             grid_weight += np.einsum(
                 "axg,sg,gp,gq->saxpq",
-                weight_derivative,
+                weight_derivative[list(atom_indices)],
                 potential,
                 values,
                 values,
@@ -669,37 +672,28 @@ class _UKSLinearResponseMixin:
                     optimize=True,
                 )
 
-            for atom_index, atom_slice in enumerate(ao_slices):
-                ao_start, ao_stop = atom_slice[2:]
+            if host_atom in result_positions:
+                result_index = result_positions[host_atom]
                 for axis in range(3):
-                    center_derivative = np.zeros_like(values)
-                    center_derivative[:, ao_start:ao_stop] = -gradients[
-                        axis, :, ao_start:ao_stop
-                    ]
-                    accumulate(ao_motion, atom_index, axis, center_derivative)
-                    if atom_index == host_atom:
-                        accumulate(grid_coordinate, atom_index, axis, gradients[axis])
-        return ao_motion, grid_coordinate, grid_weight
+                    accumulate(grid_coordinate, result_index, axis, gradients[axis])
+        return grid_coordinate, grid_weight
 
-    def _hamiltonian_derivative(self, coefficient, occupation):
+    def _hamiltonian_derivative(self, coefficient, occupation, atom_indices=None):
+        atom_indices = self._response_atom_indices(atom_indices)
         density = np.asarray(self.reference.make_rdm1(coefficient, occupation))
-        expected = (2, self.molecule.natm, 3, self.molecule.nao, self.molecule.nao)
+        expected = (2, len(atom_indices), 3, self.molecule.nao, self.molecule.nao)
         try:
             hessian = uks_hessian.Hessian(self.reference)
-            fixed_grid = np.asarray(
-                hessian.make_h1(
-                    coefficient,
-                    occupation,
-                    atmlst=range(self.molecule.natm),
-                )
+            fixed_grid = hessian.make_h1(
+                coefficient,
+                occupation,
+                atmlst=atom_indices,
             )
-            pyscf_fixed_xc = np.asarray(
-                uks_hessian._get_vxc_deriv1(
-                    hessian,
-                    coefficient,
-                    occupation,
-                    max(2000, self.reference.max_memory),
-                )
+            fixed_grid = np.stack(
+                [
+                    [fixed_grid[spin][atom_index] for atom_index in atom_indices]
+                    for spin in range(2)
+                ]
             )
         except Exception as error:
             raise UKSResponseError(
@@ -710,36 +704,21 @@ class _UKSLinearResponseMixin:
             expected,
             "fixed-grid UKS Hamiltonian derivative",
         )
-        pyscf_fixed_xc = _validated_float64_array(
-            pyscf_fixed_xc,
-            expected,
-            "fixed-grid UKS XC derivative",
+        grid_coordinate, grid_weight = self._xc_nuclear_derivative_components(
+            density,
+            atom_indices,
         )
-        ao_motion, grid_coordinate, grid_weight = self._xc_nuclear_derivative_components(
-            density
-        )
-        fixed_grid_xc_residual = float(
-            np.max(np.abs(pyscf_fixed_xc - ao_motion), initial=0.0)
-        )
-        if fixed_grid_xc_residual > self.invariant_tolerance:
-            raise UKSResponseError(
-                "the independent fixed-grid UKS XC derivative is inconsistent: "
-                f"residual {fixed_grid_xc_residual:.3e}"
-            )
-        reconstructed_fixed = fixed_grid - pyscf_fixed_xc + ao_motion
-        full = reconstructed_fixed + grid_coordinate + grid_weight
+        full = fixed_grid + grid_coordinate + grid_weight
         if not all(
             np.isfinite(value).all()
-            for value in (full, reconstructed_fixed, ao_motion, grid_coordinate, grid_weight)
+            for value in (full, fixed_grid, grid_coordinate, grid_weight)
         ):
             raise UKSResponseError("the complete UKS Hamiltonian derivative is nonfinite")
         self._last_hamiltonian_components = (
             full,
-            reconstructed_fixed,
-            ao_motion,
+            fixed_grid,
             grid_coordinate,
             grid_weight,
-            fixed_grid_xc_residual,
         )
         return full[0], full[1]
 
@@ -854,15 +833,15 @@ class UKSResponseAdapter:
     @staticmethod
     def _components(core) -> tuple[np.ndarray, ...]:
         components = getattr(core, "_last_hamiltonian_components", None)
-        if type(components) is not tuple or len(components) != 6:
+        if type(components) is not tuple or len(components) != 4:
             raise UKSResponseError("the UKS Hamiltonian derivative partitions are unavailable")
         return tuple(np.stack(value) if isinstance(value, tuple) else value for value in components)
 
-    def solve(self) -> UKSResponse:
-        """Return one immutable, fully partitioned UKS nuclear response."""
+    def solve(self, atom_indices=None) -> UKSResponse:
+        """Return one immutable UKS response for selected atoms."""
         try:
-            core_response = self._core.solve()
-            full, fixed, ao_motion, coordinate, weight, fixed_residual = self._components(
+            core_response = self._core.solve(atom_indices=atom_indices)
+            full, fixed, coordinate, weight = self._components(
                 self._core
             )
             _require_wrapper_close(full, fixed + coordinate + weight, "Hamiltonian derivative partition", UKSResponseError)
@@ -875,7 +854,6 @@ class UKSResponseAdapter:
                 core=core_response.diagnostics,
                 functional=functional,
                 grid=grid,
-                fixed_grid_xc_residual=float(fixed_residual),
                 hamiltonian_reconstruction_residual=reconstruction,
             )
             response = UKSResponse(
@@ -883,7 +861,6 @@ class UKSResponseAdapter:
                 functional=functional,
                 grid=grid,
                 hamiltonian_derivative_fixed_grid_spin=_immutable_array(fixed),
-                xc_hamiltonian_derivative_ao_motion_spin=_immutable_array(ao_motion),
                 xc_hamiltonian_derivative_grid_coordinate_spin=_immutable_array(coordinate),
                 xc_hamiltonian_derivative_grid_weight_spin=_immutable_array(weight),
                 diagnostics=diagnostics,
@@ -919,11 +896,10 @@ class UKSResponseAdapter:
             self._core.audit_response_equations(response.core)
         except UHFResponseError as error:
             raise UKSResponseError(f"UKS response audit failed: {error}") from error
-        full, fixed, ao_motion, coordinate, weight, fixed_residual = self._components(self._core)
-        expected_shape = (2, self.reference.mol.natm, 3, self.reference.mol.nao, self.reference.mol.nao)
+        full, fixed, coordinate, weight = self._components(self._core)
+        expected_shape = (2, len(response.core.atom_indices), 3, self.reference.mol.nao, self.reference.mol.nao)
         arrays = {
             "fixed-grid Hamiltonian derivative": (response.hamiltonian_derivative_fixed_grid_spin, fixed),
-            "fixed-grid XC AO-motion derivative": (response.xc_hamiltonian_derivative_ao_motion_spin, ao_motion),
             "grid-coordinate XC derivative": (response.xc_hamiltonian_derivative_grid_coordinate_spin, coordinate),
             "grid-weight XC derivative": (response.xc_hamiltonian_derivative_grid_weight_spin, weight),
         }
@@ -933,7 +909,6 @@ class UKSResponseAdapter:
             _require_wrapper_close(actual, expected, name, UKSResponseError)
         reconstruction = float(np.max(np.abs(full - fixed - coordinate - weight), initial=0.0))
         measured = {
-            "fixed_grid_xc_residual": float(fixed_residual),
             "hamiltonian_reconstruction_residual": reconstruction,
         }
         for name, expected in measured.items():
@@ -970,9 +945,10 @@ class UKSAdjointAdapter:
             setattr(self, name, getattr(self._core, name))
 
     def _nuclear_partitions(self, core_adjoint: UHFAdjoint):
+        atom_indices = core_adjoint.atom_indices
         coefficient, energy, occupation, occupied, virtual, _ = self._core._state()
-        overlap = self._core._overlap_derivative()
-        full, fixed, _ao_motion, coordinate, weight, fixed_residual = UKSResponseAdapter._components(self._core)
+        overlap = self._core._overlap_derivative(atom_indices)
+        full, fixed, coordinate, weight = UKSResponseAdapter._components(self._core)
         zvector = (core_adjoint.alpha_zvector, core_adjoint.beta_zvector)
         fixed_spin = []
         coordinate_spin = []
@@ -991,17 +967,20 @@ class UKSAdjointAdapter:
         coordinate_spin = np.stack(coordinate_spin)
         weight_spin = np.stack(weight_spin)
         residual = float(np.max(np.abs(core_adjoint.correction_gradient_adjoint_nuclear_spin - fixed_spin - coordinate_spin - weight_spin), initial=0.0))
-        return fixed_spin, coordinate_spin, weight_spin, float(fixed_residual), residual
+        return fixed_spin, coordinate_spin, weight_spin, residual
 
     def validate_response_operator_exact(self):
         """Run the bounded explicit debug audit of the internal UKS operator."""
         return self._core.validate_response_operator_exact()
 
-    def solve(self, objective_ao_potential: np.ndarray) -> UKSAdjoint:
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> UKSAdjoint:
         """Return one immutable UKS adjoint from exactly one transpose solve."""
         try:
-            core_adjoint = self._core.solve(objective_ao_potential)
-            fixed_spin, coordinate_spin, weight_spin, fixed_residual, partition_residual = self._nuclear_partitions(core_adjoint)
+            core_adjoint = self._core.solve(
+                objective_ao_potential,
+                atom_indices=atom_indices,
+            )
+            fixed_spin, coordinate_spin, weight_spin, partition_residual = self._nuclear_partitions(core_adjoint)
             if partition_residual > self.invariant_tolerance:
                 raise UKSAdjointError("the UKS adjoint nuclear partitions are inconsistent")
             functional = _uks_functional_provenance(self.reference)
@@ -1010,7 +989,6 @@ class UKSAdjointAdapter:
                 core=core_adjoint.diagnostics,
                 functional=functional,
                 grid=grid,
-                fixed_grid_xc_residual=fixed_residual,
                 nuclear_partition_residual=partition_residual,
             )
             adjoint = UKSAdjoint(
@@ -1049,8 +1027,8 @@ class UKSAdjointAdapter:
             self._core.audit_adjoint(adjoint.core, expected_objective_ao_potential)
         except UHFAdjointError as error:
             raise UKSAdjointError(f"UKS adjoint audit failed: {error}") from error
-        fixed_spin, coordinate_spin, weight_spin, fixed_residual, partition_residual = self._nuclear_partitions(adjoint.core)
-        expected_shape = (2, self.reference.mol.natm, 3)
+        fixed_spin, coordinate_spin, weight_spin, partition_residual = self._nuclear_partitions(adjoint.core)
+        expected_shape = (2, len(adjoint.core.atom_indices), 3)
         spin_arrays = {
             "fixed-grid adjoint gradient": (adjoint.correction_gradient_adjoint_fixed_grid_spin, fixed_spin),
             "grid-coordinate adjoint gradient": (adjoint.correction_gradient_adjoint_grid_coordinate_spin, coordinate_spin),
@@ -1067,7 +1045,6 @@ class UKSAdjointAdapter:
         ):
             _require_wrapper_close(getattr(adjoint, name), getattr(adjoint, spin_name).sum(axis=0), name, UKSAdjointError)
         measured = {
-            "fixed_grid_xc_residual": fixed_residual,
             "nuclear_partition_residual": partition_residual,
         }
         for name, expected in measured.items():
@@ -1078,11 +1055,13 @@ class UKSAdjointAdapter:
             raise UKSAdjointError("the supplied UKS adjoint invariant exceeds tolerance")
 
 
-def _native_uks_xc_grid_force_components(reference) -> tuple[np.ndarray, np.ndarray]:
+def _native_uks_xc_grid_force_components(reference, atom_indices) -> tuple[np.ndarray, np.ndarray]:
     molecule = reference.mol
+    atom_indices = tuple(range(molecule.natm)) if atom_indices is None else tuple(atom_indices)
+    result_indices = {atom_index: index for index, atom_index in enumerate(atom_indices)}
     integration = reference._numint
     density = np.asarray(reference.make_rdm1())
-    coordinate_force = np.zeros((molecule.natm, 3), dtype=np.float64)
+    coordinate_force = np.zeros((len(atom_indices), 3), dtype=np.float64)
     weight_force = np.zeros_like(coordinate_force)
     blocks = _validated_grid_response_blocks(
         reference,
@@ -1105,20 +1084,22 @@ def _native_uks_xc_grid_force_components(reference) -> tuple[np.ndarray, np.ndar
         checked = (coordinates, weights, weight_derivative, ao, rho, energy_density, potential)
         if not all(np.isfinite(value).all() for value in checked):
             raise UKSResponseError("the native UKS grid-force quadrature is nonfinite")
-        weight_force += np.einsum("g,sg,axg->ax", energy_density, rho, weight_derivative, optimize=True)
+        weight_force += np.einsum("g,sg,axg->ax", energy_density, rho, weight_derivative[list(atom_indices)], optimize=True)
         density_gradient = np.stack([
             2.0 * np.einsum("xgp,pq,gq->xg", ao[1:4], density[spin], values, optimize=True)
             for spin in range(2)
         ])
-        coordinate_force[host_atom] += np.einsum("g,sg,sxg->x", weights, potential, density_gradient, optimize=True)
+        if host_atom in result_indices:
+            coordinate_force[result_indices[host_atom]] += np.einsum("g,sg,sxg->x", weights, potential, density_gradient, optimize=True)
     return coordinate_force, weight_force
 
 
-def native_uks_gradient(reference) -> UKSNativeGradient:
-    """Return the native UKS gradient with complete finite-grid response."""
+def native_uks_gradient(reference, atom_indices=None) -> UKSNativeGradient:
+    """Return the selected native UKS finite-grid gradient."""
     validate_uks_reference(reference)
+    atom_indices = tuple(range(reference.mol.natm)) if atom_indices is None else tuple(atom_indices)
     initial_fingerprint = uks_reference_fingerprint(reference)
-    coordinate_force, weight_force = _native_uks_xc_grid_force_components(reference)
+    coordinate_force, weight_force = _native_uks_xc_grid_force_components(reference, atom_indices)
     try:
         full_driver = uks_grad.Gradients(reference)
         fixed_driver = uks_grad.Gradients(reference)
@@ -1128,13 +1109,21 @@ def native_uks_gradient(reference) -> UKSNativeGradient:
         fixed_driver.grids = reference.grids
         full_driver.grid_response = True
         fixed_driver.grid_response = False
-        gradient = full_driver.kernel()
-        fixed = fixed_driver.kernel()
+        gradient = _native_unrestricted_gradient(
+            reference,
+            full_driver,
+            atom_indices,
+        )
+        fixed = _native_unrestricted_gradient(
+            reference,
+            fixed_driver,
+            atom_indices,
+        )
     except UKSResponseError:
         raise
     except Exception as error:
         raise UKSResponseError(f"PySCF native UKS grid-response gradient failed: {error}") from error
-    shape = (reference.mol.natm, 3)
+    shape = (len(atom_indices), 3)
     gradient = _validated_float64_array(gradient, shape, "native UKS grid-response gradient")
     fixed = _validated_float64_array(fixed, shape, "native UKS fixed-grid gradient")
     coordinate_force = _validated_float64_array(coordinate_force, shape, "native UKS grid-coordinate force")

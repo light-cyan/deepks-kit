@@ -38,12 +38,8 @@ class AdjointDiagnostics:
     residual_tolerance: float
     objective_gradient_norm: float
     solution_norm: float
-    maximum_solver_residual: float
-    solver_residual_rms: float
-    maximum_transpose_residual: float
-    transpose_residual_rms: float
-    maximum_physical_residual: float
-    physical_residual_rms: float
+    maximum_residual: float
+    residual_rms: float
     iteration_count: int = 1
 
 
@@ -55,9 +51,7 @@ class AdjointResult:
     integrity_fingerprint: str
     objective_gradient: np.ndarray
     solution: np.ndarray
-    solver_residual: np.ndarray
-    transpose_residual: np.ndarray
-    physical_residual: np.ndarray
+    residual: np.ndarray
     diagnostics: AdjointDiagnostics
 
 
@@ -263,44 +257,30 @@ def _matrix_free_operator_fingerprint(
     problem: ScalarAdjointProblem,
     dimension: int,
 ) -> str:
-    """Fingerprint state evidence and deterministic actions without forming ``A``."""
+    """Fingerprint supplied scientific-state evidence without operator probes."""
     supplied_fingerprint = getattr(problem, "operator_fingerprint", None)
-    if supplied_fingerprint is not None:
-        if callable(supplied_fingerprint):
-            supplied_fingerprint = supplied_fingerprint()
-        if (
-            type(supplied_fingerprint) is not str
-            or len(supplied_fingerprint) != 64
-        ):
-            raise AdjointError(
-                "matrix-free operator fingerprint must be a SHA-256 hex digest"
+    if callable(supplied_fingerprint):
+        supplied_fingerprint = supplied_fingerprint()
+    if supplied_fingerprint is None:
+        dense_operator = getattr(problem, "dense_operator", None)
+        if callable(dense_operator):
+            supplied_fingerprint = _array_fingerprint(
+                _validated_matrix(dense_operator(), dimension)
             )
-        try:
-            bytes.fromhex(supplied_fingerprint)
-        except ValueError as error:
-            raise AdjointError(
-                "matrix-free operator fingerprint must be a SHA-256 hex digest"
-            ) from error
-    indices = np.arange(1, dimension + 1, dtype=np.float64)
-    probes = (
-        np.sin(indices) + np.cos(indices * np.sqrt(2.0)),
-        np.sin(indices * np.sqrt(3.0)) - np.cos(indices * np.sqrt(5.0)),
-    )
-    digest = hashlib.sha256()
-    digest.update(b"matrix-free-scalar-adjoint-v2")
-    digest.update(str(dimension).encode("ascii"))
-    if supplied_fingerprint is not None:
-        digest.update(bytes.fromhex(supplied_fingerprint))
-    for probe in probes:
-        probe /= np.linalg.norm(probe)
-        image = _isolated_problem_action(
-            problem.apply_transpose,
-            probe,
-            dimension,
-            action_name="operator fingerprint transpose action",
-            result_name="operator fingerprint transpose action",
+    if type(supplied_fingerprint) is not str or len(supplied_fingerprint) != 64:
+        raise AdjointError(
+            "matrix-free problems must supply a SHA-256 operator fingerprint"
         )
-        digest.update(np.ascontiguousarray(image).tobytes())
+    try:
+        encoded_fingerprint = bytes.fromhex(supplied_fingerprint)
+    except ValueError as error:
+        raise AdjointError(
+            "matrix-free operator fingerprint must be a SHA-256 hex digest"
+        ) from error
+    digest = hashlib.sha256()
+    digest.update(b"matrix-free-scalar-adjoint-v3")
+    digest.update(str(dimension).encode("ascii"))
+    digest.update(encoded_fingerprint)
     return digest.hexdigest()
 
 
@@ -334,7 +314,7 @@ def solve_scalar_adjoint(
     max_cycle: int = 100,
     restart: int = 50,
 ) -> AdjointResult:
-    """Solve ``A.T z = b`` once and audit independent operator actions."""
+    """Solve ``A.T z = b`` and retain one independently evaluated residual."""
     if not isinstance(problem, ScalarAdjointProblem):
         raise AdjointError(
             "adjoint problem does not implement the scalar adjoint protocol"
@@ -446,20 +426,6 @@ def solve_scalar_adjoint(
     solution = _immutable_array(
         _validated_vector(solution, dimension, "adjoint solution")
     )
-    transpose_image = _isolated_problem_action(
-        problem.apply_transpose,
-        solution,
-        dimension,
-        action_name="independent transpose adjoint action",
-        result_name="independent transpose adjoint action",
-    )
-    physical_image = _isolated_problem_action(
-        problem.apply,
-        solution,
-        dimension,
-        action_name="physical adjoint action",
-        result_name="physical adjoint action",
-    )
     final_dimension = _validated_dimension(problem.dimension)
     if final_dimension != dimension:
         raise AdjointError(
@@ -471,9 +437,15 @@ def solve_scalar_adjoint(
             raise AdjointError(
                 "adjoint response operator changed during independent residual checks"
             )
-        solver_residual_value = matrix.T @ solution - objective_gradient
-        solver_residual_name = "literal transpose adjoint residual"
+        residual_value = final_matrix.T @ solution - objective_gradient
     else:
+        residual_image = _isolated_problem_action(
+            problem.apply_transpose,
+            solution,
+            dimension,
+            action_name="independent adjoint residual action",
+            result_name="independent adjoint residual action",
+        )
         final_fingerprint = _matrix_free_operator_fingerprint(
             problem,
             dimension,
@@ -482,39 +454,16 @@ def solve_scalar_adjoint(
             raise AdjointError(
                 "adjoint response operator changed during independent residual checks"
             )
-        solver_residual_value = transpose_image - objective_gradient
-        solver_residual_name = "matrix-free solver residual"
-    solver_residual = _immutable_array(
+        residual_value = residual_image - objective_gradient
+    residual = _immutable_array(
         _validated_vector(
-            solver_residual_value,
+            residual_value,
             dimension,
-            solver_residual_name,
+            "independent adjoint residual",
         )
     )
-    transpose_residual = _immutable_array(
-        _validated_vector(
-            transpose_image - objective_gradient,
-            dimension,
-            "independent transpose adjoint residual",
-        )
-    )
-    physical_residual = _immutable_array(
-        _validated_vector(
-            physical_image - objective_gradient,
-            dimension,
-            "physical adjoint residual",
-        )
-    )
-    maximum_solver_residual, solver_residual_rms = _residual_statistics(
-        solver_residual
-    )
-    maximum_transpose_residual, transpose_residual_rms = _residual_statistics(
-        transpose_residual
-    )
-    maximum_physical_residual, physical_residual_rms = _residual_statistics(
-        physical_residual
-    )
-    if maximum_solver_residual > residual_tolerance:
+    maximum_residual, residual_rms = _residual_statistics(residual)
+    if maximum_residual > residual_tolerance:
         residual_label = (
             "literal transpose adjoint residual"
             if solver == "dense"
@@ -522,29 +471,25 @@ def solve_scalar_adjoint(
         )
         raise AdjointError(
             f"{residual_label} exceeds tolerance: "
-            f"{maximum_solver_residual:.3e} > {residual_tolerance:.3e}"
+            f"{maximum_residual:.3e} > {residual_tolerance:.3e}"
         )
-    if maximum_transpose_residual > residual_tolerance:
-        raise AdjointError(
-            "independent transpose adjoint residual exceeds tolerance: "
-            f"{maximum_transpose_residual:.3e} > {residual_tolerance:.3e}"
-        )
-    if require_physical_residual and maximum_physical_residual > residual_tolerance:
-        raise AdjointError(
-            "physical adjoint residual exceeds tolerance: "
-            f"{maximum_physical_residual:.3e} > {residual_tolerance:.3e}"
-        )
+    if require_physical_residual and getattr(problem, "is_self_adjoint", None) is not True:
+        physical = _isolated_problem_action(
+            problem.apply,
+            solution,
+            dimension,
+            action_name="physical adjoint audit action",
+            result_name="physical adjoint audit action",
+        ) - objective_gradient
+        if _residual_statistics(physical)[0] > residual_tolerance:
+            raise AdjointError("physical adjoint residual exceeds tolerance")
     objective_gradient_norm = float(np.linalg.norm(objective_gradient))
     solution_norm = float(np.linalg.norm(solution))
     diagnostic_values = (
         objective_gradient_norm,
         solution_norm,
-        maximum_solver_residual,
-        solver_residual_rms,
-        maximum_transpose_residual,
-        transpose_residual_rms,
-        maximum_physical_residual,
-        physical_residual_rms,
+        maximum_residual,
+        residual_rms,
     )
     if not np.isfinite(diagnostic_values).all():
         raise AdjointError("adjoint diagnostics must be finite")
@@ -555,12 +500,8 @@ def solve_scalar_adjoint(
         residual_tolerance=residual_tolerance,
         objective_gradient_norm=objective_gradient_norm,
         solution_norm=solution_norm,
-        maximum_solver_residual=maximum_solver_residual,
-        solver_residual_rms=solver_residual_rms,
-        maximum_transpose_residual=maximum_transpose_residual,
-        transpose_residual_rms=transpose_residual_rms,
-        maximum_physical_residual=maximum_physical_residual,
-        physical_residual_rms=physical_residual_rms,
+        maximum_residual=maximum_residual,
+        residual_rms=residual_rms,
         iteration_count=iteration_count,
     )
     result = AdjointResult(
@@ -568,9 +509,7 @@ def solve_scalar_adjoint(
         integrity_fingerprint="",
         objective_gradient=_immutable_array(objective_gradient),
         solution=_immutable_array(solution),
-        solver_residual=_immutable_array(solver_residual),
-        transpose_residual=_immutable_array(transpose_residual),
-        physical_residual=_immutable_array(physical_residual),
+        residual=_immutable_array(residual),
         diagnostics=diagnostics,
     )
     return replace(

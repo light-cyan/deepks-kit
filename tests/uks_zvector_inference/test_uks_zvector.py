@@ -19,6 +19,25 @@ from deepks.deephf import (
 )
 
 
+def test_uks_compact_selected_gradient_drivers_retain_one_array(uks_case):
+    for backend in ("direct", "zvector"):
+        driver = uks_case.method.nuc_grad_method(
+            backend=backend,
+            retain_details=False,
+        ).run(atmlst=(1,))
+        retained_bytes = sum(
+            value.nbytes
+            for value in vars(driver).values()
+            if isinstance(value, np.ndarray)
+        )
+        assert retained_bytes == driver.de.nbytes
+        assert driver.de.shape == (1, 3)
+        assert not hasattr(driver, "de_full")
+        result_name = "response_result" if backend == "direct" else "adjoint_result"
+        assert not hasattr(driver, result_name)
+        assert driver.response_diagnostics is not None
+
+
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "uks_analytic_forces" / "conftest.py"
 _SPEC = importlib.util.spec_from_file_location("_deepks_uks_oracle_fixtures", _FIXTURE_PATH)
 if _SPEC is None or _SPEC.loader is None:
@@ -49,7 +68,7 @@ def test_zvector_has_one_solve_and_complete_grid_partitions(uks_case):
 
 
 def test_zvector_does_not_call_direct_response(monkeypatch, uks_case):
-    monkeypatch.setattr(UKSResponseAdapter, "solve", lambda self: (_ for _ in ()).throw(AssertionError("direct response was called")))
+    monkeypatch.setattr(UKSResponseAdapter, "solve", lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("direct response was called")))
     gradient = uks_case.method.gradient(backend="zvector")
     np.testing.assert_allclose(gradient, uks_case.direct_gradient, rtol=0.0, atol=2.0e-10)
 
@@ -78,12 +97,12 @@ def test_resealed_adjoint_is_rejected(uks_case):
 
 def test_zvector_failure_clears_driver_without_direct_fallback(monkeypatch, uks_case):
     driver = uks_case.method.nuc_grad_method(backend="zvector")
-    monkeypatch.setattr(UKSAdjointAdapter, "solve", lambda self, objective: (_ for _ in ()).throw(UKSAdjointError("injected failure")))
+    monkeypatch.setattr(UKSAdjointAdapter, "solve", lambda self, objective, **kwargs: (_ for _ in ()).throw(UKSAdjointError("injected failure")))
     with pytest.raises(UKSAdjointError, match="injected failure"):
         driver.kernel()
     assert driver.de is None
-    assert driver.de_full is None
-    assert driver.adjoint_result is None
+    assert not hasattr(driver, "de_full")
+    assert not hasattr(driver, "adjoint_result")
 
 
 def test_uks_scanner_is_explicitly_unavailable(uks_case):
@@ -137,12 +156,12 @@ def test_uks_production_response_and_adjoint_are_matrix_free(
 
 def test_direct_failure_clears_results_without_zvector_fallback(monkeypatch, uks_case):
     driver = uks_case.method.nuc_grad_method(backend="direct")
-    monkeypatch.setattr(UKSResponseAdapter, "solve", lambda self: (_ for _ in ()).throw(UKSResponseError("injected direct failure")))
+    monkeypatch.setattr(UKSResponseAdapter, "solve", lambda self, **kwargs: (_ for _ in ()).throw(UKSResponseError("injected direct failure")))
     with pytest.raises(UKSResponseError, match="injected direct failure"):
         driver.kernel()
     assert driver.de is None
-    assert driver.de_full is None
-    assert driver.response_result is None
+    assert not hasattr(driver, "de_full")
+    assert not hasattr(driver, "response_result")
 
 
 @pytest.mark.parametrize(

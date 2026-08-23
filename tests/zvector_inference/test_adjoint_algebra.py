@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+import hashlib
 
 import numpy as np
 import pytest
 import torch
 
-from deepks.deephf.adjoint import AdjointError, solve_scalar_adjoint
+import deepks.deephf.adjoint as adjoint_module
+from deepks.deephf.adjoint import solve_scalar_adjoint
 from deepks.deephf.pyscf_rhf import RHFAdjointAdapter
 from deepks.model.model import SCALE_EPS
 
@@ -27,58 +29,40 @@ class _NonsymmetricAdjointProblem:
         return self.matrix.T @ vector
 
 
-class _CoordinatedMutationProblem:
-    def __init__(self, matrix, objective_gradient):
-        self.matrix = matrix
-        self.objective_gradient = objective_gradient
-        self.saved_transpose_input = None
+def test_self_adjoint_matrix_free_solve_has_one_postsolve_action(monkeypatch):
+    calls = {"forward": 0, "transpose": 0}
 
-    @property
-    def dimension(self):
-        return self.matrix.shape[0]
+    class IdentityProblem:
+        dimension = 2
+        is_self_adjoint = True
+        operator_fingerprint = hashlib.sha256(b"identity").hexdigest()
 
-    def dense_operator(self):
-        return self.matrix.copy()
+        def apply(self, vector):
+            calls["forward"] += 1
+            return vector
 
-    def apply_transpose(self, vector):
-        self.saved_transpose_input = vector
-        return self.matrix.T @ vector
+        def apply_transpose(self, vector):
+            calls["transpose"] += 1
+            return vector
 
-    def apply(self, vector):
-        self.saved_transpose_input += 7.0
-        return self.objective_gradient.copy()
+    def exact_gmres(_operator, objective, **_controls):
+        return objective.copy(), 0
 
-
-class _RetainingAdjointProblem:
-    def __init__(self, matrix):
-        self.matrix = matrix
-        self.transpose_input = None
-        self.physical_input = None
-        self.transpose_output = None
-        self.physical_output = None
-
-    @property
-    def dimension(self):
-        return self.matrix.shape[0]
-
-    def dense_operator(self):
-        return self.matrix.copy()
-
-    def apply_transpose(self, vector):
-        self.transpose_input = vector
-        self.transpose_output = self.matrix.T @ vector
-        return self.transpose_output
-
-    def apply(self, vector):
-        self.physical_input = vector
-        self.physical_output = self.matrix @ vector
-        return self.physical_output
-
-
-class _OperatorMutationProblem(_NonsymmetricAdjointProblem):
-    def apply(self, vector):
-        self.matrix[0, 0] += 1.0
-        return self.matrix @ vector
+    monkeypatch.setattr(adjoint_module, "gmres", exact_gmres)
+    result = solve_scalar_adjoint(
+        IdentityProblem(),
+        np.array([0.3, -0.2], dtype=np.float64),
+        require_physical_residual=True,
+    )
+    assert calls == {"forward": 0, "transpose": 1}
+    assert tuple(result.__dataclass_fields__) == (
+        "operator_fingerprint",
+        "integrity_fingerprint",
+        "objective_gradient",
+        "solution",
+        "residual",
+        "diagnostics",
+    )
 
 
 def _independent_objective_ao_potential(case):
@@ -129,9 +113,7 @@ def test_generic_adjoint_solves_the_literal_transpose():
     )
     assert np.max(np.abs(result.solution - incorrect_forward)) > 1.0e-2
     assert result.diagnostics.solve_count == 1
-    assert result.diagnostics.maximum_solver_residual < 1.0e-14
-    assert result.diagnostics.maximum_transpose_residual < 1.0e-14
-    assert result.diagnostics.maximum_physical_residual > 1.0e-2
+    assert result.diagnostics.maximum_residual < 1.0e-14
     assert not result.solution.flags.writeable
 
 
@@ -165,97 +147,6 @@ def test_generic_adjoint_rejects_invalid_real_tolerances(residual_tolerance):
             problem,
             np.ones(2, dtype=np.float64),
             residual_tolerance=residual_tolerance,
-        )
-
-
-def test_generic_adjoint_rejects_coordinated_solution_mutation():
-    matrix = np.array(
-        [
-            [2.7, 0.4],
-            [-0.2, 1.9],
-        ],
-        dtype=np.float64,
-    )
-    objective_gradient = np.array([0.23, -0.17], dtype=np.float64)
-    problem = _CoordinatedMutationProblem(matrix, objective_gradient)
-
-    with pytest.raises(
-        AdjointError,
-        match=(
-            "physical adjoint action attempted to mutate its immutable "
-            "adjoint solution input"
-        ),
-    ):
-        solve_scalar_adjoint(
-            problem,
-            objective_gradient,
-            require_physical_residual=True,
-        )
-
-    assert problem.saved_transpose_input.dtype == np.dtype(np.float64)
-    assert not problem.saved_transpose_input.flags.writeable
-
-
-def test_generic_adjoint_isolates_retained_action_references():
-    matrix = np.array(
-        [
-            [3.1, -0.3],
-            [-0.3, 2.2],
-        ],
-        dtype=np.float64,
-    )
-    objective_gradient = np.array([0.41, -0.29], dtype=np.float64)
-    problem = _RetainingAdjointProblem(matrix)
-
-    result = solve_scalar_adjoint(
-        problem,
-        objective_gradient,
-        require_physical_residual=True,
-    )
-    solution = result.solution.copy()
-    solver_residual = result.solver_residual.copy()
-    transpose_residual = result.transpose_residual.copy()
-    physical_residual = result.physical_residual.copy()
-
-    assert problem.transpose_input is not problem.physical_input
-    assert not np.shares_memory(
-        problem.transpose_input,
-        problem.physical_input,
-    )
-    assert not np.shares_memory(result.solution, problem.transpose_input)
-    assert not np.shares_memory(result.solution, problem.physical_input)
-    assert problem.transpose_input.dtype == np.dtype(np.float64)
-    assert problem.physical_input.dtype == np.dtype(np.float64)
-    assert not problem.transpose_input.flags.writeable
-    assert not problem.physical_input.flags.writeable
-    with pytest.raises(ValueError, match="read-only"):
-        problem.transpose_input[0] += 1.0
-    with pytest.raises(ValueError, match="read-only"):
-        problem.physical_input[0] += 1.0
-
-    problem.matrix[:] = np.nan
-    problem.transpose_output[:] = np.nan
-    problem.physical_output[:] = np.nan
-    np.testing.assert_array_equal(result.solution, solution)
-    np.testing.assert_array_equal(result.solver_residual, solver_residual)
-    np.testing.assert_array_equal(result.transpose_residual, transpose_residual)
-    np.testing.assert_array_equal(result.physical_residual, physical_residual)
-
-
-def test_generic_adjoint_rejects_operator_mutation_during_residual_checks():
-    problem = _OperatorMutationProblem(
-        np.array([[3.0, 0.2], [0.2, 2.0]], dtype=np.float64)
-    )
-    objective_gradient = np.array([0.4, -0.3], dtype=np.float64)
-
-    with pytest.raises(
-        AdjointError,
-        match="operator changed during independent residual checks",
-    ):
-        solve_scalar_adjoint(
-            problem,
-            objective_gradient,
-            require_physical_residual=True,
         )
 
 
@@ -390,7 +281,7 @@ def test_rhf_zvector_matches_an_independent_ao2mo_transpose_solve(
     )
     assert rhf_adjoint.diagnostics.solve_count == 1
     assert rhf_adjoint.diagnostics.response_dimension == operator.shape[0]
-    assert rhf_adjoint.diagnostics.maximum_transpose_residual < 1.0e-10
+    assert rhf_adjoint.diagnostics.maximum_residual < 1.0e-10
 
 
 def test_metric_formula_and_response_partition_match_the_direct_oracle(

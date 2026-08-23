@@ -67,7 +67,7 @@ class RKSDeePHF(DeePHF):
         self.validate_force_compatibility()
         return self._solve_response(response_options)
 
-    def _solve_response(self, response_options) -> RKSResponse:
+    def _solve_response(self, response_options, atom_indices=None) -> RKSResponse:
         """Solve one response after the caller has validated descriptor semantics."""
         options = _validated_backend_options(
             self.response_options,
@@ -76,7 +76,7 @@ class RKSDeePHF(DeePHF):
             "direct",
         )
         adapter = RKSResponseAdapter(self.reference, **options)
-        response = adapter.solve()
+        response = adapter.solve(atom_indices=atom_indices)
         self._seal_response(response)
         return response
 
@@ -148,7 +148,7 @@ class RKSDeePHF(DeePHF):
         """Solve one audited correction-specific RKS scalar adjoint."""
         return self._zvector_inputs(adjoint_options)[2]
 
-    def _zvector_inputs(self, adjoint_options):
+    def _zvector_inputs(self, adjoint_options, atom_indices=None):
         """Build one RKS sensitivity and one scalar adjoint."""
         self._validate_reference_object(self.reference)
         descriptor_diagnostics, sensitivity = self._force_inputs()
@@ -160,10 +160,13 @@ class RKSDeePHF(DeePHF):
             "zvector",
         )
         objective = self._correction_ao_potential(sensitivity)
-        adjoint = RKSAdjointAdapter(self.reference, **options).solve(objective)
+        adjoint = RKSAdjointAdapter(self.reference, **options).solve(
+            objective,
+            atom_indices=atom_indices,
+        )
         return descriptor_diagnostics, sensitivity, adjoint
 
-    def nuc_grad_method(self, *, backend="direct", **backend_options):
+    def nuc_grad_method(self, *, backend="direct", retain_details=True, **backend_options):
         """Build one explicitly selected strict RKS gradient backend."""
         if type(backend) is not str or backend not in {"direct", "zvector"}:
             raise ValueError(
@@ -181,6 +184,7 @@ class RKSDeePHF(DeePHF):
             return RKSDeePHFGradients(
                 self,
                 response_options=backend_options,
+                retain_details=retain_details,
             )
         _validated_backend_options(
             self.adjoint_options,
@@ -193,6 +197,7 @@ class RKSDeePHF(DeePHF):
         return RKSDeePHFZVectorGradients(
             self,
             adjoint_options=backend_options,
+            retain_details=retain_details,
         )
 
 
