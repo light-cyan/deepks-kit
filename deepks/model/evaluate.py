@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import torch
 
 from deepks.descriptor.core import descriptor, projected_density, shell_eigenvalues
+from deepks.model.model import validate_force_model_architecture
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ def _require_float64_tensor(
     name: str,
     *,
     ndim: int | None = None,
+    check_finite: bool = True,
 ) -> torch.Tensor:
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"{name} must be a torch.Tensor")
@@ -29,7 +31,7 @@ def _require_float64_tensor(
         raise TypeError(f"{name} must use torch.float64")
     if ndim is not None and value.ndim != ndim:
         raise ValueError(f"{name} must have rank {ndim}; received shape {tuple(value.shape)}")
-    if not torch.isfinite(value).all():
+    if check_finite and not torch.isfinite(value).all():
         raise ValueError(f"{name} must contain only finite values")
     return value
 
@@ -59,6 +61,8 @@ def predict_correction(
     dq_dR_relaxed: torch.Tensor | None = None,
     require_force: bool = False,
     create_graph: bool = False,
+    *,
+    _validated_inputs: bool = False,
 ) -> CorrectionPrediction:
     """Predict a correction energy and, only from ``dq_dR_relaxed``, its force.
 
@@ -71,6 +75,7 @@ def predict_correction(
         descriptor,
         "descriptor",
         ndim=3,
+        check_finite=not _validated_inputs,
     )
     if any(size <= 0 for size in descriptor.shape):
         raise ValueError("descriptor axes must all be nonempty")
@@ -83,10 +88,12 @@ def predict_correction(
 
     calculate_force = dq_dR_relaxed is not None
     if calculate_force:
+        validate_force_model_architecture(model, training=model.training)
         dq_dR_relaxed = _require_float64_tensor(
             dq_dR_relaxed,
             "dq_dR_relaxed",
             ndim=5,
+            check_finite=not _validated_inputs,
         )
         expected_outer_axes = (
             descriptor.shape[0],

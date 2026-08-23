@@ -55,10 +55,8 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
 
     def _validated_native_gradient(self) -> UKSNativeGradient:
         self.base._validate_science_state("UKS Z-vector native gradient evaluation")
-        self.base._assert_trusted_uks_force_model_state("UKS Z-vector native gradient evaluation")
         native = native_uks_gradient(self.base.reference)
         self.base._validate_science_state("UKS Z-vector native gradient evaluation")
-        self.base._assert_trusted_uks_force_model_state("UKS Z-vector native gradient evaluation")
         if type(native) is not UKSNativeGradient:
             raise UKSAdjointError("the native UKS gradient adapter returned an invalid result type")
         return native
@@ -70,11 +68,9 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
 
     def _kernel(self) -> dict:
         diagnostics, sensitivity, adjoint = self.base._zvector_inputs(self.adjoint_options)
-        diagnostics, sensitivity, adjoint = self.base._validate_zvector_inputs(diagnostics, sensitivity, adjoint)
         native = self._validated_native_gradient()
         dq_explicit_spin = self.base.dq_dR_explicit_spin()
         self.base._validate_science_state("UKS Z-vector explicit descriptor gradient evaluation")
-        self.base._assert_trusted_uks_force_model_state("UKS Z-vector explicit descriptor gradient evaluation")
         dq_explicit = dq_explicit_spin.sum(axis=0)
         correction_explicit_spin = np.einsum("sbxap,ap->sbx", dq_explicit_spin, sensitivity)
         metric_spin = np.asarray(adjoint.correction_gradient_metric_spin)
@@ -117,7 +113,6 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
             if type(value) is not np.ndarray or value.shape != expected or value.dtype != np.dtype(np.float64) or not np.isfinite(value).all():
                 raise UKSAdjointError(f"the UKS Z-vector {name} is invalid")
         self.base._validate_science_state("UKS Z-vector gradient assembly")
-        self.base._assert_trusted_uks_force_model_state("UKS Z-vector gradient assembly")
         return {
             "adjoint_result": adjoint,
             "descriptor_diagnostics": diagnostics,

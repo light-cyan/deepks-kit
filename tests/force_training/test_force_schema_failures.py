@@ -337,20 +337,8 @@ def test_loader_rejects_extra_explicit_jacobian_file(tmp_path):
         (
             lambda provenance: provenance["frames"][0][
                 "response_diagnostics"
-            ].update(operator_condition_number=-8.0),
-            "condition number is invalid",
-        ),
-        (
-            lambda provenance: provenance["frames"][0][
-                "response_diagnostics"
             ].update(response_dimension=17),
             "response dimension is invalid",
-        ),
-        (
-            lambda provenance: provenance["frames"][0][
-                "response_diagnostics"
-            ].update(operator_condition_number=7.0),
-            "does not match its eigenvalue bounds",
         ),
         (
             lambda provenance: provenance["reference"].update(charge=1),

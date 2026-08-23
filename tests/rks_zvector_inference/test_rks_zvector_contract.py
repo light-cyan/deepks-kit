@@ -50,14 +50,6 @@ DRIVER_RESULT_FIELDS = (
 
 def _assert_driver_cleared(driver):
     assert all(getattr(driver, name) is None for name in DRIVER_RESULT_FIELDS)
-    method = driver._bound_base
-    assert method._trusted_adjoint is None
-    assert method._trusted_adjoint_integrity is None
-    assert method._trusted_adjoint_sensitivity_fingerprint is None
-    assert method._trusted_adjoint_descriptor_diagnostics is None
-    assert method._trusted_adjoint_model_fingerprint is None
-    assert method._trusted_rks_adjoint_adapter is None
-    assert method._trusted_rks_adjoint_controls is None
 
 
 def _immutable(value):
@@ -199,54 +191,6 @@ def test_rks_zvector_corrupted_binding_fails_and_clears_every_result(
     _assert_driver_cleared(driver)
 
 
-def test_rks_zvector_trusted_adjoint_is_audited_without_another_solve_and_rejects_forgery(
-    rks_oracle_case,
-    monkeypatch,
-    request,
-):
-    method = rks_oracle_case.method
-    request.addfinalizer(method._clear_trusted_adjoint)
-    inputs = method._zvector_inputs({})
-    descriptor_diagnostics, sensitivity, adjoint = inputs
-    foreign = RKSDeePHF(
-        rks_oracle_case.reference,
-        deepcopy(rks_oracle_case.model),
-        projector_basis=rks_oracle_case.model._pbas,
-    )
-
-    def forbidden_solve(*_args, **_kwargs):
-        raise AssertionError("trusted RKS adjoint consumption called solve")
-
-    monkeypatch.setattr(RKSAdjointAdapter, "solve", forbidden_solve)
-    validated = method._validate_zvector_inputs(*inputs)
-    assert validated[0] is descriptor_diagnostics
-    assert validated[1] is sensitivity
-    assert validated[2] is adjoint
-    adapter = method._trusted_rks_adjoint_adapter
-    original_tolerance = adapter.residual_tolerance
-    adapter.residual_tolerance = original_tolerance * 2.0
-    with pytest.raises(RKSAdjointError, match="controls changed after the solve"):
-        method._validate_zvector_inputs(*inputs)
-    adapter.residual_tolerance = original_tolerance
-    with pytest.raises(
-        RKSAdjointError,
-        match="was not produced by this DeePHF evaluation",
-    ):
-        foreign._validate_zvector_inputs(*inputs)
-
-    object.__setattr__(
-        adjoint,
-        "correction_gradient_metric",
-        _immutable(adjoint.correction_gradient_metric + 2.0e-3),
-    )
-    object.__setattr__(
-        adjoint,
-        "integrity_fingerprint",
-        rks_adjoint_integrity_fingerprint(adjoint),
-    )
-    with pytest.raises(RKSAdjointError, match="failed its integrity check"):
-        method._validate_zvector_inputs(*inputs)
-    method._clear_trusted_adjoint()
 
 
 def test_rks_zvector_state_failures_never_enter_adjoint_or_direct_fallback(

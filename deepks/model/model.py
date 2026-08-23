@@ -682,3 +682,92 @@ class CorrNet(nn.Module):
             expected_force_contract_fingerprint=expected_force_contract_fingerprint,
             expected_force_contract=expected_force_contract,
         )
+
+
+_FORCE_CORRNET_FORWARD = CorrNet.forward
+_FORCE_DENSENET_FORWARD = DenseNet.forward
+_FORCE_TRACE_FORWARD = TraceEmbedding.forward
+_FORCE_THERMAL_FORWARD = ThermalEmbedding.forward
+_FORCE_ACTIVATIONS = frozenset(
+    {
+        torch.sigmoid,
+        torch.tanh,
+        torch.relu,
+        F.softplus,
+        F.silu,
+        F.gelu,
+        mygelu,
+    }
+)
+_FORCE_MODULE_HOOK_FIELDS = (
+    ("forward-pre", "_forward_pre_hooks"),
+    ("forward", "_forward_hooks"),
+    ("backward-pre", "_backward_pre_hooks"),
+    ("backward", "_backward_hooks"),
+)
+_FORCE_GLOBAL_HOOK_FIELDS = (
+    ("global-forward-pre", "_global_forward_pre_hooks"),
+    ("global-forward", "_global_forward_hooks"),
+    ("global-backward-pre", "_global_backward_pre_hooks"),
+    ("global-backward", "_global_backward_hooks"),
+)
+
+
+def validate_force_model_architecture(model, *, training: bool) -> None:
+    """Restrict force derivatives to the built-in differentiable CorrNet graph."""
+    if type(model) is not CorrNet:
+        raise TypeError("force derivatives require an exact deepks.model.model.CorrNet")
+    if "forward" in vars(model) or CorrNet.forward is not _FORCE_CORRNET_FORWARD:
+        raise ValueError("the force CorrNet forward implementation was replaced")
+    if type(model.linear) is not nn.Linear or type(model.densenet) is not DenseNet:
+        raise ValueError("the force CorrNet has an unsupported network structure")
+    if "forward" in vars(model.densenet) or DenseNet.forward is not _FORCE_DENSENET_FORWARD:
+        raise ValueError("the force DenseNet forward implementation was replaced")
+    if model.densenet.actv_fn not in _FORCE_ACTIVATIONS:
+        raise ValueError("the force CorrNet uses an unsupported activation")
+    if type(model.densenet.layers) is not nn.ModuleList or any(
+        type(layer) is not nn.Linear for layer in model.densenet.layers
+    ):
+        raise ValueError("the force CorrNet contains unsupported dense layers")
+    if model.densenet.dts is not None and type(model.densenet.dts) is not nn.ParameterList:
+        raise ValueError("the force CorrNet residual scaling is invalid")
+    embedder = model.embedder
+    if embedder is None:
+        pass
+    elif type(embedder) is TraceEmbedding:
+        if "forward" in vars(embedder) or TraceEmbedding.forward is not _FORCE_TRACE_FORWARD:
+            raise ValueError("the force trace embedding was replaced")
+    elif type(embedder) is ThermalEmbedding and not training:
+        if "forward" in vars(embedder) or ThermalEmbedding.forward is not _FORCE_THERMAL_FORWARD:
+            raise ValueError("the force thermal embedding was replaced")
+    elif type(embedder) is ThermalEmbedding:
+        raise ValueError("force-aware training does not support stateful thermal embedding")
+    else:
+        raise ValueError("the force CorrNet uses an unsupported embedding")
+
+    active_hooks = []
+    for name, module in model.named_modules(remove_duplicate=False):
+        module_name = name or "<root>"
+        for hook_name, field_name in _FORCE_MODULE_HOOK_FIELDS:
+            registry = getattr(module, field_name)
+            if not isinstance(registry, Mapping):
+                raise ValueError(
+                    "the force model hook registry is invalid: "
+                    f"{module_name}:{hook_name}"
+                )
+            if registry:
+                active_hooks.append(f"{module_name}:{hook_name}")
+    global_hooks = torch.nn.modules.module
+    for hook_name, field_name in _FORCE_GLOBAL_HOOK_FIELDS:
+        registry = getattr(global_hooks, field_name)
+        if not isinstance(registry, Mapping):
+            raise ValueError(
+                f"the global force-model hook registry is invalid: {hook_name}"
+            )
+        if registry:
+            active_hooks.append(hook_name)
+    if active_hooks:
+        raise ValueError(
+            "the force correction model cannot contain module execution hooks; "
+            f"active hooks: {', '.join(active_hooks)}"
+        )

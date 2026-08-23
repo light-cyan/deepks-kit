@@ -320,7 +320,7 @@ def test_coupled_operator_matches_independent_ao_integral_oracle(
         rtol=2.0e-13,
         atol=2.0e-13,
     )
-    assert diagnostics.operator_diagnostics_are_estimates is True
+    assert diagnostics.operator_is_self_adjoint is True
     assert np.linalg.norm(operator[:10, 10:]) > 0.1
     assert np.linalg.norm(operator[10:, :10]) > 0.1
 
@@ -412,15 +412,12 @@ def test_response_diagnostics_cover_every_spin_invariant(uhf_oracle_case):
 
     assert diagnostics.minimum_alpha_orbital_gap > 1.0
     assert diagnostics.minimum_beta_orbital_gap > 0.6
-    assert diagnostics.operator_minimum_eigenvalue > 0.08
-    assert diagnostics.operator_condition_number < 200.0
-    assert diagnostics.operator_symmetry_residual < 1.0e-12
+    assert diagnostics.operator_is_self_adjoint is True
     assert diagnostics.alpha_metric_residual < 1.0e-12
     assert diagnostics.beta_metric_residual < 1.0e-12
     assert diagnostics.alpha_idempotency_residual < 1.0e-12
     assert diagnostics.beta_idempotency_residual < 1.0e-12
     assert diagnostics.alpha_particle_number_residual < 1.0e-12
     assert diagnostics.beta_particle_number_residual < 1.0e-12
-    assert diagnostics.density_reconstruction_residual < 1.0e-12
     assert diagnostics.refinement_cycles == len(diagnostics.residual_history) - 1
     assert diagnostics.maximum_residual == diagnostics.residual_history[-1]

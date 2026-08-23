@@ -78,8 +78,7 @@ def test_rks_adjoint_matches_independent_dense_grid_transpose_oracle(
     assert diagnostics.maximum_solver_residual < 1.0e-9
     assert diagnostics.maximum_transpose_residual < 1.0e-9
     assert diagnostics.maximum_physical_residual < 1.0e-9
-    assert diagnostics.operator_minimum_eigenvalue > 0.43
-    assert diagnostics.operator_condition_number < 44.0
+    assert diagnostics.operator_is_self_adjoint is True
     assert diagnostics.functional_components == ((1, 1.0), (7, 1.0))
     assert diagnostics.grid_point_count == 3000
 

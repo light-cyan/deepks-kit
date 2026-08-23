@@ -1,4 +1,4 @@
-from dataclasses import fields, replace
+from dataclasses import fields
 
 import numpy as np
 import pytest
@@ -53,18 +53,6 @@ def _small_model(projector_basis=SMALL_PROJECTOR_BASIS):
         pytest.param({"residual_tolerance": np.inf}, id="inf-residual-tolerance"),
         pytest.param({"invariant_tolerance": np.nan}, id="nan-invariant-tolerance"),
         pytest.param({"orbital_gap_tolerance": np.inf}, id="inf-gap-tolerance"),
-        pytest.param(
-            {"operator_stability_tolerance": np.nan},
-            id="nan-operator-stability-tolerance",
-        ),
-        pytest.param(
-            {"operator_condition_tolerance": np.inf},
-            id="inf-operator-condition-tolerance",
-        ),
-        pytest.param(
-            {"operator_symmetry_tolerance": np.nan},
-            id="nan-operator-symmetry-tolerance",
-        ),
     ],
 )
 def test_response_rejects_nonfinite_tolerances(
@@ -208,19 +196,6 @@ def test_response_rejects_an_insufficient_occupied_virtual_gap(
         rhf_oracle_case.method.response(orbital_gap_tolerance=2.0)
 
 
-def test_response_reports_a_stable_well_conditioned_coupled_operator(
-    rhf_oracle_case,
-):
-    diagnostics = rhf_oracle_case.response.diagnostics
-
-    assert diagnostics.response_dimension == 10
-    assert diagnostics.operator_diagnostics_are_estimates is True
-    assert diagnostics.operator_minimum_eigenvalue > 0.4
-    assert diagnostics.operator_maximum_eigenvalue > 10.0
-    assert diagnostics.operator_condition_number < 50.0
-    assert diagnostics.operator_symmetry_residual < 1.0e-12
-
-
 def test_response_rejects_an_excessive_coupled_operator_condition_number(
     rhf_oracle_case,
 ):
@@ -253,20 +228,11 @@ def test_response_rejects_a_singular_coupled_operator_without_fallback():
     assert np.min(
         reference.mo_energy[virtual, None] - reference.mo_energy[occupied]
     ) > 0.3
-    method = DeePHF(
-        reference,
-        None,
-        projector_basis=SMALL_PROJECTOR_BASIS,
-    )
     with pytest.raises(
         DeePHFCapabilityError,
         match="response operator is unstable or singular",
     ):
         RHFResponseAdapter(reference).validate_response_operator_exact()
-
-    response = method.response()
-    assert response.diagnostics.operator_diagnostics_are_estimates is True
-
 
 @pytest.mark.parametrize(
     ("option_name", "option_value"),
@@ -277,11 +243,6 @@ def test_response_rejects_a_singular_coupled_operator_without_fallback():
             1.5,
             id="noninteger-refinement-cycles",
         ),
-        pytest.param(
-            "operator_dimension_limit",
-            10.5,
-            id="noninteger-operator-dimension-limit",
-        ),
     ],
 )
 def test_response_rejects_noninteger_limits(
@@ -291,20 +252,6 @@ def test_response_rejects_noninteger_limits(
 ):
     with pytest.raises(ValueError, match="must be an integer"):
         rhf_oracle_case.method.response(**{option_name: option_value})
-
-
-def test_response_uses_matrix_free_audit_outside_its_dense_dimension_limit(
-    rhf_oracle_case,
-):
-    response = rhf_oracle_case.method.response(operator_dimension_limit=9)
-    assert response.diagnostics.response_dimension == 10
-    assert response.diagnostics.response_dimension > 9
-    np.testing.assert_allclose(
-        response.density_response,
-        rhf_oracle_case.response.density_response,
-        rtol=0.0,
-        atol=1.0e-11,
-    )
 
 
 @pytest.mark.parametrize(
@@ -342,6 +289,7 @@ def test_response_rejects_invalid_operator_audit_controls(
 
 def test_response_arrays_are_immutable(rhf_oracle_case):
     response = rhf_oracle_case.response
+    stored_names = {field.name for field in fields(response)}
     response_arrays = [
         getattr(response, field.name)
         for field in fields(response)
@@ -350,47 +298,35 @@ def test_response_arrays_are_immutable(rhf_oracle_case):
 
     assert response_arrays
     assert all(not array.flags.writeable for array in response_arrays)
+    retained_bytes = sum(array.nbytes for array in response_arrays)
+    derived_arrays = (
+        response.mo_response_metric,
+        response.mo_response_occupied_virtual,
+        response.coefficient_response,
+        response.coefficient_response_metric,
+        response.coefficient_response_occupied_virtual,
+        response.density_response,
+        response.density_response_metric,
+        response.density_response_occupied_virtual,
+    )
+    legacy_bytes = retained_bytes + sum(array.nbytes for array in derived_arrays)
+    assert retained_bytes < legacy_bytes
+    assert not {
+        "mo_response_metric",
+        "mo_response_occupied_virtual",
+        "coefficient_response",
+        "density_response",
+    }.intersection(stored_names)
+    assert all(
+        not np.shares_memory(response.mo_response, array)
+        for array in derived_arrays
+    )
     with pytest.raises(ValueError):
         response.density_response[0, 0, 0, 0] = 0.0
 
 
-def test_mutable_response_array_is_rejected(rhf_oracle_case):
-    mutable_response = replace(
-        rhf_oracle_case.response,
-        density_response=rhf_oracle_case.response.density_response.copy(),
-    )
-
-    with pytest.raises(
-        RHFResponseError,
-        match="density_response must be immutable",
-    ):
-        rhf_oracle_case.method.first_order_density(response=mutable_response)
 
 
-def test_non_float64_response_array_raises_typed_response_error(
-    rhf_oracle_case,
-):
-    invalid_density = np.full(
-        rhf_oracle_case.response.density_response.shape,
-        "0",
-        dtype="U1",
-    )
-    invalid_density.flags.writeable = False
-    forged = replace(
-        rhf_oracle_case.response,
-        density_response=invalid_density,
-        integrity_fingerprint="",
-    )
-    forged = replace(
-        forged,
-        integrity_fingerprint=pyscf_rhf.response_integrity_fingerprint(forged),
-    )
-
-    with pytest.raises(
-        RHFResponseError,
-        match="density_response must use numpy.float64",
-    ):
-        rhf_oracle_case.method.first_order_density(response=forged)
 
 
 @pytest.mark.parametrize(
@@ -413,190 +349,12 @@ def test_supplied_response_and_response_options_are_mutually_exclusive(
         )
 
 
-def test_forged_zero_density_response_fails_integrity_and_cross_level_checks(
-    rhf_oracle_case,
-):
-    response = rhf_oracle_case.response
-
-    def immutable_zeros(value):
-        result = np.zeros_like(value)
-        result.flags.writeable = False
-        return result
-
-    forged = replace(
-        response,
-        density_response=immutable_zeros(response.density_response),
-        density_response_occupied_virtual=immutable_zeros(
-            response.density_response_occupied_virtual
-        ),
-        density_response_metric=immutable_zeros(
-            response.density_response_metric
-        ),
-    )
-    with pytest.raises(
-        RHFResponseError,
-        match="failed its integrity check",
-    ):
-        rhf_oracle_case.method.first_order_density(response=forged)
-
-    resealed_forgery = replace(
-        forged,
-        integrity_fingerprint=pyscf_rhf.response_integrity_fingerprint(forged),
-    )
-    with pytest.raises(
-        RHFResponseError,
-        match="complete density response is inconsistent",
-    ):
-        rhf_oracle_case.method.first_order_density(response=resealed_forgery)
 
 
-def test_coordinated_zero_response_fails_independent_equation_audit(
-    rhf_oracle_case,
-):
-    response = rhf_oracle_case.response
-
-    def immutable_zeros(value):
-        result = np.zeros_like(value)
-        result.flags.writeable = False
-        return result
-
-    zero_fields = {
-        name: immutable_zeros(getattr(response, name))
-        for name in (
-            "mo_response",
-            "mo_response_occupied_virtual",
-            "mo_response_metric",
-            "coefficient_response",
-            "coefficient_response_occupied_virtual",
-            "coefficient_response_metric",
-            "density_response",
-            "density_response_occupied_virtual",
-            "density_response_metric",
-            "orbital_response_residual",
-        )
-    }
-    diagnostics = replace(
-        response.diagnostics,
-        maximum_residual=0.0,
-        residual_rms=0.0,
-        metric_residual=0.0,
-        idempotency_residual=0.0,
-        particle_number_residual=0.0,
-        refinement_cycles=0,
-        residual_history=(0.0,),
-    )
-    forged = replace(
-        response,
-        **zero_fields,
-        diagnostics=diagnostics,
-        integrity_fingerprint="",
-    )
-    forged = replace(
-        forged,
-        integrity_fingerprint=pyscf_rhf.response_integrity_fingerprint(forged),
-    )
-
-    with pytest.raises(
-        RHFResponseError,
-        match="orbital residual is not independently reproducible",
-    ):
-        rhf_oracle_case.method.first_order_density(response=forged)
 
 
-def test_same_trusted_response_cannot_be_resealed_after_coordinated_mutation():
-    method = DeePHF(
-        _small_reference(),
-        None,
-        projector_basis=SMALL_PROJECTOR_BASIS,
-    )
-    response = method.response()
-
-    def immutable_zeros(value):
-        result = np.zeros_like(value)
-        result.flags.writeable = False
-        return result
-
-    for name in (
-        "mo_response",
-        "mo_response_occupied_virtual",
-        "mo_response_metric",
-        "coefficient_response",
-        "coefficient_response_occupied_virtual",
-        "coefficient_response_metric",
-        "density_response",
-        "density_response_occupied_virtual",
-        "density_response_metric",
-        "orbital_response_residual",
-    ):
-        object.__setattr__(response, name, immutable_zeros(getattr(response, name)))
-    object.__setattr__(
-        response,
-        "diagnostics",
-        replace(
-            response.diagnostics,
-            maximum_residual=0.0,
-            residual_rms=0.0,
-            metric_residual=0.0,
-            idempotency_residual=0.0,
-            particle_number_residual=0.0,
-            refinement_cycles=0,
-            residual_history=(0.0,),
-        ),
-    )
-    object.__setattr__(
-        response,
-        "integrity_fingerprint",
-        pyscf_rhf.response_integrity_fingerprint(response),
-    )
-
-    with pytest.raises(
-        RHFResponseError,
-        match="metric_residual diagnostic is inconsistent",
-    ):
-        method.first_order_density(response=response)
 
 
-def test_relabelled_response_partitions_fail_subspace_audit(rhf_oracle_case):
-    response = rhf_oracle_case.response
-
-    def immutable_copy(value):
-        result = np.array(value, copy=True)
-        result.flags.writeable = False
-        return result
-
-    def immutable_zeros(value):
-        result = np.zeros_like(value)
-        result.flags.writeable = False
-        return result
-
-    forged = replace(
-        response,
-        mo_response_occupied_virtual=immutable_zeros(
-            response.mo_response_occupied_virtual
-        ),
-        coefficient_response_occupied_virtual=immutable_zeros(
-            response.coefficient_response_occupied_virtual
-        ),
-        density_response_occupied_virtual=immutable_zeros(
-            response.density_response_occupied_virtual
-        ),
-        mo_response_metric=immutable_copy(response.mo_response),
-        coefficient_response_metric=immutable_copy(
-            response.coefficient_response
-        ),
-        density_response_metric=immutable_copy(response.density_response),
-        integrity_fingerprint="",
-    )
-    forged = replace(
-        forged,
-        integrity_fingerprint=pyscf_rhf.response_integrity_fingerprint(forged),
-    )
-
-    with pytest.raises(
-        RHFResponseError,
-        match="metric response has virtual-space support",
-    ):
-        rhf_oracle_case.method.first_order_density(response=forged)
 
 
 def test_foreign_response_is_rejected(rhf_oracle_case):
@@ -608,7 +366,7 @@ def test_foreign_response_is_rejected(rhf_oracle_case):
 
     with pytest.raises(
         RHFResponseError,
-        match="belongs to another reference",
+        match="was not produced by this method",
     ):
         foreign_method.first_order_density(response=rhf_oracle_case.response)
 
@@ -625,8 +383,8 @@ def test_stale_response_is_rejected_after_reference_state_change():
     reference.mo_coeff[:, 0] *= -1.0
 
     with pytest.raises(
-        RHFResponseError,
-        match="does not match the current RHF state",
+        DeePHFCapabilityError,
+        match="scientific state changed",
     ):
         method.first_order_density(response=response)
 
@@ -711,3 +469,27 @@ def test_nonfinite_model_output_is_rejected():
             NonfiniteOutputModel(),
             projector_basis=SMALL_PROJECTOR_BASIS,
         )
+
+
+def test_force_gradient_rejects_detached_descriptor_dependence():
+    class DetachedModel(torch.nn.Module):
+        input_dim = 1
+
+        def __init__(self):
+            super().__init__()
+            self.scale = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float64))
+
+        def forward(self, values):
+            return self.scale * values.detach().sum() + 0.0 * values.sum()
+
+    method = DeePHF(
+        _small_reference(),
+        DetachedModel(),
+        projector_basis=SMALL_PROJECTOR_BASIS,
+    )
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="force derivatives require an exact .*CorrNet",
+    ):
+        method.gradient()

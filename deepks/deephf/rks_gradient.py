@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from .capabilities import science_state_transaction
 from .gradient import _validate_atom_indices
 from .pyscf_rks import (
     RKSNativeGradient,
@@ -139,16 +140,23 @@ class RKSDeePHFGradients:
         return native
 
     def _kernel(self) -> dict:
-        descriptor_diagnostics = self.base.validate_force_compatibility()
-        response_result = self.base.response(**self.response_options)
+        descriptor_diagnostics, sensitivity = self.base._force_inputs()
+        response_result = self.base._solve_response(self.response_options)
         self.base._validate_science_state("RKS native gradient evaluation")
         native_gradient_result = self._validated_native_gradient()
         self.base._validate_science_state("RKS native gradient evaluation")
         dq_explicit = self.base.dq_dR_explicit()
-        dq_response = self.base.dq_dR_response(response=response_result)
+        dq_dP = self.base.dq_dP()
+        dq_response = np.einsum(
+            "apij,bxij->bxap",
+            dq_dP,
+            response_result.density_response,
+        )
         dq_relaxed = dq_explicit + dq_response
-        sensitivity = self.base.correction_sensitivity()
-        objective_ao_potential = self.base._correction_ao_potential(sensitivity)
+        objective_ao_potential = self.base._correction_ao_potential(
+            sensitivity,
+            dq_dP,
+        )
         correction_explicit = np.einsum(
             "bxap,ap->bx",
             dq_explicit,
@@ -232,6 +240,7 @@ class RKSDeePHFGradients:
             "de_full": de_full,
         }
 
+    @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR for all or selected atoms."""
         self._reset_results()

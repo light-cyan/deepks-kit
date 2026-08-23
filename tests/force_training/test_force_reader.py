@@ -41,9 +41,8 @@ def test_reader_exposes_only_canonical_relaxed_force_training_fields(tmp_path):
         "descriptor",
         "force",
         "dq_dR_relaxed",
-        "force_contract_fingerprint",
-        "force_sample_fingerprint",
     }
+    assert sample.force_contracts == (reader.force_contract,)
     torch.testing.assert_close(sample["energy"], torch.from_numpy(arrays["e_corr_target"]))
     torch.testing.assert_close(sample["descriptor"], torch.from_numpy(arrays["descriptor"]))
     torch.testing.assert_close(sample["force"], torch.from_numpy(arrays["f_corr_target"]))
@@ -51,22 +50,9 @@ def test_reader_exposes_only_canonical_relaxed_force_training_fields(tmp_path):
         sample["dq_dR_relaxed"],
         torch.from_numpy(arrays["dq_dR_relaxed"]),
     )
-    expected_marker = torch.tensor(
-        list(bytes.fromhex(contract.compatibility_fingerprint)),
-        dtype=torch.uint8,
-    ).expand(arrays["descriptor"].shape[0], -1)
-    torch.testing.assert_close(sample["force_contract_fingerprint"], expected_marker)
-    expected_sample_marker = torch.tensor(
-        [
-            list(bytes.fromhex(frame["sample_id"]))
-            for frame in contract.manifest["frames"]
-        ],
-        dtype=torch.uint8,
-    )
-    torch.testing.assert_close(
-        sample["force_sample_fingerprint"],
-        expected_sample_marker,
-    )
+    assert reader._force_arrays is None
+    assert np.shares_memory(reader.data_energy, sample["energy"].numpy())
+    assert np.shares_memory(reader.data_descriptor, sample["descriptor"].numpy())
 
 
 def test_reader_rejects_explicit_aliases_and_missing_strict_manifest(tmp_path):

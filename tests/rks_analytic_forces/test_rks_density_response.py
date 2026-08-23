@@ -145,26 +145,6 @@ def test_independent_cpks_operator_contains_coulomb_and_fxc(
         diagnostics.quadrature_electron_count
         - rks_oracle_case.reference.mol.nelectron
     ) < 1.0e-3
-    np.testing.assert_allclose(
-        diagnostics.operator_minimum_eigenvalue,
-        eigenvalues[0],
-        rtol=1.0e-11,
-        atol=1.0e-12,
-    )
-    np.testing.assert_allclose(
-        diagnostics.operator_maximum_eigenvalue,
-        eigenvalues[-1],
-        rtol=1.0e-11,
-        atol=1.0e-12,
-    )
-    np.testing.assert_allclose(
-        diagnostics.operator_condition_number,
-        np.linalg.cond(operator),
-        rtol=1.0e-11,
-        atol=1.0e-12,
-    )
-
-
 def test_xc_nuclear_hamiltonian_contains_every_grid_motion_term(
     rks_oracle_case,
 ):

@@ -23,9 +23,12 @@ from .adjoint import (
     AdjointError,
     scalar_operator_fingerprint,
     solve_scalar_adjoint,
-    symmetric_operator_telemetry,
 )
-from .capabilities import DeePHFCapabilityError
+from .capabilities import (
+    DeePHFCapabilityError,
+    reference_is_transaction_validated,
+    transaction_reference_fingerprint,
+)
 
 
 SUPPORTED_PYSCF_SERIES = (2, 14)
@@ -49,6 +52,8 @@ def validate_reference(reference):
         raise DeePHFCapabilityError(
             "DeePHF requires an undecorated native pyscf.scf.hf.RHF reference"
         )
+    if reference_is_transaction_validated(reference):
+        return reference
     if not reference.converged:
         raise DeePHFCapabilityError("the RHF reference must be converged")
     mol = reference.mol
@@ -353,15 +358,7 @@ class RHFResponseDiagnostics:
     max_refinement_cycles: int
     level_shift: float
     response_dimension: int
-    operator_stability_tolerance: float
-    operator_condition_tolerance: float
-    operator_symmetry_tolerance: float
-    operator_dimension_limit: int
-    operator_diagnostics_are_estimates: bool
-    operator_minimum_eigenvalue: float
-    operator_maximum_eigenvalue: float
-    operator_condition_number: float
-    operator_symmetry_residual: float
+    operator_is_self_adjoint: bool
     metric_residual: float
     idempotency_residual: float
     particle_number_residual: float
@@ -371,25 +368,77 @@ class RHFResponseDiagnostics:
 
 @dataclass(frozen=True)
 class RHFResponse:
-    """First-order RHF state for the recorded nuclear coordinates."""
+    """Own one canonical MO response; derived properties allocate without caching."""
 
     reference_identity: int
     state_fingerprint: str
     integrity_fingerprint: str
     atom_indices: tuple[int, ...]
     mo_response: np.ndarray
-    mo_response_occupied_virtual: np.ndarray
-    mo_response_metric: np.ndarray
-    coefficient_response: np.ndarray
-    coefficient_response_occupied_virtual: np.ndarray
-    coefficient_response_metric: np.ndarray
-    density_response: np.ndarray
-    density_response_occupied_virtual: np.ndarray
-    density_response_metric: np.ndarray
+    _mo_coefficients: np.ndarray
+    _mo_occupations: np.ndarray
     overlap_derivative: np.ndarray
     hamiltonian_derivative: np.ndarray
     orbital_response_residual: np.ndarray
     diagnostics: RHFResponseDiagnostics
+
+    def _mo_partition(self, occupied_virtual: bool) -> np.ndarray:
+        occupied = self._mo_occupations > 0
+        selected = ~occupied if occupied_virtual else occupied
+        result = np.zeros_like(self.mo_response)
+        result[..., selected, :] = self.mo_response[..., selected, :]
+        return _immutable_array(result)
+
+    def _coefficient_response(self, mo_response: np.ndarray) -> np.ndarray:
+        return _immutable_array(
+            np.einsum("mp,...pi->...mi", self._mo_coefficients, mo_response)
+        )
+
+    def _density_response(self, mo_response: np.ndarray) -> np.ndarray:
+        occupied = self._mo_occupations > 0
+        occupied_coefficients = self._mo_coefficients[:, occupied]
+        coefficient_response = np.einsum(
+            "mp,...pi->...mi", self._mo_coefficients, mo_response
+        )
+        density = np.einsum(
+            "...pi,qi,i->...pq",
+            coefficient_response,
+            occupied_coefficients,
+            self._mo_occupations[occupied],
+        )
+        return _immutable_array(density + density.swapaxes(-1, -2))
+
+    @property
+    def mo_response_occupied_virtual(self) -> np.ndarray:
+        return self._mo_partition(True)
+
+    @property
+    def mo_response_metric(self) -> np.ndarray:
+        return self._mo_partition(False)
+
+    @property
+    def coefficient_response(self) -> np.ndarray:
+        return self._coefficient_response(self.mo_response)
+
+    @property
+    def coefficient_response_occupied_virtual(self) -> np.ndarray:
+        return self._coefficient_response(self.mo_response_occupied_virtual)
+
+    @property
+    def coefficient_response_metric(self) -> np.ndarray:
+        return self._coefficient_response(self.mo_response_metric)
+
+    @property
+    def density_response(self) -> np.ndarray:
+        return self._density_response(self.mo_response)
+
+    @property
+    def density_response_occupied_virtual(self) -> np.ndarray:
+        return self._density_response(self.mo_response_occupied_virtual)
+
+    @property
+    def density_response_metric(self) -> np.ndarray:
+        return self._density_response(self.mo_response_metric)
 
 
 @dataclass(frozen=True)
@@ -426,15 +475,7 @@ class RHFAdjointDiagnostics:
     residual_tolerance: float
     orbital_gap_tolerance: float
     response_dimension: int
-    operator_stability_tolerance: float
-    operator_condition_tolerance: float
-    operator_symmetry_tolerance: float
-    operator_dimension_limit: int
-    operator_diagnostics_are_estimates: bool
-    operator_minimum_eigenvalue: float
-    operator_maximum_eigenvalue: float
-    operator_condition_number: float
-    operator_symmetry_residual: float
+    operator_is_self_adjoint: bool
     objective_symmetry_tolerance: float
     objective_symmetry_residual: float
     adjoint_density_symmetry_residual: float
@@ -540,6 +581,9 @@ def molecule_science_fingerprint(molecule) -> str:
 
 def reference_fingerprint(reference) -> str:
     """Return a scratch-independent fingerprint of the scientific RHF state."""
+    trusted = transaction_reference_fingerprint(reference)
+    if trusted is not None:
+        return trusted
     digest = hashlib.sha256()
     values = (
         f"{type(reference).__module__}.{type(reference).__qualname__}",
@@ -1401,7 +1445,6 @@ class _RHFLinearResponseCore:
             operator_dimension_limit,
             "operator_dimension_limit",
         )
-        self._operator_diagnostics_cache = None
         tolerance_values = (
             self.cphf_tolerance,
             self.residual_tolerance,
@@ -1665,68 +1708,6 @@ class _RHFLinearResponseCore:
             symmetry_residual,
         )
 
-    def _matrix_free_response_operator_diagnostics(
-        self,
-        coefficient: np.ndarray,
-        energy: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-        virtual: np.ndarray,
-    ) -> tuple[int, float, float, float, float]:
-        """Return non-authoritative fixed-cost occupied-virtual telemetry."""
-        problem = _RHFScalarAdjointProblem(
-            self,
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
-        )
-        try:
-            telemetry = symmetric_operator_telemetry(problem)
-        except AdjointError as error:
-            raise RHFResponseError(
-                f"RHF matrix-free operator telemetry failed: {error}"
-            ) from error
-        symmetry_residual = telemetry.symmetry_residual
-        if symmetry_residual > self.operator_symmetry_tolerance:
-            raise RHFResponseError(
-                "the RHF occupied-virtual response operator violates sampled "
-                f"symmetry: {symmetry_residual:.3e} > "
-                f"{self.operator_symmetry_tolerance:.3e}"
-            )
-        return (
-            telemetry.dimension,
-            telemetry.minimum_ritz_value,
-            telemetry.maximum_ritz_value,
-            telemetry.condition_estimate,
-            symmetry_residual,
-        )
-
-    def _response_operator_diagnostics(
-        self,
-        coefficient: np.ndarray,
-        energy: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-        virtual: np.ndarray,
-    ) -> tuple[int, float, float, float, float]:
-        """Return cached non-authoritative matrix-free operator telemetry."""
-        state_fingerprint = reference_fingerprint(self.reference)
-        if self._operator_diagnostics_cache is not None:
-            cached_fingerprint, cached_diagnostics = self._operator_diagnostics_cache
-            if cached_fingerprint == state_fingerprint:
-                return cached_diagnostics
-        diagnostics = self._matrix_free_response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
-        )
-        self._operator_diagnostics_cache = (state_fingerprint, diagnostics)
-        return diagnostics
-
     def validate_response_operator_exact(self) -> tuple[int, float, float, float, float]:
         """Run an explicit dense stability audit for a bounded debug problem."""
         coefficient, energy, occupation, occupied, virtual, _gap = self._state()
@@ -1832,10 +1813,8 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
     def audit_response_equations(self, response: RHFResponse) -> None:
         """Rebuild derivative inputs, equations, and invariants for a supplied response."""
         validate_reference(self.reference)
-        if response.diagnostics.operator_diagnostics_are_estimates is not True:
-            raise RHFResponseError(
-                "the supplied RHF response operator diagnostics must be estimates"
-            )
+        if response.diagnostics.operator_is_self_adjoint is not True:
+            raise RHFResponseError("the supplied RHF response operator contract is invalid")
         if response.diagnostics.pyscf_version != pyscf.__version__:
             raise RHFResponseError(
                 "the supplied RHF response PySCF version does not match the runtime"
@@ -1848,18 +1827,8 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             virtual,
             minimum_gap,
         ) = self._state()
-        (
-            response_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-        ) = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        response_dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
         atom_indices = self._response_atom_indices(response.atom_indices)
         expected_overlap_derivative = self._overlap_derivative(atom_indices)
@@ -1963,10 +1932,6 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
-            "operator_minimum_eigenvalue": operator_minimum_eigenvalue,
-            "operator_maximum_eigenvalue": operator_maximum_eigenvalue,
-            "operator_condition_number": operator_condition_number,
-            "operator_symmetry_residual": operator_symmetry_residual,
             "maximum_residual": float(np.max(np.abs(residual), initial=0.0)),
             "residual_rms": float(np.sqrt(np.mean(np.square(residual)))),
             "metric_residual": metric_residual,
@@ -2140,18 +2105,8 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             virtual,
             minimum_gap,
         ) = self._state()
-        (
-            response_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-        ) = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        response_dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
         overlap = np.asarray(self.reference.get_ovlp())
         overlap_derivative = self._overlap_derivative(atom_indices)
@@ -2186,21 +2141,6 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         metric_response[..., occupied, :] = mo_response[..., occupied, :]
         occupied_virtual_response = np.zeros_like(mo_response)
         occupied_virtual_response[..., virtual, :] = mo_response[..., virtual, :]
-        coefficient_response = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            mo_response,
-        )
-        coefficient_response_metric = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            metric_response,
-        )
-        coefficient_response_occupied_virtual = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            occupied_virtual_response,
-        )
         density_metric = self._density_from_mo_response(
             metric_response,
             coefficient,
@@ -2252,15 +2192,7 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             max_refinement_cycles=self.max_refinement_cycles,
             level_shift=self.level_shift,
             response_dimension=response_dimension,
-            operator_stability_tolerance=self.operator_stability_tolerance,
-            operator_condition_tolerance=self.operator_condition_tolerance,
-            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
-            operator_dimension_limit=self.operator_dimension_limit,
-            operator_diagnostics_are_estimates=True,
-            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
-            operator_condition_number=operator_condition_number,
-            operator_symmetry_residual=operator_symmetry_residual,
+            operator_is_self_adjoint=True,
             metric_residual=float(metric_residual),
             idempotency_residual=float(np.max(np.abs(idempotency), initial=0.0)),
             particle_number_residual=float(
@@ -2273,11 +2205,6 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             "mo_response": mo_response,
             "mo_response_occupied_virtual": occupied_virtual_response,
             "mo_response_metric": metric_response,
-            "coefficient_response": coefficient_response,
-            "coefficient_response_occupied_virtual": (
-                coefficient_response_occupied_virtual
-            ),
-            "coefficient_response_metric": coefficient_response_metric,
             "density_response": density_response,
             "density_response_occupied_virtual": density_occupied_virtual,
             "density_response_metric": density_metric,
@@ -2297,10 +2224,6 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             diagnostics.metric_residual,
             diagnostics.idempotency_residual,
             diagnostics.particle_number_residual,
-            diagnostics.operator_minimum_eigenvalue,
-            diagnostics.operator_maximum_eigenvalue,
-            diagnostics.operator_condition_number,
-            diagnostics.operator_symmetry_residual,
             *diagnostics.residual_history,
         )
         if not np.isfinite(diagnostic_values).all():
@@ -2338,22 +2261,8 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             integrity_fingerprint="",
             atom_indices=atom_indices,
             mo_response=_immutable_array(mo_response),
-            mo_response_occupied_virtual=_immutable_array(
-                occupied_virtual_response
-            ),
-            mo_response_metric=_immutable_array(metric_response),
-            coefficient_response=_immutable_array(coefficient_response),
-            coefficient_response_occupied_virtual=(
-                _immutable_array(coefficient_response_occupied_virtual)
-            ),
-            coefficient_response_metric=_immutable_array(
-                coefficient_response_metric
-            ),
-            density_response=_immutable_array(density_response),
-            density_response_occupied_virtual=_immutable_array(
-                density_occupied_virtual
-            ),
-            density_response_metric=_immutable_array(density_metric),
+            _mo_coefficients=_immutable_array(coefficient),
+            _mo_occupations=_immutable_array(occupation),
             overlap_derivative=_immutable_array(overlap_derivative),
             hamiltonian_derivative=_immutable_array(
                 hamiltonian_derivative
@@ -2369,6 +2278,8 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
 
 class _RHFScalarAdjointProblem:
     """Bind the RHF occupied-virtual action to the adjoint protocol."""
+
+    is_self_adjoint = True
 
     def __init__(
         self,
@@ -2478,7 +2389,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             operator_dimension_limit,
             "operator_dimension_limit",
         )
-        self._operator_diagnostics_cache = None
         self.objective_symmetry_tolerance = _adjoint_real_control(
             objective_symmetry_tolerance,
             "objective_symmetry_tolerance",
@@ -2602,14 +2512,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             raise RHFAdjointError(
                 "the supplied RHF adjoint response dimension has an invalid type"
             )
-        if type(diagnostics.operator_dimension_limit) is not int:
-            raise RHFAdjointError(
-                "the supplied RHF adjoint dimension limit has an invalid type"
-            )
-        if diagnostics.operator_diagnostics_are_estimates is not True:
-            raise RHFAdjointError(
-                "the supplied RHF adjoint operator diagnostics must be estimates"
-            )
+        if diagnostics.operator_is_self_adjoint is not True:
+            raise RHFAdjointError("the supplied RHF adjoint operator contract is invalid")
         if (
             type(diagnostics.max_cycle) is not int
             or type(diagnostics.krylov_restart) is not int
@@ -2622,13 +2526,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             diagnostics.minimum_orbital_gap,
             diagnostics.residual_tolerance,
             diagnostics.orbital_gap_tolerance,
-            diagnostics.operator_stability_tolerance,
-            diagnostics.operator_condition_tolerance,
-            diagnostics.operator_symmetry_tolerance,
-            diagnostics.operator_minimum_eigenvalue,
-            diagnostics.operator_maximum_eigenvalue,
-            diagnostics.operator_condition_number,
-            diagnostics.operator_symmetry_residual,
             diagnostics.objective_symmetry_tolerance,
             diagnostics.objective_symmetry_residual,
             diagnostics.adjoint_density_symmetry_residual,
@@ -2652,10 +2549,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         if (
             diagnostics.residual_tolerance <= 0
             or diagnostics.orbital_gap_tolerance <= 0
-            or diagnostics.operator_stability_tolerance <= 0
-            or diagnostics.operator_condition_tolerance <= 1
-            or diagnostics.operator_symmetry_tolerance <= 0
-            or diagnostics.operator_dimension_limit <= 0
             or diagnostics.objective_symmetry_tolerance <= 0
             or diagnostics.response_dimension <= 0
             or diagnostics.max_cycle <= 0
@@ -2668,14 +2561,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         accepted_controls = {
             "residual_tolerance": self.residual_tolerance,
             "orbital_gap_tolerance": self.orbital_gap_tolerance,
-            "operator_stability_tolerance": (
-                self.operator_stability_tolerance
-            ),
-            "operator_condition_tolerance": (
-                self.operator_condition_tolerance
-            ),
-            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
-            "operator_dimension_limit": self.operator_dimension_limit,
             "objective_symmetry_tolerance": (
                 self.objective_symmetry_tolerance
             ),
@@ -2740,10 +2625,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             "bilateral occupied-virtual objective gradient",
         )
         response_dimension = dimension
-        minimum_eigenvalue = diagnostics.operator_minimum_eigenvalue
-        maximum_eigenvalue = diagnostics.operator_maximum_eigenvalue
-        condition_number = diagnostics.operator_condition_number
-        symmetry_residual = diagnostics.operator_symmetry_residual
         problem = _RHFScalarAdjointProblem(
             self,
             coefficient,
@@ -2907,10 +2788,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
-            "operator_minimum_eigenvalue": minimum_eigenvalue,
-            "operator_maximum_eigenvalue": maximum_eigenvalue,
-            "operator_condition_number": condition_number,
-            "operator_symmetry_residual": symmetry_residual,
             "objective_symmetry_residual": float(
                 np.max(
                     np.abs(
@@ -2967,7 +2844,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             maximum_solver_residual > diagnostics.residual_tolerance
             or maximum_physical_residual > diagnostics.residual_tolerance
             or minimum_gap <= diagnostics.orbital_gap_tolerance
-            or symmetry_residual > diagnostics.operator_symmetry_tolerance
             or measured["objective_symmetry_residual"]
             > diagnostics.objective_symmetry_tolerance
             or measured["adjoint_density_symmetry_residual"]
@@ -3010,18 +2886,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             virtual,
             minimum_gap,
         ) = self._state()
-        (
-            response_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-        ) = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        response_dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
         occupied_coefficients = coefficient[:, occupied]
         virtual_coefficients = coefficient[:, virtual]
@@ -3185,15 +3051,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             residual_tolerance=self.residual_tolerance,
             orbital_gap_tolerance=self.orbital_gap_tolerance,
             response_dimension=response_dimension,
-            operator_stability_tolerance=self.operator_stability_tolerance,
-            operator_condition_tolerance=self.operator_condition_tolerance,
-            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
-            operator_dimension_limit=self.operator_dimension_limit,
-            operator_diagnostics_are_estimates=True,
-            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
-            operator_condition_number=operator_condition_number,
-            operator_symmetry_residual=operator_symmetry_residual,
+            operator_is_self_adjoint=True,
             objective_symmetry_tolerance=self.objective_symmetry_tolerance,
             objective_symmetry_residual=objective_symmetry_residual,
             adjoint_density_symmetry_residual=(

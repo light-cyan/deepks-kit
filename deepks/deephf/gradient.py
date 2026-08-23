@@ -5,6 +5,7 @@ import operator
 
 import numpy as np
 
+from .capabilities import science_state_transaction
 from .pyscf_rhf import (
     RHFBlockedResponseSummary,
     RHFResponseAdapter,
@@ -15,13 +16,15 @@ from .pyscf_rhf import (
 
 
 def _validate_atom_indices(mol, atmlst):
-    """Return validated raw-atom indices before any response calculation."""
+    """Return unique raw-atom indices before any coordinate calculation."""
     if atmlst is None:
         return None
     try:
         requested_indices = tuple(atmlst)
     except TypeError as error:
         raise TypeError("gradient atmlst must be an iterable of integers") from error
+    if not requested_indices:
+        raise ValueError("gradient atmlst must not be empty")
     validated_indices = []
     for index in requested_indices:
         if isinstance(index, (bool, np.bool_)):
@@ -32,6 +35,8 @@ def _validate_atom_indices(mol, atmlst):
             raise TypeError("gradient atom indices must be integers") from error
         if atom_index < 0 or atom_index >= mol.natm:
             raise IndexError("gradient atom index is outside the molecule")
+        if atom_index in validated_indices:
+            raise ValueError("gradient atmlst must not contain duplicates")
         validated_indices.append(atom_index)
     return tuple(validated_indices)
 
@@ -106,6 +111,7 @@ class RHFDeePHFGradients:
         block_size,
         objective_ao_potential,
         atom_indices,
+        dq_dP,
     ):
         if isinstance(block_size, (bool, np.bool_)):
             raise TypeError("coordinate_block_size must be an integer")
@@ -121,7 +127,6 @@ class RHFDeePHFGradients:
         }
         options.pop("coordinate_block_size", None)
         adapter = RHFResponseAdapter(self.base.reference, **options)
-        dq_dP = self.base.dq_dP()
         expected_shape = (
             len(atom_indices),
             3,
@@ -206,6 +211,7 @@ class RHFDeePHFGradients:
             occupied_virtual_gradient,
         )
 
+    @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR for all or selected atoms."""
         self._reset_results()
@@ -216,7 +222,7 @@ class RHFDeePHFGradients:
             if atom_indices is None
             else atom_indices
         )
-        self.descriptor_diagnostics = self.base.validate_force_compatibility()
+        self.descriptor_diagnostics, sensitivity = self.base._force_inputs()
         self.reference_gradient = np.asarray(
             self.base.reference.nuc_grad_method().kernel(
                 atmlst=(
@@ -229,9 +235,10 @@ class RHFDeePHFGradients:
         self.dq_dR_explicit = self.base.dq_dR_explicit(
             atom_indices=calculation_atom_indices,
         )
-        sensitivity = self.base.correction_sensitivity()
+        dq_dP = self.base.dq_dP()
         objective_ao_potential = self.base._correction_ao_potential(
-            sensitivity
+            sensitivity,
+            dq_dP,
         )
         coordinate_block_size = self.response_options.get(
             "coordinate_block_size",
@@ -249,7 +256,7 @@ class RHFDeePHFGradients:
             ).solve(atom_indices=calculation_atom_indices)
             self.dq_dR_response = np.einsum(
                 "apij,bxij->bxap",
-                self.base.dq_dP(),
+                dq_dP,
                 self.response_result.density_response,
             )
             self.correction_gradient_metric = np.einsum(
@@ -272,6 +279,7 @@ class RHFDeePHFGradients:
                 coordinate_block_size,
                 objective_ao_potential,
                 calculation_atom_indices,
+                dq_dP,
             )
         self.dq_dR_relaxed = self.dq_dR_explicit + self.dq_dR_response
         self.correction_gradient_explicit = np.einsum(

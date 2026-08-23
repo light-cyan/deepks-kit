@@ -270,6 +270,38 @@ def test_force_sign_and_selected_atom_gradient(uhf_oracle_case):
     )
 
 
+def test_uhf_public_relaxed_derivative_builds_force_inputs_once(
+    uhf_oracle_case,
+    monkeypatch,
+):
+    method = uhf_oracle_case.method
+    original_force_inputs = method._force_inputs
+    original_explicit_component = method._descriptor.dq_dR_explicit_component
+    force_input_calls = 0
+    explicit_component_calls = 0
+
+    def counted_force_inputs(**options):
+        nonlocal force_input_calls
+        force_input_calls += 1
+        return original_force_inputs(**options)
+
+    def counted_explicit_component(*args, **options):
+        nonlocal explicit_component_calls
+        explicit_component_calls += 1
+        return original_explicit_component(*args, **options)
+
+    monkeypatch.setattr(method, "_force_inputs", counted_force_inputs)
+    monkeypatch.setattr(
+        method._descriptor,
+        "dq_dR_explicit_component",
+        counted_explicit_component,
+    )
+
+    assert np.isfinite(method.dq_dR_relaxed()).all()
+    assert force_input_calls == 1
+    assert explicit_component_calls == 2
+
+
 def test_complete_and_spin_correction_gradients_are_translationally_invariant(
     uhf_oracle_case,
 ):

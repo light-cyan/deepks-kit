@@ -14,22 +14,33 @@ FORCE_MODE_DEEPHF_RELAXED = "deephf_relaxed"
 FORCE_DATA_MODES = {FORCE_MODE_NONE, FORCE_MODE_DEEPHF_RELAXED}
 
 
+class ForceBatch(dict):
+    """Reader-owned tensor payload carrying contract identities once per batch."""
+
+    def __init__(self, values, force_contracts=()):
+        super().__init__(values)
+        self.force_contracts = tuple(force_contracts)
+
+
 def concat_batch(tdicts, dim=0):
     keys = tdicts[0].keys()
     assert all(d.keys() == keys for d in tdicts)
-    return {
-        k: torch.cat([d[k] for d in tdicts], dim) 
-        for k in keys
-    }
+    values = {k: torch.cat([d[k] for d in tdicts], dim) for k in keys}
+    contracts = []
+    for batch in tdicts:
+        for contract in getattr(batch, "force_contracts", ()):
+            if not any(contract is existing for existing in contracts):
+                contracts.append(contract)
+    return ForceBatch(values, contracts) if contracts else values
+
 
 def split_batch(tdict, size, dim=0):
-    dsplit = {k: torch.split(v, size, dim) for k,v in tdict.items()}
+    dsplit = {k: torch.split(v, size, dim) for k, v in tdict.items()}
     nsecs = [len(v) for v in dsplit.values()]
     assert all(ns == nsecs[0] for ns in nsecs)
-    return [
-        {k: v[i] for k, v in dsplit.items()}
-        for i in range(nsecs[0])
-    ]
+    batches = [{k: v[i] for k, v in dsplit.items()} for i in range(nsecs[0])]
+    contracts = getattr(tdict, "force_contracts", ())
+    return [ForceBatch(batch, contracts) for batch in batches] if contracts else batches
 
 
 class Reader(object):
@@ -158,31 +169,34 @@ class Reader(object):
             self.atom_info["coordinates"] = atoms[:, :, 1:][converged]
         # load data in torch
         self.tensor_data = {
-            "energy": torch.tensor(self.data_energy),
-            "descriptor": torch.tensor(self.data_descriptor),
+            "energy": torch.from_numpy(self.data_energy),
+            "descriptor": torch.from_numpy(self.data_descriptor),
         }
         if (
             self.reference_orbital_gradient_path is not None
             and self.descriptor_orbital_gradient_jacobian_path is not None
         ):
-            self.tensor_data["reference_orbital_gradient"] = torch.tensor(
-                np.load(self.reference_orbital_gradient_path).reshape(
-                    raw_nframes, -1
-                )[converged]
+            reference_gradient = np.load(self.reference_orbital_gradient_path).reshape(
+                raw_nframes, -1
+            )[converged]
+            descriptor_jacobian = np.load(
+                self.descriptor_orbital_gradient_jacobian_path
+            ).reshape(raw_nframes, self.natm, self.descriptor_size, -1)[converged]
+            self.tensor_data["reference_orbital_gradient"] = torch.from_numpy(
+                reference_gradient
             )
-            self.tensor_data["descriptor_orbital_gradient_jacobian"] = torch.tensor(
-                np.load(self.descriptor_orbital_gradient_jacobian_path).reshape(
-                    raw_nframes, self.natm, self.descriptor_size, -1
-                )[converged]
+            self.tensor_data["descriptor_orbital_gradient_jacobian"] = torch.from_numpy(
+                descriptor_jacobian
             )
             self.orbital_gradient_size = self.tensor_data[
                 "reference_orbital_gradient"
             ].shape[-1]
         if self.coulomb_loss_descriptor_gradient_path is not None:
-            self.tensor_data["coulomb_loss_descriptor_gradient"] = torch.tensor(
-                np.load(self.coulomb_loss_descriptor_gradient_path).reshape(
-                    raw_nframes, self.natm, self.descriptor_size
-                )[converged]
+            coulomb_gradient = np.load(
+                self.coulomb_loss_descriptor_gradient_path
+            ).reshape(raw_nframes, self.natm, self.descriptor_size)[converged]
+            self.tensor_data["coulomb_loss_descriptor_gradient"] = torch.from_numpy(
+                coulomb_gradient
             )
 
     def _prepare_force_data(self):
@@ -206,34 +220,13 @@ class Reader(object):
             "elements": atoms[:, :, 0].round().astype(int),
             "coordinates": atoms[:, :, 1:],
         }
-        fingerprint = getattr(self.force_contract, "fingerprint", None)
-        if fingerprint is None:
-            fingerprint = getattr(
-                self.force_contract,
-                "compatibility_fingerprint",
-                None,
-            )
-        if not isinstance(fingerprint, str) or len(fingerprint) != 64:
-            raise ForceDataError(
-                "force-data compatibility fingerprint must be a SHA-256 hex digest"
-            )
-        marker = np.frombuffer(bytes.fromhex(fingerprint), dtype=np.uint8)
-        marker = np.repeat(marker.reshape(1, 32), self.nframes, axis=0)
-        sample_markers = np.stack(
-            [
-                np.frombuffer(bytes.fromhex(frame["sample_id"]), dtype=np.uint8)
-                for frame in self.force_contract.manifest["frames"]
-            ],
-            axis=0,
-        )
         self.tensor_data = {
-            "energy": torch.from_numpy(energy.copy()),
-            "descriptor": torch.from_numpy(descriptor.copy()),
-            "force": torch.from_numpy(force.copy()),
-            "dq_dR_relaxed": torch.from_numpy(jacobian.copy()),
-            "force_contract_fingerprint": torch.from_numpy(marker.copy()),
-            "force_sample_fingerprint": torch.from_numpy(sample_markers.copy()),
+            "energy": torch.from_numpy(energy),
+            "descriptor": torch.from_numpy(descriptor),
+            "force": torch.from_numpy(force),
+            "dq_dR_relaxed": torch.from_numpy(jacobian),
         }
+        self._force_arrays = None
 
     def sample_train(self):
         if self.batch_size == self.nframes == 1:
@@ -242,9 +235,14 @@ class Reader(object):
             self.idx_queue = np.random.choice(self.nframes, self.nframes, replace=False)
         sample_idx = self.idx_queue[:self.batch_size]
         self.idx_queue = self.idx_queue[self.batch_size:]
-        return {k: v[sample_idx] for k, v in self.tensor_data.items()}
+        values = {k: v[sample_idx] for k, v in self.tensor_data.items()}
+        if self.force_contract is not None:
+            return ForceBatch(values, (self.force_contract,))
+        return values
 
     def sample_all(self):
+        if self.force_contract is not None:
+            return ForceBatch(self.tensor_data, (self.force_contract,))
         return self.tensor_data
 
     def get_train_size(self):
@@ -275,7 +273,6 @@ class Reader(object):
         #     "subtract_elem_const has been done. The method should not be executed twice."
         econst = (self.atom_info["nelem"] @ elem_const).reshape(self.nframes, 1)
         self.data_energy -= econst
-        self.tensor_data["energy"] -= econst
         self.atom_info["elem_const"] = elem_const
     
     def revert_elem_const(self):
@@ -286,7 +283,6 @@ class Reader(object):
         elem_const = self.atom_info.pop("elem_const")
         econst = (self.atom_info["nelem"] @ elem_const).reshape(self.nframes, 1)
         self.data_energy += econst
-        self.tensor_data["energy"] += econst
         
 
 class GroupReader(object) :

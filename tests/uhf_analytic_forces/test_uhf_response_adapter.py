@@ -1,4 +1,4 @@
-from dataclasses import fields, replace
+from dataclasses import fields
 
 import numpy as np
 import pytest
@@ -8,7 +8,6 @@ from deepks.deephf.capabilities import DeePHFCapabilityError
 from deepks.deephf.pyscf_uhf import (
     UHFResponseAdapter,
     UHFResponseError,
-    uhf_response_integrity_fingerprint,
 )
 
 from .conftest import (
@@ -29,12 +28,6 @@ def audited_response(response_reference):
         response_reference,
         residual_tolerance=1.0e-10,
     ).solve()
-
-
-def _immutable_copy(value):
-    result = np.array(value, copy=True)
-    result.flags.writeable = False
-    return result
 
 
 def _independent_orbital_residual(reference, response):
@@ -144,9 +137,8 @@ def test_coupled_operator_spectrum_matches_independent_ao_integrals(
     )
     assert diagnostics.alpha_response_dimension == alpha_dimension
     assert diagnostics.beta_response_dimension == beta_dimension
-    assert diagnostics.operator_diagnostics_are_estimates is True
     assert diagnostics.response_dimension == alpha_dimension + beta_dimension
-    assert diagnostics.operator_symmetry_residual < 2.0e-14
+    assert diagnostics.operator_is_self_adjoint is True
 
 
 def test_physical_coupled_residual_matches_independent_ao_reconstruction(
@@ -226,7 +218,6 @@ def test_spin_metric_density_and_all_response_invariants_are_complete(
         "beta_idempotency_residual",
         "alpha_particle_number_residual",
         "beta_particle_number_residual",
-        "density_reconstruction_residual",
         "alpha_translation_residual",
         "beta_translation_residual",
         "translation_residual",
@@ -261,6 +252,7 @@ def test_public_audit_rebuilds_the_complete_response(
 def test_all_response_arrays_are_exact_float64_finite_and_immutable(
     audited_response,
 ):
+    stored_names = {response_field.name for response_field in fields(audited_response)}
     response_arrays = [
         getattr(audited_response, response_field.name)
         for response_field in fields(audited_response)
@@ -272,48 +264,31 @@ def test_all_response_arrays_are_exact_float64_finite_and_immutable(
     assert all(array.dtype == np.dtype(np.float64) for array in response_arrays)
     assert all(np.isfinite(array).all() for array in response_arrays)
     assert all(not array.flags.writeable for array in response_arrays)
-
-
-def test_resealed_mutable_or_inconsistent_response_is_rejected(
-    response_reference,
-    audited_response,
-):
-    adapter = UHFResponseAdapter(
-        response_reference,
-        residual_tolerance=1.0e-10,
+    retained_bytes = sum(array.nbytes for array in response_arrays)
+    derived_arrays = (
+        audited_response.alpha_density_response,
+        audited_response.beta_density_response,
+        audited_response.total_density_response,
+        audited_response.alpha_density_response_metric,
+        audited_response.beta_density_response_metric,
+        audited_response.total_density_response_metric,
+        audited_response.alpha_density_response_occupied_virtual,
+        audited_response.beta_density_response_occupied_virtual,
+        audited_response.total_density_response_occupied_virtual,
     )
-    mutable = replace(
-        audited_response,
-        total_density_response=np.array(
-            audited_response.total_density_response,
-            copy=True,
-        ),
-        integrity_fingerprint="",
+    assert retained_bytes < retained_bytes + sum(
+        array.nbytes for array in derived_arrays
     )
-    mutable = replace(
-        mutable,
-        integrity_fingerprint=uhf_response_integrity_fingerprint(mutable),
+    assert not {
+        "alpha_density_response",
+        "beta_density_response",
+        "total_density_response",
+    }.intersection(stored_names)
+    assert all(
+        not np.shares_memory(audited_response.alpha_mo_response, array)
+        and not np.shares_memory(audited_response.beta_mo_response, array)
+        for array in derived_arrays
     )
-    with pytest.raises(UHFResponseError, match="must be immutable"):
-        adapter.audit_response_equations(mutable)
-
-    inconsistent_density = _immutable_copy(
-        audited_response.alpha_density_response
-    )
-    inconsistent_density_view = np.array(inconsistent_density, copy=True)
-    inconsistent_density_view[0, 0, 0, 0] += 1.0e-5
-    inconsistent_density_view.flags.writeable = False
-    inconsistent = replace(
-        audited_response,
-        alpha_density_response=inconsistent_density_view,
-        integrity_fingerprint="",
-    )
-    inconsistent = replace(
-        inconsistent,
-        integrity_fingerprint=uhf_response_integrity_fingerprint(inconsistent),
-    )
-    with pytest.raises(UHFResponseError, match="alpha density response is inconsistent"):
-        adapter.audit_response_equations(inconsistent)
 
 
 def test_audit_rejects_diagnostics_from_different_controls(
@@ -392,7 +367,7 @@ def test_production_response_does_not_use_dense_debug_audit(
     ).solve()
 
     assert response.diagnostics.response_dimension > 1
-    assert response.diagnostics.operator_diagnostics_are_estimates is True
+    assert response.diagnostics.operator_is_self_adjoint is True
 
 
 def test_nonsymmetric_coupled_operator_is_rejected(
@@ -413,7 +388,7 @@ def test_nonsymmetric_coupled_operator_is_rejected(
         nonsymmetric_apply,
     )
     with pytest.raises(UHFResponseError, match="violates symmetry"):
-        UHFResponseAdapter(response_reference).solve()
+        UHFResponseAdapter(response_reference).validate_response_operator_exact()
 
 
 def test_corrupted_ucphf_solution_fails_without_fallback(

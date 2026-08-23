@@ -4,6 +4,7 @@ import torch
 
 from deepks.deephf import write_rhf_force_dataset
 from deepks.model.model import CorrNet
+from deepks.model.reader import ForceBatch
 from deepks.model.train import (
     Evaluator,
     ForceTrainingError,
@@ -13,11 +14,33 @@ from deepks.model.train import (
     train,
 )
 
-from conftest import ORACLE_PROJECTOR_BASIS
 from force_contract_helpers import write_force_contract_sample
 
 
+ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
 TEST_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [0, [0.3, 1.0]]]
+
+
+@pytest.mark.parametrize(
+    ("options", "error", "message"),
+    [
+        ({"display_epoch": 0}, ValueError, "display_epoch must be positive"),
+        ({"n_epoch": True}, TypeError, "n_epoch must be an integer"),
+        ({"start_lr": np.nan}, ValueError, "start_lr must be finite"),
+        (
+            {"n_epoch": 1, "decay_steps": 100, "stop_lr": 1.0e-5},
+            ValueError,
+            "stop_lr requires at least one scheduled decay step",
+        ),
+    ],
+)
+def test_training_controls_fail_before_model_mutation(options, error, message):
+    class UnusableModel:
+        def to(self, _device):
+            raise AssertionError("invalid controls reached model mutation")
+
+    with pytest.raises(error, match=message):
+        train(UnusableModel(), object(), **options)
 
 
 def _nonlinear_force_case(directory):
@@ -165,11 +188,12 @@ def test_train_returns_separate_energy_and_force_metrics(tmp_path):
         tmp_path / "strict-sample"
     )
     reader = _SingleFrameReader()
-    reader.sample = {
-        name: value[:1].clone()
-        for name, value in two_frame_sample.items()
-    }
+    reader.sample = ForceBatch(
+        {name: value[:1].clone() for name, value in two_frame_sample.items()},
+        (contract,),
+    )
     reader.force_contract = contract
+    reader.force_contracts = (contract,)
 
     result = train(
         model,
@@ -198,11 +222,12 @@ def test_public_train_rejects_strict_reader_in_energy_only_mode(tmp_path):
         tmp_path / "strict-sample"
     )
     reader = _SingleFrameReader()
-    reader.sample = {
-        name: value[:1].clone()
-        for name, value in two_frame_sample.items()
-    }
+    reader.sample = ForceBatch(
+        {name: value[:1].clone() for name, value in two_frame_sample.items()},
+        (contract,),
+    )
     reader.force_contract = contract
+    reader.force_contracts = (contract,)
 
     with pytest.raises(ForceTrainingError, match="energy-only path"):
         train(

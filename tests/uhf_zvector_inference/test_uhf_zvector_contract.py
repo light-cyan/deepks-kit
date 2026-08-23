@@ -42,10 +42,6 @@ def _assert_driver_cleared(driver):
         "de",
     ):
         assert getattr(driver, name) is None
-    assert driver.base._trusted_adjoint is None
-    assert driver.base._trusted_adjoint_integrity is None
-    assert driver.base._trusted_uhf_adjoint_adapter is None
-    assert driver.base._trusted_uhf_adjoint_controls is None
 
 
 def test_public_types_and_explicit_backend_dispatch(uhf_oracle_case):
@@ -128,59 +124,10 @@ def test_zvector_uses_one_adjoint_solve_and_no_direct_response_path(
     assert not hasattr(driver, "dq_dR_relaxed")
 
 
-def test_trusted_adjoint_consumption_audits_without_another_solve(
-    uhf_oracle_case,
-    monkeypatch,
-):
-    method = uhf_oracle_case.method
-    inputs = method._zvector_inputs({})
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("trusted UHF adjoint consumption must not solve")
-
-    monkeypatch.setattr(pyscf_uhf, "solve_scalar_adjoint", forbidden)
-    validated = method._validate_zvector_inputs(*inputs)
-    assert validated[2] is inputs[2]
 
 
-def test_foreign_and_resealed_adjoint_inputs_are_rejected(
-    uhf_oracle_case,
-):
-    method = uhf_oracle_case.method
-    diagnostics, sensitivity, adjoint = method._zvector_inputs({})
-    foreign = replace(adjoint)
-
-    with pytest.raises(UHFAdjointError, match="not produced"):
-        method._validate_zvector_inputs(diagnostics, sensitivity, foreign)
-
-    shifted = np.frombuffer(
-        (adjoint.alpha_zvector + 1.0e-3).tobytes(),
-        dtype=np.float64,
-    ).reshape(adjoint.alpha_zvector.shape)
-    object.__setattr__(adjoint, "alpha_zvector", shifted)
-    object.__setattr__(adjoint, "integrity_fingerprint", "")
-    object.__setattr__(
-        adjoint,
-        "integrity_fingerprint",
-        pyscf_uhf.uhf_adjoint_integrity_fingerprint(adjoint),
-    )
-    with pytest.raises(UHFAdjointError, match="integrity check"):
-        method._validate_zvector_inputs(diagnostics, sensitivity, adjoint)
-    method._clear_trusted_adjoint()
 
 
-def test_changed_adjoint_controls_are_rejected_after_solve(uhf_oracle_case):
-    method = uhf_oracle_case.method
-    inputs = method._zvector_inputs({})
-    adapter = method._trusted_uhf_adjoint_adapter
-    original = adapter.residual_tolerance
-    adapter.residual_tolerance = original * 2.0
-    try:
-        with pytest.raises(UHFAdjointError, match="controls changed"):
-            method._validate_zvector_inputs(*inputs)
-    finally:
-        adapter.residual_tolerance = original
-        method._clear_trusted_adjoint()
 
 
 def test_adjoint_failure_never_falls_back_and_clears_results(

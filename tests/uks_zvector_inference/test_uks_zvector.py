@@ -127,11 +127,11 @@ def test_uks_production_response_and_adjoint_are_matrix_free(
         "_response_operator_matrix_and_diagnostics",
         forbidden_dense_audit,
     )
-    response = uks_case.method.response(operator_dimension_limit=1)
-    adjoint = uks_case.method.adjoint(operator_dimension_limit=1)
+    response = uks_case.method.response()
+    adjoint = uks_case.method.adjoint()
 
     assert response.diagnostics.response_dimension > 1
-    assert response.diagnostics.operator_diagnostics_are_estimates is True
+    assert response.diagnostics.operator_is_self_adjoint is True
     assert adjoint.diagnostics.iteration_count > 0
 
 

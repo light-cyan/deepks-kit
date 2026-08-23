@@ -6,6 +6,7 @@ import hashlib
 from numbers import Real
 import operator
 from typing import Any
+import weakref
 
 import numpy as np
 import pyscf
@@ -23,9 +24,13 @@ from .adjoint import (
     ScalarAdjointProblem,
     scalar_operator_fingerprint,
     solve_scalar_adjoint,
-    symmetric_operator_telemetry,
 )
-from .capabilities import DeePHFCapabilityError
+from .capabilities import (
+    DeePHFCapabilityError,
+    reference_is_transaction_validated,
+    transaction_reference_fingerprint,
+)
+from .pyscf_rhf import RHFResponse
 
 
 SUPPORTED_PYSCF_SERIES = (2, 14)
@@ -45,6 +50,8 @@ _GRID_WEIGHT_FD_STEP = 1.0e-5
 _GRID_WEIGHT_DERIVATIVE_ATOL = 1.0e-6
 _GRID_WEIGHT_DERIVATIVE_RTOL = 1.0e-7
 _GRID_RESPONSE_WEIGHT_ATOL = 1.0e-180
+_VALIDATED_RKS_REFERENCES = weakref.WeakKeyDictionary()
+_GRID_PROVENANCE_CACHE = weakref.WeakKeyDictionary()
 
 
 class RKSResponseError(RuntimeError):
@@ -120,19 +127,9 @@ class RKSResponseDiagnostics:
     max_refinement_cycles: int
     level_shift: float
     response_dimension: int
-    operator_stability_tolerance: float
-    operator_condition_tolerance: float
-    operator_symmetry_tolerance: float
-    operator_dimension_limit: int
-    operator_diagnostics_are_estimates: bool
-    operator_minimum_eigenvalue: float
-    operator_maximum_eigenvalue: float
-    operator_condition_number: float
-    operator_symmetry_residual: float
-    induced_potential_reconstruction_residual: float
+    operator_is_self_adjoint: bool
     fixed_grid_xc_reconstruction_residual: float
     hamiltonian_reconstruction_residual: float
-    density_reconstruction_residual: float
     metric_residual: float
     idempotency_residual: float
     particle_number_residual: float
@@ -142,30 +139,15 @@ class RKSResponseDiagnostics:
 
 
 @dataclass(frozen=True)
-class RKSResponse:
-    """Complete first-order RKS state for every nuclear coordinate."""
+class RKSResponse(RHFResponse):
+    """RKS response extending the canonical RHF MO representation."""
 
-    reference_identity: int
-    state_fingerprint: str
-    integrity_fingerprint: str
     functional_provenance: RKSFunctionalProvenance
     grid_provenance: RKSGridProvenance
-    mo_response: np.ndarray
-    mo_response_occupied_virtual: np.ndarray
-    mo_response_metric: np.ndarray
-    coefficient_response: np.ndarray
-    coefficient_response_occupied_virtual: np.ndarray
-    coefficient_response_metric: np.ndarray
-    density_response: np.ndarray
-    density_response_occupied_virtual: np.ndarray
-    density_response_metric: np.ndarray
-    overlap_derivative: np.ndarray
-    hamiltonian_derivative: np.ndarray
     hamiltonian_derivative_fixed_grid: np.ndarray
     xc_hamiltonian_derivative_ao_motion: np.ndarray
     xc_hamiltonian_derivative_grid_coordinate: np.ndarray
     xc_hamiltonian_derivative_grid_weight: np.ndarray
-    orbital_response_residual: np.ndarray
     diagnostics: RKSResponseDiagnostics
 
 
@@ -195,16 +177,7 @@ class RKSAdjointDiagnostics:
     invariant_tolerance: float
     orbital_gap_tolerance: float
     response_dimension: int
-    operator_stability_tolerance: float
-    operator_condition_tolerance: float
-    operator_symmetry_tolerance: float
-    operator_dimension_limit: int
-    operator_diagnostics_are_estimates: bool
-    operator_minimum_eigenvalue: float
-    operator_maximum_eigenvalue: float
-    operator_condition_number: float
-    operator_symmetry_residual: float
-    induced_potential_reconstruction_residual: float
+    operator_is_self_adjoint: bool
     fixed_grid_xc_reconstruction_residual: float
     hamiltonian_reconstruction_residual: float
     objective_symmetry_tolerance: float
@@ -730,7 +703,7 @@ def _validated_grid_response_blocks(
     return tuple(blocks)
 
 
-def _grid_provenance(reference) -> RKSGridProvenance:
+def _build_grid_provenance(reference) -> RKSGridProvenance:
     molecule = reference.mol
     grid = reference.grids
     if type(grid) is not gen_grid.Grids or grid.mol is not molecule:
@@ -886,6 +859,31 @@ def _grid_provenance(reference) -> RKSGridProvenance:
     )
 
 
+def _grid_provenance(reference) -> RKSGridProvenance:
+    """Return grid provenance, auditing it once per unchanged DFT state."""
+    trusted_fingerprint = transaction_reference_fingerprint(reference)
+    if trusted_fingerprint is not None:
+        cached = _GRID_PROVENANCE_CACHE.get(reference)
+        if cached is not None and cached[0] == trusted_fingerprint:
+            return cached[1]
+        provenance = _build_grid_provenance(reference)
+        _GRID_PROVENANCE_CACHE[reference] = (
+            trusted_fingerprint,
+            provenance,
+        )
+        return provenance
+    try:
+        fingerprint = _dft_reference_validation_fingerprint(reference)
+    except Exception:
+        return _build_grid_provenance(reference)
+    cached = _GRID_PROVENANCE_CACHE.get(reference)
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
+    provenance = _build_grid_provenance(reference)
+    _GRID_PROVENANCE_CACHE[reference] = (fingerprint, provenance)
+    return provenance
+
+
 def _dense_ground_state_lda_quadrature(
     reference,
     density: np.ndarray,
@@ -935,8 +933,8 @@ def _dense_ground_state_lda_quadrature(
     return electron_count, xc_energy, xc_potential
 
 
-def validate_rks_reference(reference):
-    """Validate the exact native, converged, finite-grid pure-LDA RKS tier."""
+def _audit_rks_reference(reference):
+    """Audit the exact native, converged, finite-grid pure-LDA RKS tier."""
     validate_pyscf_version()
     if type(reference) is not dft.rks.RKS:
         raise DeePHFCapabilityError(
@@ -1043,7 +1041,8 @@ def validate_rks_reference(reference):
             + ", ".join(molecule_hooks)
         )
     functional_provenance = _functional_provenance(reference)
-    grid_provenance = _grid_provenance(reference)
+    grid_provenance = _build_grid_provenance(reference)
+    _GRID_PROVENANCE_CACHE[reference] = (None, grid_provenance)
     if reference.mo_coeff is None or reference.mo_energy is None:
         raise DeePHFCapabilityError("the RKS reference orbital state is incomplete")
     if reference.mo_occ is None:
@@ -1217,6 +1216,92 @@ def validate_rks_reference(reference):
     return reference
 
 
+def _dft_reference_validation_fingerprint(reference) -> str:
+    grid = reference.grids
+    integration = reference._numint
+    decorations = tuple(
+        bool(getattr(reference, name, None))
+        for name in ("with_df", "with_solvent", "with_x2c", "mm_mol", "disp", "penalties")
+    )
+    digest = hashlib.sha256()
+    values = (
+        _qualified_name(type(reference)),
+        bool(reference.converged),
+        rks_molecule_science_fingerprint(reference.mol),
+        float(reference.e_tot),
+        np.asarray(reference.mo_coeff),
+        np.asarray(reference.mo_energy),
+        np.asarray(reference.mo_occ),
+        reference.xc,
+        reference.nlc,
+        float(reference.small_rho_cutoff),
+        decorations,
+        _qualified_name(type(integration)),
+        integration.libxc is libxc,
+        str(getattr(integration.libxc, "__version__", None)),
+        integration.omega,
+        integration.cutoff,
+        reference.xc in getattr(integration.libxc, "_CUSTOM_FUNC_R", ()),
+        tuple(sorted(name for name, value in integration.__dict__.items() if callable(value))),
+        _qualified_name(type(grid)),
+        grid.mol is reference.mol,
+        grid.atom_grid,
+        _qualified_name(grid.radi_method),
+        grid.radi_method is _SUPPORTED_RADI_METHOD,
+        _qualified_name(grid.radii_adjust),
+        grid.radii_adjust is _SUPPORTED_RADII_ADJUST,
+        np.asarray(grid.atomic_radii),
+        _qualified_name(grid.becke_scheme),
+        grid.becke_scheme is _SUPPORTED_BECKE_SCHEME,
+        _qualified_name(rks_grad.grids_response_cc),
+        rks_grad.grids_response_cc is _SUPPORTED_GRIDS_RESPONSE,
+        grid.prune,
+        grid.alignment,
+        grid.symmetry,
+        grid.cutoff,
+        *_grid_arrays(grid),
+        tuple(sorted(name for name, value in reference.__dict__.items() if callable(value))),
+        tuple(sorted(name for name, value in reference.mol.__dict__.items() if callable(value))),
+        tuple(sorted(name for name, value in grid.__dict__.items() if callable(value))),
+    )
+    for value in values:
+        _update_fingerprint_value(digest, value)
+    return digest.hexdigest()
+
+
+def validate_rks_reference(reference):
+    """Validate an RKS reference once per unchanged scientific state."""
+    if reference_is_transaction_validated(reference):
+        return reference
+    if type(reference) is not dft.rks.RKS:
+        return _audit_rks_reference(reference)
+    try:
+        fingerprint = _dft_reference_validation_fingerprint(reference)
+    except Exception:
+        return _audit_rks_reference(reference)
+    if _VALIDATED_RKS_REFERENCES.get(reference) == fingerprint:
+        return reference
+    _audit_rks_reference(reference)
+    _VALIDATED_RKS_REFERENCES[reference] = fingerprint
+    _GRID_PROVENANCE_CACHE[reference] = (
+        fingerprint,
+        _GRID_PROVENANCE_CACHE[reference][1],
+    )
+    return reference
+
+
+def audit_rks_reference(reference):
+    """Run all expensive finite-grid and independent-quadrature checks."""
+    result = _audit_rks_reference(reference)
+    fingerprint = _dft_reference_validation_fingerprint(reference)
+    _VALIDATED_RKS_REFERENCES[reference] = fingerprint
+    _GRID_PROVENANCE_CACHE[reference] = (
+        fingerprint,
+        _GRID_PROVENANCE_CACHE[reference][1],
+    )
+    return result
+
+
 def rks_molecule_science_fingerprint(molecule) -> str:
     """Fingerprint stable molecular geometry and AO data."""
     if type(molecule) is not gto_mole.Mole:
@@ -1258,25 +1343,10 @@ def rks_molecule_science_fingerprint(molecule) -> str:
 
 def rks_reference_fingerprint(reference) -> str:
     """Return a scratch-independent fingerprint of the scientific RKS state."""
-    functional = _functional_provenance(reference)
-    grid = _grid_provenance(reference)
-    digest = hashlib.sha256()
-    values = (
-        _qualified_name(type(reference)),
-        bool(reference.converged),
-        rks_molecule_science_fingerprint(reference.mol),
-        float(reference.e_tot),
-        np.asarray(reference.mo_coeff),
-        np.asarray(reference.mo_energy),
-        np.asarray(reference.mo_occ),
-        np.asarray(reference.make_rdm1()),
-        functional,
-        grid,
-        float(reference.small_rho_cutoff),
-    )
-    for value in values:
-        _update_fingerprint_value(digest, value)
-    return digest.hexdigest()
+    trusted = transaction_reference_fingerprint(reference)
+    if trusted is not None:
+        return trusted
+    return _dft_reference_validation_fingerprint(reference)
 
 
 def rks_response_integrity_fingerprint(response: RKSResponse) -> str:
@@ -1305,6 +1375,8 @@ def rks_adjoint_integrity_fingerprint(adjoint: RKSAdjoint) -> str:
 
 class _RKSLinearResponseProblem:
     """Bind one action-only RKS operator to the reference-neutral protocol."""
+
+    is_self_adjoint = True
 
     def __init__(self, adapter: "_RKSLinearResponseCore"):
         self._adapter = adapter
@@ -2030,88 +2102,6 @@ class _RKSLinearResponseCore:
             reconstruction_residual,
         )
 
-    def _matrix_free_response_operator_diagnostics(
-        self,
-        coefficient: np.ndarray,
-        energy: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-        virtual: np.ndarray,
-    ) -> tuple[int, float, float, float, float, float]:
-        """Return fixed-cost spectral and XC reconstruction telemetry."""
-        problem = _RKSLinearResponseProblem(self)
-        try:
-            telemetry = symmetric_operator_telemetry(problem)
-        except AdjointError as error:
-            raise RKSResponseError(
-                f"RKS matrix-free operator telemetry failed: {error}"
-            ) from error
-        if telemetry.symmetry_residual > self.operator_symmetry_tolerance:
-            raise RKSResponseError(
-                "the RKS occupied-virtual response operator violates symmetry "
-                f"in sampled actions: {telemetry.symmetry_residual:.3e} > "
-                f"{self.operator_symmetry_tolerance:.3e}"
-            )
-
-        nocc = int(np.count_nonzero(occupied))
-        nvir = int(np.count_nonzero(virtual))
-        indices = np.arange(1, telemetry.dimension + 1, dtype=np.float64)
-        probes = (
-            np.sin(indices) + np.cos(indices * np.sqrt(2.0)),
-            np.sin(indices * np.sqrt(3.0)) - np.cos(indices * np.sqrt(5.0)),
-        )
-        reference_response = self.reference.gen_response(
-            coefficient,
-            occupation,
-            hermi=1,
-        )
-        reconstruction_residual = 0.0
-        for probe in probes:
-            probe /= np.linalg.norm(probe)
-            root = probe.reshape(nvir, nocc)
-            full_root = np.zeros((coefficient.shape[1], nocc), dtype=np.float64)
-            full_root[virtual] = root
-            density_root = self._density_from_mo_response(
-                full_root,
-                coefficient,
-                occupation,
-                occupied,
-            )
-            independent = self._induced_potential(density_root)
-            try:
-                pyscf_response = np.asarray(reference_response(density_root))
-            except Exception as error:
-                raise RKSResponseError(
-                    f"PySCF RKS induced-response probe failed: {error}"
-                ) from error
-            pyscf_response = _validated_float64_array(
-                pyscf_response,
-                density_root.shape,
-                "PySCF induced RKS response probe",
-            )
-            reconstruction_residual = max(
-                reconstruction_residual,
-                float(
-                    np.max(
-                        np.abs(independent - pyscf_response),
-                        initial=0.0,
-                    )
-                ),
-            )
-        if reconstruction_residual > self.invariant_tolerance:
-            raise RKSResponseError(
-                "the sampled direct-J plus dense-LDA response does not match "
-                f"PySCF: residual {reconstruction_residual:.3e}"
-            )
-        return (
-            telemetry.dimension,
-            telemetry.minimum_ritz_value,
-            telemetry.maximum_ritz_value,
-            telemetry.condition_estimate,
-            telemetry.symmetry_residual,
-            reconstruction_residual,
-        )
-
     def validate_response_operator_exact(
         self,
     ) -> tuple[int, float, float, float, float, float]:
@@ -2128,14 +2118,6 @@ class _RKSLinearResponseCore:
     def linear_response_problem(self) -> ScalarAdjointProblem:
         """Return the action-only RKS operator through the neutral protocol."""
         validate_rks_reference(self.reference)
-        coefficient, energy, occupation, occupied, virtual, _gap = self._state()
-        self._matrix_free_response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
-        )
         problem = _RKSLinearResponseProblem(self)
         if not isinstance(problem, ScalarAdjointProblem):
             raise RKSResponseError(
@@ -2308,19 +2290,8 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         functional_provenance = _functional_provenance(self.reference)
         grid_provenance = _grid_provenance(self.reference)
         coefficient, energy, occupation, occupied, virtual, minimum_gap = self._state()
-        (
-            response_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-            induced_potential_reconstruction_residual,
-        ) = self._matrix_free_response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        response_dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
         overlap = np.asarray(self.reference.get_ovlp())
         overlap_derivative = self._overlap_derivative()
@@ -2358,17 +2329,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         metric_response[..., occupied, :] = mo_response[..., occupied, :]
         occupied_virtual_response = np.zeros_like(mo_response)
         occupied_virtual_response[..., virtual, :] = mo_response[..., virtual, :]
-        coefficient_response = np.einsum("mp,...pi->...mi", coefficient, mo_response)
-        coefficient_response_metric = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            metric_response,
-        )
-        coefficient_response_occupied_virtual = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            occupied_virtual_response,
-        )
         density_metric = self._density_from_mo_response(
             metric_response,
             coefficient,
@@ -2382,12 +2342,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             occupied,
         )
         density_response = density_metric + density_occupied_virtual
-        density_reconstruction_residual = float(
-            np.max(
-                np.abs(density_response - density_metric - density_occupied_virtual),
-                initial=0.0,
-            )
-        )
         hamiltonian_reconstruction_residual = float(
             np.max(
                 np.abs(
@@ -2477,23 +2431,11 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             max_refinement_cycles=self.max_refinement_cycles,
             level_shift=self.level_shift,
             response_dimension=response_dimension,
-            operator_stability_tolerance=self.operator_stability_tolerance,
-            operator_condition_tolerance=self.operator_condition_tolerance,
-            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
-            operator_dimension_limit=self.operator_dimension_limit,
-            operator_diagnostics_are_estimates=True,
-            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
-            operator_condition_number=operator_condition_number,
-            operator_symmetry_residual=operator_symmetry_residual,
-            induced_potential_reconstruction_residual=(
-                induced_potential_reconstruction_residual
-            ),
+            operator_is_self_adjoint=True,
             fixed_grid_xc_reconstruction_residual=(
                 fixed_grid_xc_reconstruction_residual
             ),
             hamiltonian_reconstruction_residual=hamiltonian_reconstruction_residual,
-            density_reconstruction_residual=density_reconstruction_residual,
             metric_residual=metric_residual,
             idempotency_residual=float(np.max(np.abs(idempotency), initial=0.0)),
             particle_number_residual=float(
@@ -2507,9 +2449,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "mo_response": mo_response,
             "mo_response_occupied_virtual": occupied_virtual_response,
             "mo_response_metric": metric_response,
-            "coefficient_response": coefficient_response,
-            "coefficient_response_occupied_virtual": coefficient_response_occupied_virtual,
-            "coefficient_response_metric": coefficient_response_metric,
             "density_response": density_response,
             "density_response_occupied_virtual": density_occupied_virtual,
             "density_response_metric": density_metric,
@@ -2538,10 +2477,8 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 f"refinement history: {history}"
             )
         invariant_failures = {
-            "induced potential": diagnostics.induced_potential_reconstruction_residual,
             "fixed-grid XC": diagnostics.fixed_grid_xc_reconstruction_residual,
             "Hamiltonian reconstruction": diagnostics.hamiltonian_reconstruction_residual,
-            "density reconstruction": diagnostics.density_reconstruction_residual,
             "metric": diagnostics.metric_residual,
             "idempotency": diagnostics.idempotency_residual,
             "particle number": diagnostics.particle_number_residual,
@@ -2567,9 +2504,23 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             reference_identity=id(self.reference),
             state_fingerprint=initial_fingerprint,
             integrity_fingerprint="",
+            atom_indices=tuple(range(self.molecule.natm)),
+            mo_response=_immutable_array(mo_response),
+            _mo_coefficients=_immutable_array(coefficient),
+            _mo_occupations=_immutable_array(occupation),
+            overlap_derivative=_immutable_array(overlap_derivative),
+            hamiltonian_derivative=_immutable_array(hamiltonian_derivative),
+            orbital_response_residual=_immutable_array(residual),
             functional_provenance=functional_provenance,
             grid_provenance=grid_provenance,
-            **{name: _immutable_array(value) for name, value in arrays.items()},
+            hamiltonian_derivative_fixed_grid=_immutable_array(
+                hamiltonian_derivative_fixed_grid
+            ),
+            xc_hamiltonian_derivative_ao_motion=_immutable_array(xc_ao_motion),
+            xc_hamiltonian_derivative_grid_coordinate=_immutable_array(
+                xc_grid_coordinate
+            ),
+            xc_hamiltonian_derivative_grid_weight=_immutable_array(xc_grid_weight),
             diagnostics=diagnostics,
         )
         return replace(
@@ -2761,16 +2712,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 raise RKSResponseError(
                     f"the supplied RKS response {name} does not follow from its MO response"
                 )
-        density_reconstruction_residual = float(
-            np.max(
-                np.abs(
-                    response.density_response
-                    - response.density_response_metric
-                    - response.density_response_occupied_virtual
-                ),
-                initial=0.0,
-            )
-        )
         occupied_coefficients = coefficient[:, occupied]
         hamiltonian_mo = np.einsum(
             "mp,...mn,ni->...pi",
@@ -2803,19 +2744,8 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             raise RKSResponseError(
                 "the supplied RKS orbital residual is not independently reproducible"
             )
-        (
-            response_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-            induced_potential_reconstruction_residual,
-        ) = self._matrix_free_response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        response_dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
         overlap = np.asarray(self.reference.get_ovlp())
         density_ground = np.asarray(self.reference.make_rdm1())
@@ -2908,20 +2838,12 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
-            "operator_minimum_eigenvalue": operator_minimum_eigenvalue,
-            "operator_maximum_eigenvalue": operator_maximum_eigenvalue,
-            "operator_condition_number": operator_condition_number,
-            "operator_symmetry_residual": operator_symmetry_residual,
-            "induced_potential_reconstruction_residual": (
-                induced_potential_reconstruction_residual
-            ),
             "fixed_grid_xc_reconstruction_residual": (
                 fixed_grid_xc_reconstruction_residual
             ),
             "hamiltonian_reconstruction_residual": (
                 hamiltonian_reconstruction_residual
             ),
-            "density_reconstruction_residual": density_reconstruction_residual,
             "metric_residual": metric_residual,
             "idempotency_residual": float(
                 np.max(np.abs(idempotency), initial=0.0)
@@ -2937,10 +2859,8 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "quadrature_electron_count": quadrature_electron_count,
         }
         diagnostics = response.diagnostics
-        if diagnostics.operator_diagnostics_are_estimates is not True:
-            raise RKSResponseError(
-                "the supplied RKS response operator diagnostics must be estimates"
-            )
+        if diagnostics.operator_is_self_adjoint is not True:
+            raise RKSResponseError("the supplied RKS response operator contract is invalid")
         exact_diagnostics = {
             "pyscf_version": pyscf.__version__,
             "libxc_version": str(libxc.__version__),
@@ -2955,10 +2875,6 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "max_cycle": self.max_cycle,
             "max_refinement_cycles": self.max_refinement_cycles,
             "level_shift": self.level_shift,
-            "operator_stability_tolerance": self.operator_stability_tolerance,
-            "operator_condition_tolerance": self.operator_condition_tolerance,
-            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
-            "operator_dimension_limit": self.operator_dimension_limit,
         }
         for name, expected in exact_diagnostics.items():
             if getattr(diagnostics, name) != expected:
@@ -3001,10 +2917,8 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 "the supplied RKS response physical residual exceeds tolerance"
             )
         invariant_names = (
-            "induced_potential_reconstruction_residual",
             "fixed_grid_xc_reconstruction_residual",
             "hamiltonian_reconstruction_residual",
-            "density_reconstruction_residual",
             "metric_residual",
             "idempotency_residual",
             "particle_number_residual",
@@ -3330,19 +3244,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             virtual,
             minimum_gap,
         ) = self._state()
-        (
-            response_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-            induced_potential_reconstruction_residual,
-        ) = self._matrix_free_response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        response_dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
         objective_orbital_gradient = self._expected_objective_gradient(
             objective_ao_potential,
@@ -3463,18 +3366,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             invariant_tolerance=self.invariant_tolerance,
             orbital_gap_tolerance=self.orbital_gap_tolerance,
             response_dimension=response_dimension,
-            operator_stability_tolerance=self.operator_stability_tolerance,
-            operator_condition_tolerance=self.operator_condition_tolerance,
-            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
-            operator_dimension_limit=self.operator_dimension_limit,
-            operator_diagnostics_are_estimates=True,
-            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
-            operator_condition_number=operator_condition_number,
-            operator_symmetry_residual=operator_symmetry_residual,
-            induced_potential_reconstruction_residual=(
-                induced_potential_reconstruction_residual
-            ),
+            operator_is_self_adjoint=True,
             fixed_grid_xc_reconstruction_residual=(
                 fixed_grid_xc_reconstruction_residual
             ),
@@ -3632,7 +3524,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         integer_diagnostics = (
             diagnostics.grid_point_count,
             diagnostics.response_dimension,
-            diagnostics.operator_dimension_limit,
             diagnostics.max_cycle,
             diagnostics.krylov_restart,
         )
@@ -3647,23 +3538,13 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             raise RKSAdjointError(
                 "the supplied RKS adjoint iteration count is invalid"
             )
-        if diagnostics.operator_diagnostics_are_estimates is not True:
-            raise RKSAdjointError(
-                "the supplied RKS adjoint operator diagnostics must be estimates"
-            )
+        if diagnostics.operator_is_self_adjoint is not True:
+            raise RKSAdjointError("the supplied RKS adjoint operator contract is invalid")
         diagnostic_reals = (
             diagnostics.minimum_orbital_gap,
             diagnostics.residual_tolerance,
             diagnostics.invariant_tolerance,
             diagnostics.orbital_gap_tolerance,
-            diagnostics.operator_stability_tolerance,
-            diagnostics.operator_condition_tolerance,
-            diagnostics.operator_symmetry_tolerance,
-            diagnostics.operator_minimum_eigenvalue,
-            diagnostics.operator_maximum_eigenvalue,
-            diagnostics.operator_condition_number,
-            diagnostics.operator_symmetry_residual,
-            diagnostics.induced_potential_reconstruction_residual,
             diagnostics.fixed_grid_xc_reconstruction_residual,
             diagnostics.hamiltonian_reconstruction_residual,
             diagnostics.objective_symmetry_tolerance,
@@ -3690,10 +3571,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             "residual_tolerance": self.residual_tolerance,
             "invariant_tolerance": self.invariant_tolerance,
             "orbital_gap_tolerance": self.orbital_gap_tolerance,
-            "operator_stability_tolerance": self.operator_stability_tolerance,
-            "operator_condition_tolerance": self.operator_condition_tolerance,
-            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
-            "operator_dimension_limit": self.operator_dimension_limit,
             "objective_symmetry_tolerance": self.objective_symmetry_tolerance,
             "max_cycle": self.max_cycle,
             "krylov_restart": self.krylov_restart,
@@ -3707,9 +3584,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             diagnostics.residual_tolerance <= 0.0
             or diagnostics.invariant_tolerance <= 0.0
             or diagnostics.orbital_gap_tolerance <= 0.0
-            or diagnostics.operator_stability_tolerance <= 0.0
-            or diagnostics.operator_condition_tolerance <= 1.0
-            or diagnostics.operator_symmetry_tolerance <= 0.0
             or diagnostics.objective_symmetry_tolerance <= 0.0
         ):
             raise RKSAdjointError(
@@ -3783,20 +3657,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             expected_objective_gradient,
             "bilateral occupied-virtual objective gradient",
         )
-        (
-            response_dimension,
-            minimum_eigenvalue,
-            maximum_eigenvalue,
-            condition_number,
-            symmetry_residual,
-            induced_potential_reconstruction_residual,
-        ) = self._matrix_free_response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
-        )
+        response_dimension = dimension
         problem = _RKSLinearResponseProblem(self)
         expected_operator_fingerprint = scalar_operator_fingerprint(
             problem,
@@ -3935,13 +3796,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         measured = {
             "minimum_orbital_gap": minimum_gap,
             "response_dimension": response_dimension,
-            "operator_minimum_eigenvalue": minimum_eigenvalue,
-            "operator_maximum_eigenvalue": maximum_eigenvalue,
-            "operator_condition_number": condition_number,
-            "operator_symmetry_residual": symmetry_residual,
-            "induced_potential_reconstruction_residual": (
-                induced_potential_reconstruction_residual
-            ),
             "fixed_grid_xc_reconstruction_residual": (
                 fixed_grid_xc_reconstruction_residual
             ),
@@ -3981,9 +3835,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             maximum_solver_residual > diagnostics.residual_tolerance
             or maximum_physical_residual > diagnostics.residual_tolerance
             or minimum_gap <= diagnostics.orbital_gap_tolerance
-            or symmetry_residual > diagnostics.operator_symmetry_tolerance
-            or induced_potential_reconstruction_residual
-            > diagnostics.invariant_tolerance
             or fixed_grid_xc_reconstruction_residual
             > diagnostics.invariant_tolerance
             or hamiltonian_reconstruction_residual

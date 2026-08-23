@@ -16,12 +16,15 @@ from pyscf.scf import ucphf, uhf as scf_uhf
 
 from deepks.descriptor import is_ghost_atom
 
-from .capabilities import DeePHFCapabilityError
+from .capabilities import (
+    DeePHFCapabilityError,
+    reference_is_transaction_validated,
+    transaction_reference_fingerprint,
+)
 from .adjoint import (
     AdjointError,
     scalar_operator_fingerprint,
     solve_scalar_adjoint,
-    symmetric_operator_telemetry,
 )
 
 
@@ -57,22 +60,13 @@ class UHFResponseDiagnostics:
     response_dimension: int
     alpha_response_dimension: int
     beta_response_dimension: int
-    operator_stability_tolerance: float
-    operator_condition_tolerance: float
-    operator_symmetry_tolerance: float
-    operator_dimension_limit: int
-    operator_diagnostics_are_estimates: bool
-    operator_minimum_eigenvalue: float
-    operator_maximum_eigenvalue: float
-    operator_condition_number: float
-    operator_symmetry_residual: float
+    operator_is_self_adjoint: bool
     alpha_metric_residual: float
     beta_metric_residual: float
     alpha_idempotency_residual: float
     beta_idempotency_residual: float
     alpha_particle_number_residual: float
     beta_particle_number_residual: float
-    density_reconstruction_residual: float
     alpha_translation_residual: float
     beta_translation_residual: float
     translation_residual: float
@@ -82,38 +76,126 @@ class UHFResponseDiagnostics:
 
 @dataclass(frozen=True)
 class UHFResponse:
-    """Complete spin-resolved first-order UHF state for nuclear coordinates."""
+    """Own canonical spin MO responses; derived properties allocate without caching."""
 
     reference_identity: int
     state_fingerprint: str
     integrity_fingerprint: str
     alpha_mo_response: np.ndarray
     beta_mo_response: np.ndarray
-    alpha_mo_response_occupied_virtual: np.ndarray
-    beta_mo_response_occupied_virtual: np.ndarray
-    alpha_mo_response_metric: np.ndarray
-    beta_mo_response_metric: np.ndarray
-    alpha_coefficient_response: np.ndarray
-    beta_coefficient_response: np.ndarray
-    alpha_coefficient_response_occupied_virtual: np.ndarray
-    beta_coefficient_response_occupied_virtual: np.ndarray
-    alpha_coefficient_response_metric: np.ndarray
-    beta_coefficient_response_metric: np.ndarray
-    alpha_density_response: np.ndarray
-    beta_density_response: np.ndarray
-    total_density_response: np.ndarray
-    alpha_density_response_occupied_virtual: np.ndarray
-    beta_density_response_occupied_virtual: np.ndarray
-    total_density_response_occupied_virtual: np.ndarray
-    alpha_density_response_metric: np.ndarray
-    beta_density_response_metric: np.ndarray
-    total_density_response_metric: np.ndarray
+    _mo_coefficients: np.ndarray
+    _mo_occupations: np.ndarray
     overlap_derivative: np.ndarray
     alpha_hamiltonian_derivative: np.ndarray
     beta_hamiltonian_derivative: np.ndarray
     alpha_orbital_response_residual: np.ndarray
     beta_orbital_response_residual: np.ndarray
     diagnostics: UHFResponseDiagnostics
+
+    def _mo_partition(self, spin: int, occupied_virtual: bool) -> np.ndarray:
+        response = (self.alpha_mo_response, self.beta_mo_response)[spin]
+        occupied = self._mo_occupations[spin] > 0
+        selected = ~occupied if occupied_virtual else occupied
+        result = np.zeros_like(response)
+        result[..., selected, :] = response[..., selected, :]
+        return _immutable_array(result)
+
+    def _coefficient_response(self, spin: int, response: np.ndarray) -> np.ndarray:
+        return _immutable_array(
+            np.einsum("mp,...pi->...mi", self._mo_coefficients[spin], response)
+        )
+
+    def _density_response(self, spin: int, response: np.ndarray) -> np.ndarray:
+        occupied = self._mo_occupations[spin] > 0
+        coefficient = self._mo_coefficients[spin]
+        coefficient_response = np.einsum("mp,...pi->...mi", coefficient, response)
+        density = np.einsum(
+            "...pi,qi->...pq",
+            coefficient_response,
+            coefficient[:, occupied],
+        )
+        return _immutable_array(density + density.swapaxes(-1, -2))
+
+    @property
+    def alpha_mo_response_occupied_virtual(self):
+        return self._mo_partition(0, True)
+
+    @property
+    def beta_mo_response_occupied_virtual(self):
+        return self._mo_partition(1, True)
+
+    @property
+    def alpha_mo_response_metric(self):
+        return self._mo_partition(0, False)
+
+    @property
+    def beta_mo_response_metric(self):
+        return self._mo_partition(1, False)
+
+    @property
+    def alpha_coefficient_response(self):
+        return self._coefficient_response(0, self.alpha_mo_response)
+
+    @property
+    def beta_coefficient_response(self):
+        return self._coefficient_response(1, self.beta_mo_response)
+
+    @property
+    def alpha_coefficient_response_occupied_virtual(self):
+        return self._coefficient_response(0, self.alpha_mo_response_occupied_virtual)
+
+    @property
+    def beta_coefficient_response_occupied_virtual(self):
+        return self._coefficient_response(1, self.beta_mo_response_occupied_virtual)
+
+    @property
+    def alpha_coefficient_response_metric(self):
+        return self._coefficient_response(0, self.alpha_mo_response_metric)
+
+    @property
+    def beta_coefficient_response_metric(self):
+        return self._coefficient_response(1, self.beta_mo_response_metric)
+
+    @property
+    def alpha_density_response(self):
+        return self._density_response(0, self.alpha_mo_response)
+
+    @property
+    def beta_density_response(self):
+        return self._density_response(1, self.beta_mo_response)
+
+    @property
+    def total_density_response(self):
+        return _immutable_array(self.alpha_density_response + self.beta_density_response)
+
+    @property
+    def alpha_density_response_occupied_virtual(self):
+        return self._density_response(0, self.alpha_mo_response_occupied_virtual)
+
+    @property
+    def beta_density_response_occupied_virtual(self):
+        return self._density_response(1, self.beta_mo_response_occupied_virtual)
+
+    @property
+    def total_density_response_occupied_virtual(self):
+        return _immutable_array(
+            self.alpha_density_response_occupied_virtual
+            + self.beta_density_response_occupied_virtual
+        )
+
+    @property
+    def alpha_density_response_metric(self):
+        return self._density_response(0, self.alpha_mo_response_metric)
+
+    @property
+    def beta_density_response_metric(self):
+        return self._density_response(1, self.beta_mo_response_metric)
+
+    @property
+    def total_density_response_metric(self):
+        return _immutable_array(
+            self.alpha_density_response_metric + self.beta_density_response_metric
+        )
 
 
 @dataclass(frozen=True)
@@ -129,15 +211,7 @@ class UHFAdjointDiagnostics:
     response_dimension: int
     alpha_response_dimension: int
     beta_response_dimension: int
-    operator_stability_tolerance: float
-    operator_condition_tolerance: float
-    operator_symmetry_tolerance: float
-    operator_dimension_limit: int
-    operator_diagnostics_are_estimates: bool
-    operator_minimum_eigenvalue: float
-    operator_maximum_eigenvalue: float
-    operator_condition_number: float
-    operator_symmetry_residual: float
+    operator_is_self_adjoint: bool
     objective_symmetry_tolerance: float
     objective_symmetry_residual: float
     alpha_adjoint_density_symmetry_residual: float
@@ -236,6 +310,8 @@ def validate_uhf_reference(reference):
         raise DeePHFCapabilityError(
             "UHF DeePHF requires an undecorated native pyscf.scf.uhf.UHF reference"
         )
+    if reference_is_transaction_validated(reference):
+        return reference
     if not reference.converged:
         raise DeePHFCapabilityError("the UHF reference must be converged")
     molecule = reference.mol
@@ -591,6 +667,9 @@ def uhf_molecule_science_fingerprint(molecule) -> str:
 
 def uhf_reference_fingerprint(reference) -> str:
     """Return a scratch-independent fingerprint of the scientific UHF state."""
+    trusted = transaction_reference_fingerprint(reference)
+    if trusted is not None:
+        return trusted
     digest = hashlib.sha256()
     values = (
         f"{type(reference).__module__}.{type(reference).__qualname__}",
@@ -1114,45 +1193,6 @@ class _UHFLinearResponseCore:
             symmetry_residual,
         )
 
-    def _response_operator_diagnostics(
-        self,
-        coefficient: np.ndarray,
-        energy: np.ndarray,
-        occupied: np.ndarray,
-        virtual: np.ndarray,
-    ) -> tuple[int, int, int, float, float, float, float]:
-        """Return non-authoritative fixed-cost matrix-free operator telemetry."""
-        problem = _UHFScalarAdjointProblem(
-            self,
-            coefficient,
-            energy,
-            occupied,
-            virtual,
-        )
-        try:
-            telemetry = symmetric_operator_telemetry(problem)
-        except AdjointError as error:
-            raise UHFResponseError(
-                f"UHF matrix-free operator telemetry failed: {error}"
-            ) from error
-        if telemetry.symmetry_residual > self.operator_symmetry_tolerance:
-            raise UHFResponseError(
-                "the coupled UHF response operator violates symmetry in sampled actions: "
-                f"{telemetry.symmetry_residual:.3e} > "
-                f"{self.operator_symmetry_tolerance:.3e}"
-            )
-        dimensions = self._dimensions(occupied, virtual)
-        alpha_dimension, beta_dimension = dimensions[-2:]
-        return (
-            telemetry.dimension,
-            alpha_dimension,
-            beta_dimension,
-            telemetry.minimum_ritz_value,
-            telemetry.maximum_ritz_value,
-            telemetry.condition_estimate,
-            telemetry.symmetry_residual,
-        )
-
     def validate_response_operator_exact(
         self,
     ) -> tuple[int, int, int, float, float, float, float]:
@@ -1418,70 +1458,12 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             float(np.max(np.abs(particle_number), initial=0.0)),
         )
 
-    @staticmethod
-    def _density_reconstruction_residual(
-        responses,
-        response_parts,
-        coefficient_responses,
-        coefficient_parts,
-        density_responses,
-        density_parts,
-        total_density,
-        total_density_occupied_virtual,
-        total_density_metric,
-        coefficient,
-        occupied,
-    ) -> float:
-        residuals = [
-            total_density - density_responses[0] - density_responses[1],
-            total_density_occupied_virtual - density_parts[0][0] - density_parts[1][0],
-            total_density_metric - density_parts[0][1] - density_parts[1][1],
-            total_density - total_density_occupied_virtual - total_density_metric,
-        ]
-        for spin_index in range(2):
-            occupied_coefficient = coefficient[spin_index][:, occupied[spin_index]]
-            one_sided = np.einsum(
-                "...pi,qi->...pq",
-                coefficient_responses[spin_index],
-                occupied_coefficient,
-            )
-            density_from_coefficient = one_sided + one_sided.swapaxes(-1, -2)
-            residuals.extend(
-                (
-                    responses[spin_index]
-                    - response_parts[spin_index][0]
-                    - response_parts[spin_index][1],
-                    coefficient_responses[spin_index]
-                    - coefficient_parts[spin_index][0]
-                    - coefficient_parts[spin_index][1],
-                    density_responses[spin_index]
-                    - density_parts[spin_index][0]
-                    - density_parts[spin_index][1],
-                    density_responses[spin_index] - density_from_coefficient,
-                )
-            )
-        return max(
-            float(np.max(np.abs(value), initial=0.0)) for value in residuals
-        )
-
     def solve(self) -> UHFResponse:
         """Return the audited complete spin-resolved AO density response."""
         self._validate_reference(self.reference)
         coefficient, energy, occupation, occupied, virtual, minimum_gaps = self._state()
-        (
-            response_dimension,
-            alpha_dimension,
-            beta_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-        ) = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupied,
-            virtual,
-        )
+        *_, alpha_dimension, beta_dimension = self._dimensions(occupied, virtual)
+        response_dimension = alpha_dimension + beta_dimension
         overlap = np.asarray(self.reference.get_ovlp())
         overlap_derivative = self._overlap_derivative()
         hamiltonian_derivative = self._hamiltonian_derivative(coefficient, occupation)
@@ -1512,56 +1494,12 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             occupied,
             virtual,
         )
-        metric_responses = []
-        occupied_virtual_responses = []
-        coefficient_responses = []
-        coefficient_metric = []
-        coefficient_occupied_virtual = []
         density_responses = []
-        density_metric = []
-        density_occupied_virtual = []
         metric_residuals = []
         for spin_index in range(2):
-            metric_response = np.zeros_like(responses[spin_index])
-            metric_response[..., occupied[spin_index], :] = responses[spin_index][
-                ..., occupied[spin_index], :
-            ]
-            occupied_virtual_response = np.zeros_like(responses[spin_index])
-            occupied_virtual_response[..., virtual[spin_index], :] = responses[
-                spin_index
-            ][..., virtual[spin_index], :]
-            metric_responses.append(metric_response)
-            occupied_virtual_responses.append(occupied_virtual_response)
-            coefficient_responses.append(
-                np.einsum("mp,...pi->...mi", coefficient[spin_index], responses[spin_index])
-            )
-            coefficient_metric.append(
-                np.einsum("mp,...pi->...mi", coefficient[spin_index], metric_response)
-            )
-            coefficient_occupied_virtual.append(
-                np.einsum(
-                    "mp,...pi->...mi",
-                    coefficient[spin_index],
-                    occupied_virtual_response,
-                )
-            )
             density_responses.append(
                 self._density_from_mo_response(
                     responses[spin_index],
-                    coefficient[spin_index],
-                    occupied[spin_index],
-                )
-            )
-            density_metric.append(
-                self._density_from_mo_response(
-                    metric_response,
-                    coefficient[spin_index],
-                    occupied[spin_index],
-                )
-            )
-            density_occupied_virtual.append(
-                self._density_from_mo_response(
-                    occupied_virtual_response,
                     coefficient[spin_index],
                     occupied[spin_index],
                 )
@@ -1582,23 +1520,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 )
             )
         total_density = density_responses[0] + density_responses[1]
-        total_density_metric = density_metric[0] + density_metric[1]
-        total_density_occupied_virtual = (
-            density_occupied_virtual[0] + density_occupied_virtual[1]
-        )
-        reconstruction_residual = self._density_reconstruction_residual(
-            responses,
-            tuple(zip(occupied_virtual_responses, metric_responses, strict=True)),
-            coefficient_responses,
-            tuple(zip(coefficient_occupied_virtual, coefficient_metric, strict=True)),
-            density_responses,
-            tuple(zip(density_occupied_virtual, density_metric, strict=True)),
-            total_density,
-            total_density_occupied_virtual,
-            total_density_metric,
-            coefficient,
-            occupied,
-        )
         alpha_translation_residual = float(
             np.max(np.abs(np.sum(density_responses[0], axis=0)), initial=0.0)
         )
@@ -1644,22 +1565,13 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             response_dimension=response_dimension,
             alpha_response_dimension=alpha_dimension,
             beta_response_dimension=beta_dimension,
-            operator_stability_tolerance=self.operator_stability_tolerance,
-            operator_condition_tolerance=self.operator_condition_tolerance,
-            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
-            operator_dimension_limit=self.operator_dimension_limit,
-            operator_diagnostics_are_estimates=True,
-            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
-            operator_condition_number=operator_condition_number,
-            operator_symmetry_residual=operator_symmetry_residual,
+            operator_is_self_adjoint=True,
             alpha_metric_residual=metric_residuals[0],
             beta_metric_residual=metric_residuals[1],
             alpha_idempotency_residual=invariants[0][0],
             beta_idempotency_residual=invariants[1][0],
             alpha_particle_number_residual=invariants[0][1],
             beta_particle_number_residual=invariants[1][1],
-            density_reconstruction_residual=reconstruction_residual,
             alpha_translation_residual=alpha_translation_residual,
             beta_translation_residual=beta_translation_residual,
             translation_residual=translation_residual,
@@ -1703,7 +1615,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             invariants[1][0],
             invariants[0][1],
             invariants[1][1],
-            reconstruction_residual,
             alpha_translation_residual,
             beta_translation_residual,
             translation_residual,
@@ -1719,25 +1630,8 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             integrity_fingerprint="",
             alpha_mo_response=_immutable_array(responses[0]),
             beta_mo_response=_immutable_array(responses[1]),
-            alpha_mo_response_occupied_virtual=_immutable_array(occupied_virtual_responses[0]),
-            beta_mo_response_occupied_virtual=_immutable_array(occupied_virtual_responses[1]),
-            alpha_mo_response_metric=_immutable_array(metric_responses[0]),
-            beta_mo_response_metric=_immutable_array(metric_responses[1]),
-            alpha_coefficient_response=_immutable_array(coefficient_responses[0]),
-            beta_coefficient_response=_immutable_array(coefficient_responses[1]),
-            alpha_coefficient_response_occupied_virtual=_immutable_array(coefficient_occupied_virtual[0]),
-            beta_coefficient_response_occupied_virtual=_immutable_array(coefficient_occupied_virtual[1]),
-            alpha_coefficient_response_metric=_immutable_array(coefficient_metric[0]),
-            beta_coefficient_response_metric=_immutable_array(coefficient_metric[1]),
-            alpha_density_response=_immutable_array(density_responses[0]),
-            beta_density_response=_immutable_array(density_responses[1]),
-            total_density_response=_immutable_array(total_density),
-            alpha_density_response_occupied_virtual=_immutable_array(density_occupied_virtual[0]),
-            beta_density_response_occupied_virtual=_immutable_array(density_occupied_virtual[1]),
-            total_density_response_occupied_virtual=_immutable_array(total_density_occupied_virtual),
-            alpha_density_response_metric=_immutable_array(density_metric[0]),
-            beta_density_response_metric=_immutable_array(density_metric[1]),
-            total_density_response_metric=_immutable_array(total_density_metric),
+            _mo_coefficients=_immutable_array(coefficient),
+            _mo_occupations=_immutable_array(occupation),
             overlap_derivative=_immutable_array(overlap_derivative),
             alpha_hamiltonian_derivative=_immutable_array(hamiltonian_derivative[0]),
             beta_hamiltonian_derivative=_immutable_array(hamiltonian_derivative[1]),
@@ -1749,7 +1643,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             response,
             integrity_fingerprint=uhf_response_integrity_fingerprint(response),
         )
-        self.audit_response_equations(response)
         return response
 
     def _validate_supplied_structure(
@@ -1838,10 +1731,10 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             if name in {"pyscf_version", "residual_history"}:
                 continue
             value = getattr(diagnostics, name)
-            if name == "operator_diagnostics_are_estimates":
+            if name == "operator_is_self_adjoint":
                 if value is not True:
                     raise UHFResponseError(
-                        "the supplied UHF operator diagnostics must be estimates"
+                        "the supplied UHF operator contract is invalid"
                     )
             elif name in integer_fields:
                 if type(value) is not int:
@@ -1879,10 +1772,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             "max_cycle": self.max_cycle,
             "max_refinement_cycles": self.max_refinement_cycles,
             "level_shift": self.level_shift,
-            "operator_stability_tolerance": self.operator_stability_tolerance,
-            "operator_condition_tolerance": self.operator_condition_tolerance,
-            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
-            "operator_dimension_limit": self.operator_dimension_limit,
         }
         for name, expected in expected_controls.items():
             if getattr(diagnostics, name) != expected:
@@ -1920,14 +1809,12 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             "alpha_maximum_residual",
             "beta_maximum_residual",
             "residual_rms",
-            "operator_symmetry_residual",
             "alpha_metric_residual",
             "beta_metric_residual",
             "alpha_idempotency_residual",
             "beta_idempotency_residual",
             "alpha_particle_number_residual",
             "beta_particle_number_residual",
-            "density_reconstruction_residual",
             "alpha_translation_residual",
             "beta_translation_residual",
             "translation_residual",
@@ -1943,18 +1830,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         if diagnostics.minimum_beta_orbital_gap <= self.orbital_gap_tolerance:
             raise UHFResponseError(
                 "the supplied UHF response beta gap is outside the adapter domain"
-            )
-        if diagnostics.operator_maximum_eigenvalue < diagnostics.operator_minimum_eigenvalue:
-            raise UHFResponseError(
-                "the supplied UHF response operator spectral bounds are invalid"
-            )
-        if diagnostics.operator_condition_number < 1:
-            raise UHFResponseError(
-                "the supplied UHF response operator condition number is invalid"
-            )
-        if diagnostics.operator_symmetry_residual > self.operator_symmetry_tolerance:
-            raise UHFResponseError(
-                "the supplied UHF response operator symmetry residual is excessive"
             )
         expected_maximum = max(
             diagnostics.alpha_maximum_residual,
@@ -2000,12 +1875,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             raise UHFResponseError(
                 "the supplied UHF response PySCF version does not match the runtime"
             )
-        operator_diagnostics = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupied,
-            virtual,
-        )
+        *_, alpha_dimension, beta_dimension = self._dimensions(occupied, virtual)
         overlap = np.asarray(self.reference.get_ovlp())
         overlap_derivative = self._overlap_derivative()
         hamiltonian_derivative = self._hamiltonian_derivative(coefficient, occupation)
@@ -2232,19 +2102,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         beta_maximum = float(np.max(np.abs(residuals[1]), initial=0.0))
         squared_sum = sum(float(np.sum(np.square(value))) for value in residuals)
         residual_size = sum(value.size for value in residuals)
-        reconstruction = self._density_reconstruction_residual(
-            responses,
-            response_parts,
-            coefficient_responses,
-            coefficient_parts,
-            density_responses,
-            density_parts,
-            response.total_density_response,
-            response.total_density_response_occupied_virtual,
-            response.total_density_response_metric,
-            coefficient,
-            occupied,
-        )
         alpha_translation = float(
             np.max(np.abs(np.sum(density_responses[0], axis=0)), initial=0.0)
         )
@@ -2255,13 +2112,9 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         measured = {
             "minimum_alpha_orbital_gap": minimum_gaps[0],
             "minimum_beta_orbital_gap": minimum_gaps[1],
-            "response_dimension": operator_diagnostics[0],
-            "alpha_response_dimension": operator_diagnostics[1],
-            "beta_response_dimension": operator_diagnostics[2],
-            "operator_minimum_eigenvalue": operator_diagnostics[3],
-            "operator_maximum_eigenvalue": operator_diagnostics[4],
-            "operator_condition_number": operator_diagnostics[5],
-            "operator_symmetry_residual": operator_diagnostics[6],
+            "response_dimension": alpha_dimension + beta_dimension,
+            "alpha_response_dimension": alpha_dimension,
+            "beta_response_dimension": beta_dimension,
             "maximum_residual": max(alpha_maximum, beta_maximum),
             "alpha_maximum_residual": alpha_maximum,
             "beta_maximum_residual": beta_maximum,
@@ -2272,7 +2125,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             "beta_idempotency_residual": invariant_values[1][0],
             "alpha_particle_number_residual": invariant_values[0][1],
             "beta_particle_number_residual": invariant_values[1][1],
-            "density_reconstruction_residual": reconstruction,
             "alpha_translation_residual": alpha_translation,
             "beta_translation_residual": beta_translation,
             "translation_residual": translation,
@@ -2300,7 +2152,6 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 "beta_idempotency_residual",
                 "alpha_particle_number_residual",
                 "beta_particle_number_residual",
-                "density_reconstruction_residual",
                 "alpha_translation_residual",
                 "beta_translation_residual",
                 "translation_residual",
@@ -2314,6 +2165,8 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
 
 class _UHFScalarAdjointProblem:
     """Bind one coupled action-only UHF operator to the adjoint protocol."""
+
+    is_self_adjoint = True
 
     def __init__(
         self,
@@ -2715,20 +2568,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         coefficient, energy, occupation, occupied, virtual, minimum_gaps = (
             self._state()
         )
-        (
-            response_dimension,
-            alpha_dimension,
-            beta_dimension,
-            operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue,
-            operator_condition_number,
-            operator_symmetry_residual,
-        ) = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupied,
-            virtual,
-        )
+        *_, alpha_dimension, beta_dimension = self._dimensions(occupied, virtual)
+        response_dimension = alpha_dimension + beta_dimension
         objective_mo, objective_gradients = self._objective_gradients(
             objective,
             coefficient,
@@ -2834,15 +2675,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             response_dimension=response_dimension,
             alpha_response_dimension=alpha_dimension,
             beta_response_dimension=beta_dimension,
-            operator_stability_tolerance=self.operator_stability_tolerance,
-            operator_condition_tolerance=self.operator_condition_tolerance,
-            operator_symmetry_tolerance=self.operator_symmetry_tolerance,
-            operator_dimension_limit=self.operator_dimension_limit,
-            operator_diagnostics_are_estimates=True,
-            operator_minimum_eigenvalue=operator_minimum_eigenvalue,
-            operator_maximum_eigenvalue=operator_maximum_eigenvalue,
-            operator_condition_number=operator_condition_number,
-            operator_symmetry_residual=operator_symmetry_residual,
+            operator_is_self_adjoint=True,
             objective_symmetry_tolerance=self.objective_symmetry_tolerance,
             objective_symmetry_residual=objective_symmetry_residual,
             alpha_adjoint_density_symmetry_residual=density_symmetry[0],
@@ -2966,7 +2799,6 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             diagnostics.response_dimension,
             diagnostics.alpha_response_dimension,
             diagnostics.beta_response_dimension,
-            diagnostics.operator_dimension_limit,
             diagnostics.solve_count,
             diagnostics.max_cycle,
             diagnostics.krylov_restart,
@@ -2980,10 +2812,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             raise UHFAdjointError(
                 "the supplied UHF adjoint must contain exactly one scalar solve"
             )
-        if diagnostics.operator_diagnostics_are_estimates is not True:
-            raise UHFAdjointError(
-                "the supplied UHF adjoint operator diagnostics must be estimates"
-            )
+        if diagnostics.operator_is_self_adjoint is not True:
+            raise UHFAdjointError("the supplied UHF adjoint operator contract is invalid")
         real_names = tuple(
             field.name
             for field in fields(diagnostics)
@@ -2993,10 +2823,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 "response_dimension",
                 "alpha_response_dimension",
                 "beta_response_dimension",
-                "operator_dimension_limit",
+                "operator_is_self_adjoint",
                 "solver",
                 "solve_count",
-                "operator_diagnostics_are_estimates",
                 "max_cycle",
                 "krylov_restart",
                 "iteration_count",
@@ -3014,10 +2843,6 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             "residual_tolerance": self.residual_tolerance,
             "invariant_tolerance": self.invariant_tolerance,
             "orbital_gap_tolerance": self.orbital_gap_tolerance,
-            "operator_stability_tolerance": self.operator_stability_tolerance,
-            "operator_condition_tolerance": self.operator_condition_tolerance,
-            "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
-            "operator_dimension_limit": self.operator_dimension_limit,
             "objective_symmetry_tolerance": self.objective_symmetry_tolerance,
             "max_cycle": self.max_cycle,
             "krylov_restart": self.krylov_restart,
@@ -3090,20 +2915,6 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             adjoint.beta_objective_orbital_gradient,
             objective_gradients[1],
             "beta bilateral occupied-virtual objective gradient",
-        )
-        (
-            measured_dimension,
-            measured_alpha_dimension,
-            measured_beta_dimension,
-            minimum_eigenvalue,
-            maximum_eigenvalue,
-            condition_number,
-            symmetry_residual,
-        ) = self._response_operator_diagnostics(
-            coefficient,
-            energy,
-            occupied,
-            virtual,
         )
         problem = _UHFScalarAdjointProblem(
             self,
@@ -3220,13 +3031,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         measured = {
             "minimum_alpha_orbital_gap": minimum_gaps[0],
             "minimum_beta_orbital_gap": minimum_gaps[1],
-            "response_dimension": measured_dimension,
-            "alpha_response_dimension": measured_alpha_dimension,
-            "beta_response_dimension": measured_beta_dimension,
-            "operator_minimum_eigenvalue": minimum_eigenvalue,
-            "operator_maximum_eigenvalue": maximum_eigenvalue,
-            "operator_condition_number": condition_number,
-            "operator_symmetry_residual": symmetry_residual,
+            "response_dimension": dimension,
+            "alpha_response_dimension": alpha_dimension,
+            "beta_response_dimension": beta_dimension,
             "objective_symmetry_residual": float(
                 np.max(np.abs(expected_objective - expected_objective.T), initial=0.0)
             ),

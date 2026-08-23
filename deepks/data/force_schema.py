@@ -36,10 +36,6 @@ _RESPONSE_CONTROL_NAMES = (
     "max_cycle",
     "max_refinement_cycles",
     "level_shift",
-    "operator_stability_tolerance",
-    "operator_condition_tolerance",
-    "operator_symmetry_tolerance",
-    "operator_dimension_limit",
 )
 
 _RESPONSE_DIAGNOSTIC_NAMES = {
@@ -55,14 +51,7 @@ _RESPONSE_DIAGNOSTIC_NAMES = {
     "max_refinement_cycles",
     "level_shift",
     "response_dimension",
-    "operator_stability_tolerance",
-    "operator_condition_tolerance",
-    "operator_symmetry_tolerance",
-    "operator_dimension_limit",
-    "operator_minimum_eigenvalue",
-    "operator_maximum_eigenvalue",
-    "operator_condition_number",
-    "operator_symmetry_residual",
+    "operator_is_self_adjoint",
     "metric_residual",
     "idempotency_residual",
     "particle_number_residual",
@@ -775,8 +764,6 @@ def _normalize_provenance(
         "residual_tolerance",
         "invariant_tolerance",
         "orbital_gap_tolerance",
-        "operator_stability_tolerance",
-        "operator_symmetry_tolerance",
     ):
         control_value = _finite_float(
             response["controls"][control_name],
@@ -785,15 +772,6 @@ def _normalize_provenance(
         response["controls"][control_name] = control_value
         if control_value <= 0:
             raise _error(f"response.controls.{control_name} must be positive")
-    condition_tolerance = _finite_float(
-        response["controls"]["operator_condition_tolerance"],
-        "response.controls.operator_condition_tolerance",
-    )
-    if condition_tolerance <= 1:
-        raise _error(
-            "response.controls.operator_condition_tolerance must exceed one"
-        )
-    response["controls"]["operator_condition_tolerance"] = condition_tolerance
     response["controls"]["level_shift"] = _finite_float(
         response["controls"]["level_shift"],
         "response.controls.level_shift",
@@ -801,7 +779,6 @@ def _normalize_provenance(
     for control_name, minimum in (
         ("max_cycle", 1),
         ("max_refinement_cycles", 0),
-        ("operator_dimension_limit", 1),
     ):
         control_value = response["controls"][control_name]
         if (
@@ -915,12 +892,9 @@ def _normalize_provenance(
             frame["response_diagnostics"],
             f"frames[{frame_index}].response_diagnostics",
         )
-        expected_diagnostic_names = set(_RESPONSE_DIAGNOSTIC_NAMES)
-        if "operator_diagnostics_are_estimates" in diagnostics:
-            expected_diagnostic_names.add("operator_diagnostics_are_estimates")
         _require_exact_keys(
             diagnostics,
-            expected_diagnostic_names,
+            set(_RESPONSE_DIAGNOSTIC_NAMES),
             f"frames[{frame_index}].response_diagnostics",
         )
         for diagnostic_name in (
@@ -932,13 +906,6 @@ def _normalize_provenance(
             "invariant_tolerance",
             "orbital_gap_tolerance",
             "level_shift",
-            "operator_stability_tolerance",
-            "operator_condition_tolerance",
-            "operator_symmetry_tolerance",
-            "operator_minimum_eigenvalue",
-            "operator_maximum_eigenvalue",
-            "operator_condition_number",
-            "operator_symmetry_residual",
             "metric_residual",
             "idempotency_residual",
             "particle_number_residual",
@@ -978,13 +945,8 @@ def _normalize_provenance(
                     f"frame {frame_index} response diagnostic {control_name} "
                     "does not match response controls"
                 )
-        if (
-            "operator_diagnostics_are_estimates" in diagnostics
-            and diagnostics["operator_diagnostics_are_estimates"] is not True
-        ):
-            raise _error(
-                f"frame {frame_index} operator diagnostics must be estimates"
-            )
+        if diagnostics["operator_is_self_adjoint"] is not True:
+            raise _error(f"frame {frame_index} response operator contract is invalid")
         if diagnostics["minimum_orbital_gap"] <= diagnostics["orbital_gap_tolerance"]:
             raise _error(
                 f"frame {frame_index} orbital gap does not exceed its tolerance"
@@ -1002,28 +964,6 @@ def _normalize_provenance(
                 raise _error(
                     f"frame {frame_index} {invariant_name} exceeds invariant tolerance"
                 )
-        if diagnostics["operator_condition_number"] < 1:
-            raise _error(
-                f"frame {frame_index} response operator condition number is invalid"
-            )
-        if (
-            diagnostics["operator_maximum_eigenvalue"]
-            < diagnostics["operator_minimum_eigenvalue"]
-        ):
-            raise _error(
-                f"frame {frame_index} response operator eigenvalue bounds are invalid"
-            )
-        if diagnostics["operator_symmetry_residual"] < 0:
-            raise _error(
-                f"frame {frame_index} response operator symmetry residual is negative"
-            )
-        if (
-            diagnostics["operator_symmetry_residual"]
-            > diagnostics["operator_symmetry_tolerance"]
-        ):
-            raise _error(
-                f"frame {frame_index} response operator is not symmetric"
-            )
         response_dimension = diagnostics["response_dimension"]
         expected_response_dimension = sum(
             float(value) > 0 for value in occupations
@@ -1034,26 +974,6 @@ def _normalize_provenance(
             or response_dimension != expected_response_dimension
         ):
             raise _error(f"frame {frame_index} response dimension is invalid")
-        expected_condition = (
-            max(
-                abs(diagnostics["operator_minimum_eigenvalue"]),
-                abs(diagnostics["operator_maximum_eigenvalue"]),
-            )
-            / max(
-                abs(diagnostics["operator_minimum_eigenvalue"]),
-                np.finfo(np.float64).tiny,
-            )
-        )
-        if not math.isclose(
-            diagnostics["operator_condition_number"],
-            expected_condition,
-            rel_tol=1.0e-12,
-            abs_tol=1.0e-12,
-        ):
-            raise _error(
-                f"frame {frame_index} response operator condition number "
-                "does not match its eigenvalue bounds"
-            )
         refinement_cycles = diagnostics["refinement_cycles"]
         residual_history = diagnostics["residual_history"]
         if isinstance(residual_history, list):

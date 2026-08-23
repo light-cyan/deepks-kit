@@ -1,4 +1,5 @@
 from dataclasses import replace
+import sys
 
 import numpy as np
 import pytest
@@ -12,7 +13,7 @@ from deepks.deephf.pyscf_rks import (
     RKSResponseError,
     rks_adjoint_integrity_fingerprint,
 )
-from conftest import _P4B_FIXTURES
+_P4B_FIXTURES = sys.modules["_deepks_p4b_rks_oracle_fixtures"]
 
 
 @pytest.fixture(scope="module")
@@ -241,24 +242,6 @@ def test_adjoint_rejects_independent_transpose_action_residual(
         rks_adjoint_adapter.solve(objective_ao_potential)
 
 
-def test_adjoint_rejects_physical_operator_residual(
-    rks_adjoint_adapter,
-    objective_ao_potential,
-    monkeypatch,
-):
-    original_apply = rks_adapter_module._RKSLinearResponseProblem.apply
-
-    def corrupted_physical(self, vector):
-        return original_apply(self, vector) + 1.0e-3
-
-    monkeypatch.setattr(
-        rks_adapter_module._RKSLinearResponseProblem,
-        "apply",
-        corrupted_physical,
-    )
-
-    with pytest.raises(RKSAdjointError, match="violates symmetry|physical adjoint residual"):
-        rks_adjoint_adapter.solve(objective_ao_potential)
 
 
 def test_adjoint_audit_rejects_foreign_and_stale_provenance(

@@ -59,10 +59,6 @@ def write_force_contract_sample(
         "max_cycle": 50,
         "max_refinement_cycles": 3,
         "level_shift": 0.0,
-        "operator_stability_tolerance": 1.0e-6,
-        "operator_condition_tolerance": 1.0e8,
-        "operator_symmetry_tolerance": 1.0e-10,
-        "operator_dimension_limit": 512,
     }
     frames = []
     for frame_index in range(frame_count):
@@ -86,23 +82,7 @@ def write_force_contract_sample(
                     "max_refinement_cycles": response_controls["max_refinement_cycles"],
                     "level_shift": response_controls["level_shift"],
                     "response_dimension": 1,
-                    "operator_stability_tolerance": response_controls[
-                        "operator_stability_tolerance"
-                    ],
-                    "operator_condition_tolerance": response_controls[
-                        "operator_condition_tolerance"
-                    ],
-                    "operator_symmetry_tolerance": response_controls[
-                        "operator_symmetry_tolerance"
-                    ],
-                    "operator_dimension_limit": response_controls[
-                        "operator_dimension_limit"
-                    ],
-                    "operator_diagnostics_are_estimates": True,
-                    "operator_minimum_eigenvalue": 0.25,
-                    "operator_maximum_eigenvalue": 2.0,
-                    "operator_condition_number": 8.0,
-                    "operator_symmetry_residual": 1.0e-15,
+                    "operator_is_self_adjoint": True,
                     "metric_residual": 1.0e-14,
                     "idempotency_residual": 1.0e-14,
                     "particle_number_residual": 1.0e-14,
@@ -183,4 +163,4 @@ def write_force_contract_sample(
         batch_size=frame_count,
         force_mode="deephf_relaxed",
     )
-    return contract, reader.sample_all()
+    return reader.force_contract, reader.sample_all()

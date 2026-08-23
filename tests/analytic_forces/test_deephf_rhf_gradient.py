@@ -193,6 +193,76 @@ def test_gradient_rejects_noninteger_atom_indices_before_response(
     assert driver.de_full is None
 
 
+@pytest.mark.parametrize(
+    ("atom_indices", "error", "message"),
+    [
+        ([], ValueError, "must not be empty"),
+        ([0, 0], ValueError, "must not contain duplicates"),
+        ([-1], IndexError, "outside the molecule"),
+        ([3], IndexError, "outside the molecule"),
+    ],
+)
+def test_gradient_rejects_invalid_atom_selections_before_response(
+    rhf_oracle_case,
+    atom_indices,
+    error,
+    message,
+):
+    driver = rhf_oracle_case.method.nuc_grad_method()
+
+    with pytest.raises(error, match=message):
+        driver.kernel(atmlst=atom_indices)
+
+    assert driver.response_result is None
+
+
+def test_direct_gradient_evaluates_the_force_model_once(
+    rhf_oracle_case,
+    monkeypatch,
+):
+    method = rhf_oracle_case.method
+    original_sensitivity = method._correction_sensitivity
+    calls = 0
+
+    def counted_sensitivity(values):
+        nonlocal calls
+        calls += 1
+        return original_sensitivity(values)
+
+    monkeypatch.setattr(method, "_correction_sensitivity", counted_sensitivity)
+
+    assert np.isfinite(method.gradient()).all()
+    assert calls == 1
+
+
+def test_public_relaxed_derivative_builds_force_inputs_once(
+    rhf_oracle_case,
+    monkeypatch,
+):
+    method = rhf_oracle_case.method
+    original_force_inputs = method._force_inputs
+    original_explicit = method._descriptor.dq_dR_explicit
+    force_input_calls = 0
+    explicit_calls = 0
+
+    def counted_force_inputs(**options):
+        nonlocal force_input_calls
+        force_input_calls += 1
+        return original_force_inputs(**options)
+
+    def counted_explicit(*args, **options):
+        nonlocal explicit_calls
+        explicit_calls += 1
+        return original_explicit(*args, **options)
+
+    monkeypatch.setattr(method, "_force_inputs", counted_force_inputs)
+    monkeypatch.setattr(method._descriptor, "dq_dR_explicit", counted_explicit)
+
+    assert np.isfinite(method.dq_dR_relaxed()).all()
+    assert force_input_calls == 1
+    assert explicit_calls == 1
+
+
 def test_response_and_gradient_do_not_mutate_native_reference(rhf_oracle_case):
     reference = rhf_oracle_case.reference
     fock_before = np.asarray(reference.get_fock()).copy()

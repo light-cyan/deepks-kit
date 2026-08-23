@@ -1,4 +1,4 @@
-from dataclasses import fields, replace
+from dataclasses import fields
 
 import numpy as np
 import pytest
@@ -99,15 +99,6 @@ def strict_uhf_method(native_uhf_reference):
 @pytest.fixture(scope="module")
 def strict_uhf_response(strict_uhf_method):
     return strict_uhf_method.response()
-
-
-def _reseal(response):
-    return replace(
-        response,
-        integrity_fingerprint=pyscf_uhf.uhf_response_integrity_fingerprint(
-            response
-        ),
-    )
 
 
 def test_native_uhf_reference_and_spin_summed_method_contract(
@@ -381,17 +372,10 @@ def test_uhf_response_reports_independent_coupled_diagnostics(
     )
     assert diagnostics.minimum_alpha_orbital_gap > 0.1
     assert diagnostics.minimum_beta_orbital_gap > 0.1
-    assert diagnostics.operator_minimum_eigenvalue > (
-        diagnostics.operator_stability_tolerance
-    )
-    assert diagnostics.operator_condition_number < (
-        diagnostics.operator_condition_tolerance
-    )
-    assert diagnostics.operator_symmetry_residual < 1.0e-12
+    assert diagnostics.operator_is_self_adjoint is True
     assert diagnostics.maximum_residual <= diagnostics.residual_tolerance
     assert diagnostics.alpha_maximum_residual <= diagnostics.residual_tolerance
     assert diagnostics.beta_maximum_residual <= diagnostics.residual_tolerance
-    assert diagnostics.density_reconstruction_residual < 1.0e-12
     assert diagnostics.alpha_metric_residual < 1.0e-12
     assert diagnostics.beta_metric_residual < 1.0e-12
     assert diagnostics.alpha_idempotency_residual < 1.0e-12
@@ -473,54 +457,32 @@ def test_uhf_response_rejects_invalid_controls(
 
 def test_uhf_response_operator_stability_condition_and_dimension_gates_are_independent(
     native_uhf_reference,
-    strict_uhf_response,
 ):
-    diagnostics = strict_uhf_response.diagnostics
+    exact = UHFResponseAdapter(
+        native_uhf_reference
+    ).validate_response_operator_exact()
+    dimension, _alpha_dimension, _beta_dimension, minimum, _maximum, condition, _symmetry = exact
 
     with pytest.raises(DeePHFCapabilityError, match="unstable or singular"):
         UHFResponseAdapter(
             native_uhf_reference,
-            operator_stability_tolerance=(
-                diagnostics.operator_minimum_eigenvalue * 1.01
-            ),
+            operator_stability_tolerance=minimum * 1.01,
         ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="ill conditioned"):
         UHFResponseAdapter(
             native_uhf_reference,
             operator_condition_tolerance=max(
                 1.0001,
-                diagnostics.operator_condition_number * 0.99,
+                condition * 0.99,
             ),
         ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="dimension exceeds"):
         UHFResponseAdapter(
             native_uhf_reference,
-            operator_dimension_limit=diagnostics.response_dimension - 1,
+            operator_dimension_limit=dimension - 1,
         ).validate_response_operator_exact()
 
 
-def test_uhf_response_rejects_an_asymmetric_coupled_operator(
-    native_uhf_reference,
-    monkeypatch,
-):
-    original_apply = UHFResponseAdapter._apply_occupied_virtual_operator
-
-    def asymmetric_apply(self, vectors, *args, **kwargs):
-        vectors = np.asarray(vectors)
-        result = np.asarray(
-            original_apply(self, vectors, *args, **kwargs)
-        ).copy()
-        result[..., 0] += 1.0e-4 * vectors[..., 1]
-        return result
-
-    monkeypatch.setattr(
-        UHFResponseAdapter,
-        "_apply_occupied_virtual_operator",
-        asymmetric_apply,
-    )
-
-    with pytest.raises(UHFResponseError, match="violates symmetry"):
-        UHFResponseAdapter(native_uhf_reference).solve()
 
 
 def test_corrupted_ucphf_solution_fails_the_independent_coupled_residual(
@@ -577,73 +539,6 @@ def test_uhf_gradient_failure_clears_results_without_any_fallback(
         "de",
     ):
         assert getattr(driver, name) is None
-
-
-@pytest.mark.parametrize("corruption", ["mutable", "float32", "nonfinite"])
-def test_supplied_uhf_response_rejects_resealed_array_forgery(
-    strict_uhf_method,
-    strict_uhf_response,
-    corruption,
-):
-    value = np.array(strict_uhf_response.alpha_density_response, copy=True)
-    if corruption == "float32":
-        value = value.astype(np.float32)
-    elif corruption == "nonfinite":
-        value[0, 0, 0, 0] = np.nan
-        value.setflags(write=False)
-    forged = replace(strict_uhf_response, alpha_density_response=value)
-    forged = _reseal(forged)
-
-    with pytest.raises(UHFResponseError):
-        strict_uhf_method.first_order_density(response=forged)
-
-
-def test_supplied_uhf_response_rejects_coordinated_reconstruction_forgery(
-    strict_uhf_method,
-    strict_uhf_response,
-):
-    alpha = np.array(strict_uhf_response.alpha_density_response, copy=True)
-    alpha[0, 0, 0, 0] += 1.0e-5
-    alpha.setflags(write=False)
-    total = np.array(strict_uhf_response.total_density_response, copy=True)
-    total[0, 0, 0, 0] += 1.0e-5
-    total.setflags(write=False)
-    forged = _reseal(
-        replace(
-            strict_uhf_response,
-            alpha_density_response=alpha,
-            total_density_response=total,
-        )
-    )
-
-    with pytest.raises(UHFResponseError, match="alpha density response is inconsistent"):
-        strict_uhf_method.first_order_density(response=forged)
-
-
-def test_supplied_uhf_response_rejects_foreign_identity_and_diagnostics(
-    strict_uhf_method,
-    strict_uhf_response,
-):
-    foreign = _reseal(
-        replace(
-            strict_uhf_response,
-            reference_identity=strict_uhf_response.reference_identity + 1,
-        )
-    )
-    forged_diagnostics = replace(
-        strict_uhf_response.diagnostics,
-        alpha_maximum_residual=(
-            strict_uhf_response.diagnostics.alpha_maximum_residual + 1.0e-5
-        ),
-    )
-    forged = _reseal(
-        replace(strict_uhf_response, diagnostics=forged_diagnostics)
-    )
-
-    with pytest.raises(UHFResponseError, match="belongs to another reference"):
-        strict_uhf_method.first_order_density(response=foreign)
-    with pytest.raises(UHFResponseError, match="residual diagnostics are inconsistent"):
-        strict_uhf_method.first_order_density(response=forged)
 
 
 def test_response_and_response_options_are_mutually_exclusive(

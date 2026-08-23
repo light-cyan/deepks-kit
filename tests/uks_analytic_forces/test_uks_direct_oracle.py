@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+import deepks.deephf.pyscf_uks as pyscf_uks
 from deepks.deephf import UKSResponse, UKSResponseAdapter
 
 
@@ -63,3 +64,52 @@ def test_zero_and_constant_corrections_reduce_to_native_uks(uks_case):
         constant_model.energy_const.fill_(0.37)
     constant = UKSDeePHF(uks_case.reference, constant_model.eval(), projector_basis=projector_basis)
     np.testing.assert_allclose(constant.gradient(backend="zvector"), native, rtol=0.0, atol=1.0e-10)
+
+
+def test_uks_public_force_calls_have_single_transaction_budgets(
+    uks_case,
+    monkeypatch,
+):
+    method = uks_case.method
+    original_fingerprint = pyscf_uks._dft_reference_validation_fingerprint
+    original_force_inputs = method._force_inputs
+    original_explicit_component = method._descriptor.dq_dR_explicit_component
+    fingerprint_calls = 0
+    force_input_calls = 0
+    explicit_component_calls = 0
+
+    def counted_fingerprint(reference):
+        nonlocal fingerprint_calls
+        fingerprint_calls += 1
+        return original_fingerprint(reference)
+
+    def counted_force_inputs(**options):
+        nonlocal force_input_calls
+        force_input_calls += 1
+        return original_force_inputs(**options)
+
+    def counted_explicit_component(*args, **options):
+        nonlocal explicit_component_calls
+        explicit_component_calls += 1
+        return original_explicit_component(*args, **options)
+
+    monkeypatch.setattr(
+        pyscf_uks,
+        "_dft_reference_validation_fingerprint",
+        counted_fingerprint,
+    )
+    monkeypatch.setattr(method, "_force_inputs", counted_force_inputs)
+    monkeypatch.setattr(
+        method._descriptor,
+        "dq_dR_explicit_component",
+        counted_explicit_component,
+    )
+
+    for calculation in (method.dq_dR_relaxed, method.gradient):
+        fingerprint_calls = 0
+        force_input_calls = 0
+        explicit_component_calls = 0
+        assert np.isfinite(calculation()).all()
+        assert fingerprint_calls == 2
+        assert force_input_calls == 1
+        assert explicit_component_calls == 2

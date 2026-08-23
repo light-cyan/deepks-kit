@@ -808,7 +808,6 @@ def test_rks_zvector_path_has_no_direct_response_symbol_access():
             and node.name in {
                 "adjoint",
                 "_zvector_inputs",
-                "_validate_zvector_inputs",
             }
         )
 
@@ -851,7 +850,7 @@ def test_uks_zvector_path_has_no_direct_response_symbol_access():
             if isinstance(class_node, ast.ClassDef) and class_node.name == "UKSDeePHF"
             for node in class_node.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name in {"adjoint", "_zvector_inputs", "_validate_zvector_inputs"}
+            and node.name in {"adjoint", "_zvector_inputs"}
         )
 
     violations = {
@@ -890,7 +889,6 @@ def test_uhf_zvector_path_has_no_direct_response_symbol_access():
             and node.name in {
                 "adjoint",
                 "_zvector_inputs",
-                "_validate_zvector_inputs",
             }
         )
 

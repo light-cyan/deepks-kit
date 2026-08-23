@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from .capabilities import science_state_transaction
 from .gradient import _validate_atom_indices
 from .pyscf_rhf import RHFAdjointError
 
@@ -74,42 +75,23 @@ class RHFDeePHFZVectorGradients:
         """Return the scalar-adjoint diagnostics under the common driver name."""
         return self.adjoint_diagnostics
 
+    @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR without a coordinate-wise density response."""
         self._reset_results()
         self._validate_driver_binding()
         atom_indices = _validate_atom_indices(self.mol, atmlst)
-        self.base._clear_trusted_adjoint()
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
             self.response_options
         )
-        descriptor_diagnostics, sensitivity, adjoint = (
-            self.base._validate_zvector_inputs(
-                descriptor_diagnostics,
-                sensitivity,
-                adjoint,
-            )
-        )
         self.base._assert_science_state("native RHF gradient evaluation")
-        self.base._assert_trusted_force_model_state(
-            "native RHF gradient evaluation"
-        )
         reference_gradient = np.asarray(
             self.base.reference.nuc_grad_method().kernel()
         )
         self.base._validate_science_state("native RHF gradient evaluation")
-        self.base._assert_trusted_force_model_state(
-            "native RHF gradient evaluation"
-        )
         self.base._assert_science_state("explicit descriptor gradient evaluation")
-        self.base._assert_trusted_force_model_state(
-            "explicit descriptor gradient evaluation"
-        )
         dq_dR_explicit = self.base.dq_dR_explicit()
         self.base._assert_science_state("explicit descriptor gradient evaluation")
-        self.base._assert_trusted_force_model_state(
-            "explicit descriptor gradient evaluation"
-        )
         correction_gradient_explicit = np.einsum(
             "bxap,ap->bx",
             dq_dR_explicit,
@@ -189,9 +171,6 @@ class RHFDeePHFZVectorGradients:
             else de_full[list(atom_indices)]
         )
         self.base._assert_science_state("Z-vector gradient assembly")
-        self.base._assert_trusted_force_model_state(
-            "Z-vector gradient assembly"
-        )
         self.adjoint_result = adjoint
         self.descriptor_diagnostics = descriptor_diagnostics
         self.reference_gradient = reference_gradient

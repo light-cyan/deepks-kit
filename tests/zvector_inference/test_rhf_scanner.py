@@ -1,6 +1,5 @@
 from copy import deepcopy
 from dataclasses import dataclass
-import random
 
 import numpy as np
 import pytest
@@ -83,20 +82,6 @@ def _model():
         output_layer.bias.fill_(0.019)
         model.energy_const.fill_(0.007)
     return model.eval()
-
-
-class _OwnedRandomStateModel(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.base = _model()
-        self.input_dim = 1
-        self._pbas = deepcopy(PROJECTOR_BASIS)
-        self.rng = random.Random(1)
-
-    def forward(self, values):
-        state_word = self.rng.getstate()[1][1]
-        scale = 0.8 + float(state_word % 1000) * 1.0e-4
-        return self.base(values) * scale
 
 
 @dataclass(frozen=True)
@@ -247,7 +232,7 @@ def test_scanner_preserves_an_explicit_direct_backend(scanner_case):
 def test_scanner_snapshots_independent_method_and_driver_option_namespaces():
     method_response_options = {"cphf_tolerance": 1.0e-11}
     method_adjoint_options = {"objective_symmetry_tolerance": 1.0e-10}
-    driver_options = {"operator_dimension_limit": 64}
+    driver_options = {"max_cycle": 64}
     method = DeePHF(
         _fresh_reference(),
         _model(),
@@ -283,8 +268,6 @@ def test_scanner_does_not_mutate_the_original_reference_model_or_input_molecule(
         scanner_case.method.e_base,
         scanner_case.method.e_corr,
         scanner_case.method.e_tot,
-        scanner_case.method._trusted_response,
-        scanner_case.method._trusted_response_integrity,
     )
     model_state = {
         name: value.detach().clone()
@@ -309,8 +292,6 @@ def test_scanner_does_not_mutate_the_original_reference_model_or_input_molecule(
         scanner_case.method.e_base,
         scanner_case.method.e_corr,
         scanner_case.method.e_tot,
-        scanner_case.method._trusted_response,
-        scanner_case.method._trusted_response_integrity,
     ) == original_method_state
     assert scanner_case.model.training is model_training
     assert scanner_case.model._pbas == model_metadata
@@ -540,25 +521,6 @@ def test_scanner_recomputes_after_a_legal_between_call_model_change(scanner_case
     )
 
 
-def test_scanner_fingerprint_binds_model_owned_random_state():
-    model = _OwnedRandomStateModel().double().eval()
-    method = DeePHF(
-        _fresh_reference(),
-        model,
-        projector_basis=PROJECTOR_BASIS,
-    )
-    scanner = method.nuc_grad_method(backend="zvector").as_scanner()
-
-    first_energy, first_gradient = scanner(REFERENCE_COORDINATES)
-    first_fingerprint = scanner.model_state_fingerprint
-    model.rng.seed(2)
-    second_energy, second_gradient = scanner(REFERENCE_COORDINATES)
-
-    assert scanner.model_state_fingerprint != first_fingerprint
-    assert abs(second_energy - first_energy) > 1.0e-6
-    assert np.max(np.abs(second_gradient - first_gradient)) > 1.0e-7
-
-
 def test_scanner_detects_a_model_change_during_evaluation_and_recovers(
     scanner_case,
     monkeypatch,
@@ -577,7 +539,7 @@ def test_scanner_detects_a_model_change_during_evaluation_and_recovers(
         patch.setattr(CorrNet, "forward", mutate_model)
         with pytest.raises(
             RHFDeePHFScannerError,
-            match="model state changed during scanner energy evaluation",
+            match="forward implementation was replaced",
         ):
             scanner(REFERENCE_COORDINATES)
 

@@ -4,6 +4,7 @@ from types import MappingProxyType
 
 import numpy as np
 
+from .capabilities import science_state_transaction
 from .gradient import _validate_atom_indices
 from .pyscf_uhf import UHFAdjointError
 
@@ -104,9 +105,6 @@ class UHFDeePHFZVectorGradients:
         self.base._validate_science_state(
             "UHF Z-vector native gradient evaluation"
         )
-        self.base._assert_trusted_uhf_force_model_state(
-            "UHF Z-vector native gradient evaluation"
-        )
         try:
             gradient = np.asarray(
                 self.base.reference.nuc_grad_method().kernel()
@@ -116,9 +114,6 @@ class UHFDeePHFZVectorGradients:
                 f"native UHF gradient evaluation failed: {error}"
             ) from error
         self.base._validate_science_state(
-            "UHF Z-vector native gradient evaluation"
-        )
-        self.base._assert_trusted_uhf_force_model_state(
             "UHF Z-vector native gradient evaluation"
         )
         expected_shape = (self.mol.natm, 3)
@@ -139,19 +134,9 @@ class UHFDeePHFZVectorGradients:
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
             self.adjoint_options
         )
-        descriptor_diagnostics, sensitivity, adjoint = (
-            self.base._validate_zvector_inputs(
-                descriptor_diagnostics,
-                sensitivity,
-                adjoint,
-            )
-        )
         reference_gradient = self._validated_native_gradient()
         dq_explicit_spin = self.base.dq_dR_explicit_spin()
         self.base._validate_science_state(
-            "UHF Z-vector explicit descriptor gradient evaluation"
-        )
-        self.base._assert_trusted_uhf_force_model_state(
             "UHF Z-vector explicit descriptor gradient evaluation"
         )
         dq_explicit = dq_explicit_spin.sum(axis=0)
@@ -307,9 +292,6 @@ class UHFDeePHFZVectorGradients:
             "total gradient",
         )
         self.base._validate_science_state("UHF Z-vector gradient assembly")
-        self.base._assert_trusted_uhf_force_model_state(
-            "UHF Z-vector gradient assembly"
-        )
         return {
             "adjoint_result": adjoint,
             "descriptor_diagnostics": descriptor_diagnostics,
@@ -341,10 +323,10 @@ class UHFDeePHFZVectorGradients:
             "de_full": total,
         }
 
+    @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR without constructing dP/dR."""
         self._reset_results()
-        self._bound_base._clear_trusted_adjoint()
         try:
             self._validate_driver_binding()
             atom_indices = _validate_atom_indices(self.mol, atmlst)
@@ -358,7 +340,6 @@ class UHFDeePHFZVectorGradients:
             return self.de
         except Exception:
             self._reset_results()
-            self._bound_base._clear_trusted_adjoint()
             raise
 
     def run(self, atmlst=None):

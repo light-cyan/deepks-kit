@@ -49,19 +49,26 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
         return native
 
     def _kernel(self) -> dict:
-        descriptor_diagnostics = self.base.validate_force_compatibility()
-        response = self.base.response(**self.response_options)
+        descriptor_diagnostics, sensitivity = self.base._force_inputs()
+        response = self.base._solve_response(self.response_options)
         self.base._validate_science_state("UKS native gradient evaluation")
         native = self._validated_native_gradient()
         self.base._validate_science_state("UKS native gradient evaluation")
         dq_explicit_spin = self.base.dq_dR_explicit_spin()
-        dq_response_spin = self.base.dq_dR_response_spin(response=response)
+        dq_dP = self.base.dq_dP()
+        spin_density_response = np.stack(
+            (response.alpha_density_response, response.beta_density_response)
+        )
+        dq_response_spin = np.einsum(
+            "apij,sbxij->sbxap",
+            dq_dP,
+            spin_density_response,
+        )
         dq_relaxed_spin = dq_explicit_spin + dq_response_spin
         dq_explicit = dq_explicit_spin.sum(axis=0)
         dq_response = dq_response_spin.sum(axis=0)
         dq_relaxed = dq_relaxed_spin.sum(axis=0)
-        sensitivity = self.base.correction_sensitivity()
-        objective = self.base._correction_ao_potential(sensitivity)
+        objective = self.base._correction_ao_potential(sensitivity, dq_dP)
         correction_explicit_spin = np.einsum("sbxap,ap->sbx", dq_explicit_spin, sensitivity)
         metric_density = np.stack((response.alpha_density_response_metric, response.beta_density_response_metric))
         ov_density = np.stack((response.alpha_density_response_occupied_virtual, response.beta_density_response_occupied_virtual))

@@ -217,16 +217,6 @@ def generate_rhf_force_frame(
         response_options=options,
     )
     method.kernel()
-    descriptor_diagnostics = method.validate_force_compatibility(
-        **DESCRIPTOR_DIFFERENTIABILITY_CONTROLS
-    )
-    if descriptor_diagnostics.structural_zero_blocks:
-        raise DescriptorDifferentiabilityError(
-            "RHF force-data generation does not persist individual relaxed "
-            "descriptor derivatives for structural zero blocks: "
-            f"{descriptor_diagnostics.structural_zero_blocks}"
-        )
-
     molecule = method.mol
     target_energy = _scalar_target(e_target, "e_target")
     target_force = _float64_array(
@@ -237,6 +227,13 @@ def generate_rhf_force_frame(
 
     gradient = method.nuc_grad_method(backend="direct", **options)
     gradient.kernel()
+    descriptor_diagnostics = gradient.descriptor_diagnostics
+    if descriptor_diagnostics.structural_zero_blocks:
+        raise DescriptorDifferentiabilityError(
+            "RHF force-data generation does not persist individual relaxed "
+            "descriptor derivatives for structural zero blocks: "
+            f"{descriptor_diagnostics.structural_zero_blocks}"
+        )
     response = gradient.response_result
     if response is None:
         raise RHFResponseError(
@@ -465,10 +462,6 @@ def write_rhf_force_dataset(
         "max_cycle",
         "max_refinement_cycles",
         "level_shift",
-        "operator_stability_tolerance",
-        "operator_condition_tolerance",
-        "operator_symmetry_tolerance",
-        "operator_dimension_limit",
     )
     frame_provenance = [
         {

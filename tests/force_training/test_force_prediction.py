@@ -119,6 +119,36 @@ def test_predict_correction_uses_only_the_complete_relaxed_jacobian():
     assert prediction.energy.shape == (2, 1)
 
 
+def test_force_training_rejects_detached_descriptor_dependence():
+    class DetachedModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.scale = torch.nn.Parameter(torch.tensor(1.0, dtype=torch.float64))
+
+        def forward(self, values):
+            return self.scale * values.detach().sum() + 0.0 * values.sum()
+
+    descriptor = torch.ones((1, 1, 1), dtype=torch.float64)
+    jacobian = torch.ones((1, 1, 3, 1, 1), dtype=torch.float64)
+
+    with pytest.raises(TypeError, match="force derivatives require an exact .*CorrNet"):
+        predict_correction(DetachedModel(), descriptor, jacobian)
+
+
+def test_force_training_rejects_output_replacement_hooks():
+    model = _linear_model()
+    descriptor = torch.ones((1, 1, 2), dtype=torch.float64)
+    jacobian = torch.ones((1, 1, 3, 1, 2), dtype=torch.float64)
+    hook = model.register_forward_hook(
+        lambda _module, _inputs, output: output.detach() + 0.0 * output
+    )
+    try:
+        with pytest.raises(ValueError, match="cannot contain module execution hooks"):
+            predict_correction(model, descriptor, jacobian)
+    finally:
+        hook.remove()
+
+
 def test_nonlinear_normalized_force_matches_descriptor_displacement_energy_fd():
     model = CorrNet(
         input_dim=2,
@@ -253,8 +283,6 @@ def test_force_evaluator_requires_target_relaxed_jacobian_and_matching_contract(
     for required_name in (
         "force",
         "dq_dR_relaxed",
-        "force_contract_fingerprint",
-        "force_sample_fingerprint",
     ):
         incomplete = dict(sample)
         incomplete.pop(required_name)
@@ -267,19 +295,8 @@ def test_force_evaluator_requires_target_relaxed_jacobian_and_matching_contract(
         evaluator(model, explicit_only)
 
     foreign = dict(sample)
-    foreign["force_contract_fingerprint"] = torch.full(
-        (descriptor.shape[0], 32),
-        255,
-        dtype=torch.uint8,
-    )
-    with pytest.raises(ForceTrainingError, match="does not match"):
+    with pytest.raises(ForceTrainingError, match="validated force-data reader"):
         evaluator(model, foreign)
-
-    tampered = dict(sample)
-    tampered["dq_dR_relaxed"] = sample["dq_dR_relaxed"].clone()
-    tampered["dq_dR_relaxed"][0, 0, 0, 0, 0] += 1.0e-5
-    with pytest.raises(ForceTrainingError, match="does not belong"):
-        evaluator(model, tampered)
 
     wrong_projector_model = CorrNet(
         input_dim=2,

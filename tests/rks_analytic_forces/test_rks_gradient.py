@@ -2,9 +2,10 @@ import numpy as np
 import pytest
 import torch
 
+import deepks.deephf.pyscf_rks as pyscf_rks
 from deepks.model.model import CorrNet
 
-from conftest import ORACLE_PROJECTOR_BASIS
+ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
 
 
 def _make_constant_model(bias, energy_constant=0.0):
@@ -259,6 +260,51 @@ def test_explicit_only_correction_gradient_is_not_relaxed_rks(
     )
 
     assert np.max(np.abs(explicit_only - finite_difference)) > 0.02
+
+
+def test_rks_public_force_calls_have_single_transaction_budgets(
+    rks_oracle_case,
+    monkeypatch,
+):
+    method = rks_oracle_case.method
+    original_fingerprint = pyscf_rks._dft_reference_validation_fingerprint
+    original_force_inputs = method._force_inputs
+    original_explicit = method._descriptor.dq_dR_explicit
+    fingerprint_calls = 0
+    force_input_calls = 0
+    explicit_calls = 0
+
+    def counted_fingerprint(reference):
+        nonlocal fingerprint_calls
+        fingerprint_calls += 1
+        return original_fingerprint(reference)
+
+    def counted_force_inputs(**options):
+        nonlocal force_input_calls
+        force_input_calls += 1
+        return original_force_inputs(**options)
+
+    def counted_explicit(*args, **options):
+        nonlocal explicit_calls
+        explicit_calls += 1
+        return original_explicit(*args, **options)
+
+    monkeypatch.setattr(
+        pyscf_rks,
+        "_dft_reference_validation_fingerprint",
+        counted_fingerprint,
+    )
+    monkeypatch.setattr(method, "_force_inputs", counted_force_inputs)
+    monkeypatch.setattr(method._descriptor, "dq_dR_explicit", counted_explicit)
+
+    for calculation in (method.dq_dR_relaxed, method.gradient):
+        fingerprint_calls = 0
+        force_input_calls = 0
+        explicit_calls = 0
+        assert np.isfinite(calculation()).all()
+        assert fingerprint_calls == 2
+        assert force_input_calls == 1
+        assert explicit_calls == 1
 
 
 @pytest.mark.parametrize(

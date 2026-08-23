@@ -1,6 +1,8 @@
 import os
 import sys
 import math
+from numbers import Real
+import operator
 from collections.abc import Mapping
 from dataclasses import dataclass
 import numpy as np
@@ -17,7 +19,6 @@ from deepks.data.force_schema import (
     ForceDataError,
     force_checkpoint_metadata,
     validate_force_data_contract,
-    validate_force_sample_arrays,
     validate_force_checkpoint_metadata,
 )
 from deepks.model.evaluate import CorrectionPrediction, model_reference, predict_correction
@@ -29,6 +30,7 @@ from deepks.model.model import (
 from deepks.model.reader import (
     FORCE_MODE_DEEPHF_RELAXED,
     FORCE_MODE_NONE,
+    ForceBatch,
     GroupReader,
 )
 from deepks.utils import load_basis, load_dirs, load_elem_table
@@ -186,46 +188,13 @@ def validate_model_force_contract(model, contract: ForceDataContract) -> None:
         )
 
 
-def _validate_contract_marker(
-    marker,
+def _require_sample_tensor(
+    sample,
+    name: str,
     *,
-    expected_fingerprint: str,
-    frame_count: int,
-) -> None:
-    if not isinstance(marker, torch.Tensor):
-        raise ForceTrainingError("force_contract_fingerprint must be a torch.Tensor")
-    if marker.dtype != torch.uint8:
-        raise ForceTrainingError("force_contract_fingerprint must use torch.uint8")
-    if marker.shape != (frame_count, 32):
-        raise ForceTrainingError(
-            "force_contract_fingerprint must have shape "
-            f"({frame_count}, 32); received {tuple(marker.shape)}"
-        )
-    expected = torch.tensor(
-        list(bytes.fromhex(expected_fingerprint)),
-        dtype=torch.uint8,
-        device=marker.device,
-    ).expand(frame_count, -1)
-    if not torch.equal(marker, expected):
-        raise ForceTrainingError(
-            "sample force contract fingerprint does not match the configured contract"
-        )
-
-
-def _sample_ids_from_marker(marker, *, frame_count: int) -> list[str]:
-    if not isinstance(marker, torch.Tensor):
-        raise ForceTrainingError("force_sample_fingerprint must be a torch.Tensor")
-    if marker.dtype != torch.uint8:
-        raise ForceTrainingError("force_sample_fingerprint must use torch.uint8")
-    if marker.shape != (frame_count, 32):
-        raise ForceTrainingError(
-            "force_sample_fingerprint must have shape "
-            f"({frame_count}, 32); received {tuple(marker.shape)}"
-        )
-    return [bytes(row.tolist()).hex() for row in marker.detach().cpu()]
-
-
-def _require_sample_tensor(sample, name: str, *, ndim: int) -> torch.Tensor:
+    ndim: int,
+    check_finite: bool = True,
+) -> torch.Tensor:
     if name not in sample:
         raise ValueError(f"sample is missing required field {name!r}")
     value = sample[name]
@@ -237,45 +206,47 @@ def _require_sample_tensor(sample, name: str, *, ndim: int) -> torch.Tensor:
         raise ValueError(
             f"sample field {name!r} must have rank {ndim}; received {tuple(value.shape)}"
         )
-    if not torch.isfinite(value).all():
+    if check_finite and not torch.isfinite(value).all():
         raise ValueError(f"sample field {name!r} must contain only finite values")
     return value
 
 
-def _summarize_evaluations(results: list[EvaluationResult]) -> MetricSummary:
-    if not results:
+def _summarize_evaluations(results) -> MetricSummary:
+    energy_absolute = energy_squared = 0.0
+    force_absolute = force_squared = 0.0
+    energy_count = force_count = 0
+    for result in results:
+        energy_absolute += result.energy_metrics.absolute_error_sum.item()
+        energy_squared += result.energy_metrics.squared_error_sum.item()
+        energy_count += result.energy_metrics.count
+        if result.force_metrics is not None:
+            force_absolute += result.force_metrics.absolute_error_sum.item()
+            force_squared += result.force_metrics.squared_error_sum.item()
+            force_count += result.force_metrics.count
+    if energy_count == 0:
         raise ValueError("cannot summarize an empty evaluation")
-
-    def combine(metrics):
-        metrics = [value for value in metrics if value is not None]
-        if not metrics:
-            return None, None
-        absolute_sum = sum(value.absolute_error_sum.item() for value in metrics)
-        squared_sum = sum(value.squared_error_sum.item() for value in metrics)
-        count = sum(value.count for value in metrics)
-        return absolute_sum / count, math.sqrt(squared_sum / count)
-
-    energy_mae, energy_rmse = combine(
-        [result.energy_metrics for result in results]
-    )
-    force_mae, force_rmse = combine(
-        [result.force_metrics for result in results]
-    )
     return MetricSummary(
-        energy_mae=energy_mae,
-        energy_rmse=energy_rmse,
-        force_mae=force_mae,
-        force_rmse=force_rmse,
+        energy_mae=energy_absolute / energy_count,
+        energy_rmse=math.sqrt(energy_squared / energy_count),
+        force_mae=None if force_count == 0 else force_absolute / force_count,
+        force_rmse=None if force_count == 0 else math.sqrt(force_squared / force_count),
     )
 
 
 def evaluate_reader(model, reader, evaluator: "Evaluator") -> MetricSummary:
     """Evaluate one reader with the same predictor and metrics used for training."""
-    results = [
-        evaluator.evaluate(model, batch, create_graph=False)
-        for batch in reader.sample_all_batch()
-    ]
-    return _summarize_evaluations(results)
+    def results():
+        needs_gradient = (
+            evaluator.force_factor > 0
+            or evaluator.density_factor > 0
+            or evaluator.gradient_penalty > 0
+        )
+        context = torch.enable_grad if needs_gradient else torch.no_grad
+        for batch in reader.sample_all_batch():
+            with context():
+                yield evaluator.evaluate(model, batch, create_graph=False)
+
+    return _summarize_evaluations(results())
 
 
 def _training_batches(reader):
@@ -402,11 +373,6 @@ class Evaluator:
             else ()
         )
         self.force_contract = self.force_contracts[0] if self.force_contracts else None
-        self.force_contract_fingerprint = (
-            force_contract_fingerprint(self.force_contract)
-            if self.force_factor > 0
-            else None
-        )
 
     def __call__(self, model, sample):
         return self.evaluate(model, sample, create_graph=True).total_loss
@@ -420,8 +386,6 @@ class Evaluator:
         strict_sample_fields = {
             "force",
             "dq_dR_relaxed",
-            "force_contract_fingerprint",
-            "force_sample_fingerprint",
         }
         if self.force_factor == 0 and strict_sample_fields.intersection(sample):
             raise ForceTrainingError(
@@ -447,26 +411,19 @@ class Evaluator:
                 sample,
                 "dq_dR_relaxed",
                 ndim=5,
+                check_finite=False,
             )
-            marker_name = "force_contract_fingerprint"
-            if marker_name not in sample:
+            if type(sample) is not ForceBatch or not sample.force_contracts:
                 raise ForceTrainingError(
-                    f"force-aware sample is missing required field {marker_name!r}"
+                    "force-aware samples must come from a validated force-data reader"
                 )
-            _validate_contract_marker(
-                sample[marker_name],
-                expected_fingerprint=self.force_contract_fingerprint,
-                frame_count=descriptor.shape[0],
-            )
-            sample_marker_name = "force_sample_fingerprint"
-            if sample_marker_name not in sample:
+            if any(
+                not any(source is accepted for accepted in self.force_contracts)
+                for source in sample.force_contracts
+            ):
                 raise ForceTrainingError(
-                    f"force-aware sample is missing required field {sample_marker_name!r}"
+                    "force-aware sample does not belong to the configured readers"
                 )
-            sample_ids = _sample_ids_from_marker(
-                sample[sample_marker_name],
-                frame_count=descriptor.shape[0],
-            )
             expected_force_shape = (
                 descriptor.shape[0],
                 relaxed_jacobian.shape[1],
@@ -477,39 +434,6 @@ class Evaluator:
                     "sample force shape must exactly match the relaxed-Jacobian raw-atom "
                     f"axis; expected {expected_force_shape}, received {tuple(target_force.shape)}"
                 )
-            for frame_index, sample_id in enumerate(sample_ids):
-                sample_contract = next(
-                    (
-                        contract
-                        for contract in self.force_contracts
-                        if any(
-                            frame["sample_id"] == sample_id
-                            for frame in contract.manifest["frames"]
-                        )
-                    ),
-                    None,
-                )
-                if sample_contract is None:
-                    raise ForceTrainingError(
-                        "force-aware sample_id is not present in the configured contracts"
-                    )
-                try:
-                    validate_force_sample_arrays(
-                        sample_contract,
-                        sample_id,
-                        {
-                            "energy": energy[frame_index].detach().cpu().numpy(),
-                            "descriptor": descriptor[frame_index].detach().cpu().numpy(),
-                            "force": target_force[frame_index].detach().cpu().numpy(),
-                            "dq_dR_relaxed": relaxed_jacobian[
-                                frame_index
-                            ].detach().cpu().numpy(),
-                        },
-                    )
-                except (ForceDataError, TypeError) as error:
-                    raise ForceTrainingError(
-                        f"force-aware sample provenance validation failed: {error}"
-                    ) from error
             target_force = target_force.to(
                 device=reference.device,
                 non_blocking=True,
@@ -530,6 +454,7 @@ class Evaluator:
             dq_dR_relaxed=relaxed_jacobian,
             require_force=self.force_factor > 0,
             create_graph=create_graph,
+            _validated_inputs=True,
         )
         energy_loss = self.energy_lossfn(prediction.energy, energy)
         if not isinstance(energy_loss, torch.Tensor) or energy_loss.numel() != 1:
@@ -607,6 +532,29 @@ class Evaluator:
         )
 
 
+def _training_integer(value, name: str, *, allow_zero: bool = False) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer")
+    try:
+        value = operator.index(value)
+    except TypeError as error:
+        raise TypeError(f"{name} must be an integer") from error
+    if value < 0 or (value == 0 and not allow_zero):
+        qualifier = "nonnegative" if allow_zero else "positive"
+        raise ValueError(f"{name} must be {qualifier}")
+    return value
+
+
+def _training_real(value, name: str, *, allow_zero: bool = False) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number")
+    value = float(value)
+    if not np.isfinite(value) or value < 0.0 or (value == 0.0 and not allow_zero):
+        qualifier = "nonnegative" if allow_zero else "positive"
+        raise ValueError(f"{name} must be finite and {qualifier}")
+    return value
+
+
 def train(model, g_reader, n_epoch=1000, test_reader=None, *,
           energy_factor=1., force_factor=0., density_factor=0.,
           energy_loss=None, force_loss=None, grad_penalty=0.,
@@ -614,7 +562,22 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
           weight_decay=0.,  fix_embedding=False,
           display_epoch=100, ckpt_file="model.pth", device=DEVICE,
           force_contract=None):
-    
+
+    n_epoch = _training_integer(n_epoch, "n_epoch", allow_zero=True)
+    decay_steps = _training_integer(decay_steps, "decay_steps")
+    display_epoch = _training_integer(display_epoch, "display_epoch")
+    start_lr = _training_real(start_lr, "start_lr")
+    decay_rate = _training_real(decay_rate, "decay_rate")
+    weight_decay = _training_real(weight_decay, "weight_decay", allow_zero=True)
+    energy_factor = _training_real(energy_factor, "energy_factor", allow_zero=True)
+    force_factor = _training_real(force_factor, "force_factor", allow_zero=True)
+    density_factor = _training_real(density_factor, "density_factor", allow_zero=True)
+    grad_penalty = _training_real(grad_penalty, "grad_penalty", allow_zero=True)
+    if stop_lr is not None:
+        stop_lr = _training_real(stop_lr, "stop_lr")
+        if n_epoch < decay_steps:
+            raise ValueError("stop_lr requires at least one scheduled decay step")
+
     model = model.to(device)
     model.eval()
     print("# working on device:", device)

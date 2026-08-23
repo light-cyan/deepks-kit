@@ -4,6 +4,7 @@ from dataclasses import dataclass, fields, replace
 import hashlib
 from numbers import Real
 from typing import Any
+import weakref
 
 import numpy as np
 import pyscf
@@ -16,7 +17,11 @@ from pyscf.scf import hf as scf_hf
 
 from deepks.descriptor import is_ghost_atom
 
-from .capabilities import DeePHFCapabilityError
+from .capabilities import (
+    DeePHFCapabilityError,
+    reference_is_transaction_validated,
+    transaction_reference_fingerprint,
+)
 from .pyscf_rks import (
     RKSFunctionalProvenance,
     RKSGridProvenance,
@@ -24,6 +29,9 @@ from .pyscf_rks import (
     SUPPORTED_LIBXC_VERSION,
     SUPPORTED_NUMINT_CUTOFF,
     _array_fingerprint,
+    _build_grid_provenance,
+    _dft_reference_validation_fingerprint,
+    _GRID_PROVENANCE_CACHE,
     _grid_provenance,
     _normalized_atom_grid,
     _normalized_functional_components,
@@ -313,8 +321,11 @@ def _dense_uks_quadrature(reference, density: np.ndarray):
     return electron_counts, xc_energy, xc_potential
 
 
-def validate_uks_reference(reference):
-    """Validate the exact native finite-grid pure-LDA UKS tier."""
+_VALIDATED_UKS_REFERENCES = weakref.WeakKeyDictionary()
+
+
+def _audit_uks_reference(reference):
+    """Audit the exact native finite-grid pure-LDA UKS tier."""
     validate_pyscf_version()
     if type(reference) is not dft.uks.UKS:
         raise DeePHFCapabilityError(
@@ -377,7 +388,8 @@ def validate_uks_reference(reference):
     if reference_hooks or molecule_hooks:
         raise DeePHFCapabilityError("the strict UKS reference contains instance hooks")
     functional = _uks_functional_provenance(reference)
-    grid = _grid_provenance(reference)
+    grid = _build_grid_provenance(reference)
+    _GRID_PROVENANCE_CACHE[reference] = (None, grid)
     if reference.mo_coeff is None or reference.mo_energy is None or reference.mo_occ is None:
         raise DeePHFCapabilityError("the UKS orbital state is incomplete")
     coefficient = np.asarray(reference.mo_coeff)
@@ -496,25 +508,45 @@ def validate_uks_reference(reference):
     return reference
 
 
+def validate_uks_reference(reference):
+    """Validate a UKS reference once per unchanged scientific state."""
+    if reference_is_transaction_validated(reference):
+        return reference
+    if type(reference) is not dft.uks.UKS:
+        return _audit_uks_reference(reference)
+    try:
+        fingerprint = _dft_reference_validation_fingerprint(reference)
+    except Exception:
+        return _audit_uks_reference(reference)
+    if _VALIDATED_UKS_REFERENCES.get(reference) == fingerprint:
+        return reference
+    _audit_uks_reference(reference)
+    _VALIDATED_UKS_REFERENCES[reference] = fingerprint
+    _GRID_PROVENANCE_CACHE[reference] = (
+        fingerprint,
+        _GRID_PROVENANCE_CACHE[reference][1],
+    )
+    return reference
+
+
+def audit_uks_reference(reference):
+    """Run all expensive finite-grid and independent-quadrature checks."""
+    result = _audit_uks_reference(reference)
+    fingerprint = _dft_reference_validation_fingerprint(reference)
+    _VALIDATED_UKS_REFERENCES[reference] = fingerprint
+    _GRID_PROVENANCE_CACHE[reference] = (
+        fingerprint,
+        _GRID_PROVENANCE_CACHE[reference][1],
+    )
+    return result
+
+
 def uks_reference_fingerprint(reference) -> str:
     """Fingerprint one accepted UKS molecular, orbital, functional, and grid state."""
-    digest = hashlib.sha256()
-    values = (
-        pyscf.__version__,
-        f"{type(reference).__module__}.{type(reference).__qualname__}",
-        bool(reference.converged),
-        uhf_molecule_science_fingerprint(reference.mol),
-        float(reference.e_tot),
-        np.asarray(reference.mo_coeff),
-        np.asarray(reference.mo_energy),
-        np.asarray(reference.mo_occ),
-        np.asarray(reference.make_rdm1()),
-        _uks_functional_provenance(reference),
-        _grid_provenance(reference),
-    )
-    for value in values:
-        _update_fingerprint_value(digest, value)
-    return digest.hexdigest()
+    trusted = transaction_reference_fingerprint(reference)
+    if trusted is not None:
+        return trusted
+    return _dft_reference_validation_fingerprint(reference)
 
 
 class _UKSLinearResponseMixin:

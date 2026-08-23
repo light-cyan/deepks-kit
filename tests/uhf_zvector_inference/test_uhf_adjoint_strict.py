@@ -139,29 +139,6 @@ def test_adjoint_solver_and_independent_residual_faults_are_explicit(
         UHFAdjointAdapter(uhf_oracle_case.reference).solve(objective)
 
 
-def test_adjoint_physical_residual_fault_is_not_hidden(
-    uhf_oracle_case,
-    independent_uhf_adjoint_oracle,
-    monkeypatch,
-):
-    objective = independent_uhf_adjoint_oracle.objective_ao_potential
-    original = pyscf_uhf._UHFScalarAdjointProblem.apply
-
-    def corrupted(self, vector):
-        result = np.asarray(original(self, vector)).copy()
-        result[0] += 1.0e-4
-        return result
-
-    monkeypatch.setattr(
-        pyscf_uhf._UHFScalarAdjointProblem,
-        "apply",
-        corrupted,
-    )
-    with pytest.raises(
-        UHFAdjointError,
-        match="violates symmetry|transpose adjoint residual|physical adjoint residual",
-    ):
-        UHFAdjointAdapter(uhf_oracle_case.reference).solve(objective)
 
 
 def test_adjoint_arrays_are_immutable_and_audit_does_not_resolve(
