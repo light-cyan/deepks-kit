@@ -255,7 +255,7 @@ RHF and UHF use all-electron spherical molecular references with symmetry disabl
 
 The direct and Z-vector backends independently check equation residuals and reconstruction identities. A response, adjoint, model, projector, descriptor, convergence, provenance, or numerical-conditioning failure raises an explicit error and does not fall back to a partial gradient.
 
-The full scientific definitions, tensor conventions, capability boundaries, and validation rules are documented in `docs/issue-93/p0_scientific_contract.md`.
+Archived Issue #93 design material is stored under `docs/legacy/issue-93/` for historical reference.
 
 ## Project layout
 
@@ -270,7 +270,7 @@ The full scientific definitions, tensor conventions, capability boundaries, and 
 | `deepks/task/` | Local and remote task execution. |
 | `examples/` | Runnable inference, training, SCF, and iteration configurations. |
 | `tests/` | Baseline, analytic-force, Z-vector, force-training, workflow, and architecture tests. |
-| `docs/issue-93/` | Scientific contracts and accepted implementation documents. |
+| `docs/legacy/` | Archived material from past work. |
 
 ## Verification
 

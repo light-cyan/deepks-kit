@@ -2,7 +2,8 @@
 
 ## Current objective
 
-- This `light-cyan/deepks-kit` fork is dedicated to completing upstream [`deepmodeling/deepks-kit` Issue #93](https://github.com/deepmodeling/deepks-kit/issues/93): exact analytic DeePHF nuclear forces and force-aware training.
+- Upstream [`deepmodeling/deepks-kit` Issue #93](https://github.com/deepmodeling/deepks-kit/issues/93), covering exact analytic DeePHF nuclear forces and force-aware training, is complete in this fork.
+- Current development focuses on improving computational efficiency, reducing redundancy in code and execution paths, and fixing correctness defects.
 
 ## Environment
 
@@ -14,17 +15,24 @@
 ## Project layout
 
 - `deepks/model/`: neural-network models, data readers, training, and model evaluation.
+- `deepks/deephf/`: perturbative DeePHF inference, response calculations, analytic nuclear gradients, and force-data generation.
 - `deepks/scf/`: PySCF integration, self-consistent calculations, and analytic nuclear gradients.
 - `deepks/iterate/` and `deepks/task/`: iterative workflows and task execution.
 - `examples/`: runnable configurations and sample data.
 - `tests/baseline/`: smoke checks for currently supported core functionality.
-- `docs/issue-93/`: Issue #93 assessments and the phased implementation plan.
+- `docs/legacy/` contains archived material from past work. It is not a current requirement or development input and does not need to be read unless the user explicitly requests historical comparison.
+
+## Maintenance priorities
+
+- Prefer simpler production paths that avoid redundant validation, repeated calculations, unnecessary materialization, and duplicate state.
+- Preserve scientific correctness and public behavior with focused regression tests.
+- Tests that enforce obsolete implementation details or unnecessary computations may be removed or replaced when those implementation paths are retired.
 
 ## Creating tests
 
 - Organize test modules by their testing objective under `tests/<objective>/`.
 - Place core-function smoke checks in `tests/baseline/`.
-- Create a dedicated objective directory for each feature-development effort; analytic-force development uses `tests/analytic_forces/`.
+- Create a dedicated objective directory for each substantial development effort.
 
 ## Test quality
 
