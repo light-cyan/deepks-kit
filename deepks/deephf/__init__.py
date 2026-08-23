@@ -5,6 +5,7 @@ from .adjoint import (
     AdjointError,
     AdjointResult,
     ScalarAdjointProblem,
+    scalar_operator_fingerprint,
     solve_scalar_adjoint,
 )
 
@@ -29,6 +30,7 @@ from .pyscf_rhf import (
     RHFAdjointError,
     RHFResponse,
     RHFResponseAdapter,
+    RHFBlockedResponseSummary,
     RHFResponseDiagnostics,
     RHFResponseError,
     RHFRootSnapshot,
@@ -104,6 +106,7 @@ __all__ = [
     "RHFAdjointError",
     "RHFResponse",
     "RHFResponseAdapter",
+    "RHFBlockedResponseSummary",
     "RHFResponseDiagnostics",
     "RHFResponseError",
     "RHFRootSnapshot",
@@ -149,6 +152,7 @@ __all__ = [
     "UKSResponseError",
     "generate_rhf_force_frame",
     "solve_scalar_adjoint",
+    "scalar_operator_fingerprint",
     "validate_model",
     "validate_force_model",
     "validate_model_output",

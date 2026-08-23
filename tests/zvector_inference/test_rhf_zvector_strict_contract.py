@@ -159,18 +159,19 @@ def test_invalid_method_options_fail_in_their_own_backend_namespace(
 
 def _corrupted_solver(kind, original_solve):
     if kind == "residual":
-        def solve(matrix, rhs):
-            return original_solve(matrix, rhs) + 1.0e-3
+        def solve(matrix, rhs, **options):
+            solution, info = original_solve(matrix, rhs, **options)
+            return solution + 1.0e-3, info
 
         return solve
     if kind == "nonfinite":
-        def solve(_matrix, rhs):
-            return np.full_like(rhs, np.nan)
+        def solve(_matrix, rhs, **_options):
+            return np.full_like(rhs, np.nan), 0
 
         return solve
 
-    def solve(_matrix, _rhs):
-        raise np.linalg.LinAlgError("injected adjoint failure")
+    def solve(_matrix, _rhs, **_options):
+        raise RuntimeError("injected adjoint failure")
 
     return solve
 
@@ -178,9 +179,9 @@ def _corrupted_solver(kind, original_solve):
 @pytest.mark.parametrize(
     ("corruption", "match"),
     [
-        ("residual", "adjoint residual exceeds tolerance"),
+        ("residual", "adjoint solver residual exceeds tolerance"),
         ("nonfinite", "adjoint solution must be finite"),
-        ("hard", "dense transpose adjoint solve failed"),
+        ("hard", "matrix-free GMRES adjoint solver raised an error"),
     ],
 )
 def test_corrupted_adjoint_solver_fails_without_fallback_and_clears_results(
@@ -192,12 +193,12 @@ def test_corrupted_adjoint_solver_fails_without_fallback_and_clears_results(
     method = zvector_algebra_case.method
     driver = method.nuc_grad_method(backend="zvector").run()
     assert all(getattr(driver, name) is not None for name in DRIVER_RESULT_FIELDS)
-    original_solve = np.linalg.solve
+    original_solve = adjoint_module.gmres
 
     with monkeypatch.context() as patch:
         patch.setattr(
-            adjoint_module.np.linalg,
-            "solve",
+            adjoint_module,
+            "gmres",
             _corrupted_solver(corruption, original_solve),
         )
         with pytest.raises(RHFAdjointError, match=match):
@@ -730,14 +731,14 @@ def test_nonlinear_corrnet_descriptor_fd_audit_preserves_one_adjoint_solve(
 ):
     method = _fresh_method(zvector_algebra_case)
     solve_count = 0
-    original_solve = adjoint_module.np.linalg.solve
+    original_solve = adjoint_module.gmres
 
-    def counted_solve(matrix, rhs):
+    def counted_solve(matrix, rhs, **options):
         nonlocal solve_count
         solve_count += 1
-        return original_solve(matrix, rhs)
+        return original_solve(matrix, rhs, **options)
 
-    monkeypatch.setattr(adjoint_module.np.linalg, "solve", counted_solve)
+    monkeypatch.setattr(adjoint_module, "gmres", counted_solve)
     with torch.no_grad():
         gradient = method.gradient(backend="zvector")
 

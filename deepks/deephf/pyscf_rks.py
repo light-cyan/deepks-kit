@@ -3231,6 +3231,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             objective_orbital_gradient.reshape(response_dimension),
             residual_tolerance=self.residual_tolerance,
             require_physical_residual=True,
+            solver="dense",
         )
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))

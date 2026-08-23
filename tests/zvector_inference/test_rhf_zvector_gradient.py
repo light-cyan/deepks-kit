@@ -227,18 +227,20 @@ def test_zvector_backend_never_enters_direct_or_complete_density_paths(
         method.nuc_grad_method(backend="direct").kernel()
 
 
-def test_one_scalar_objective_has_one_rhs_and_exactly_one_linear_solve(
+def test_one_scalar_objective_uses_one_matrix_free_linear_solve(
     zvector_algebra_case,
     monkeypatch,
 ):
-    original_solve = np.linalg.solve
-    calls = []
+    original_solve = adjoint_module.gmres
+    calls = 0
 
-    def counted_solve(matrix, rhs):
-        calls.append((np.asarray(matrix).shape, np.asarray(rhs).shape))
-        return original_solve(matrix, rhs)
+    def counted_solve(matrix, rhs, **options):
+        nonlocal calls
+        calls += 1
+        assert matrix.shape == (rhs.size, rhs.size)
+        return original_solve(matrix, rhs, **options)
 
-    monkeypatch.setattr(adjoint_module.np.linalg, "solve", counted_solve)
+    monkeypatch.setattr(adjoint_module, "gmres", counted_solve)
     driver = zvector_algebra_case.method.nuc_grad_method(
         backend="zvector"
     ).run()
@@ -247,12 +249,7 @@ def test_one_scalar_objective_has_one_rhs_and_exactly_one_linear_solve(
     n_occupied = int(np.count_nonzero(occupations > 0))
     n_virtual = int(np.count_nonzero(occupations == 0))
 
-    assert calls == [
-        (
-            (n_occupied * n_virtual, n_occupied * n_virtual),
-            (n_occupied * n_virtual,),
-        )
-    ]
+    assert calls == 1
     assert adjoint.objective_orbital_gradient.shape == (
         n_virtual,
         n_occupied,
@@ -261,6 +258,7 @@ def test_one_scalar_objective_has_one_rhs_and_exactly_one_linear_solve(
         adjoint.diagnostics.response_dimension
     )
     assert adjoint.diagnostics.solve_count == 1
+    assert adjoint.diagnostics.iteration_count > 0
     assert not hasattr(driver, "dq_dR_response")
     assert not hasattr(driver, "dq_dR_relaxed")
     for name in (

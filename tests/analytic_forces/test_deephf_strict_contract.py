@@ -293,14 +293,18 @@ def test_response_rejects_noninteger_limits(
         rhf_oracle_case.method.response(**{option_name: option_value})
 
 
-def test_response_rejects_a_condition_audit_outside_its_dimension_limit(
+def test_response_uses_matrix_free_audit_outside_its_dense_dimension_limit(
     rhf_oracle_case,
 ):
-    with pytest.raises(
-        DeePHFCapabilityError,
-        match="response dimension exceeds the explicit condition-audit limit",
-    ):
-        rhf_oracle_case.method.response(operator_dimension_limit=9)
+    response = rhf_oracle_case.method.response(operator_dimension_limit=9)
+    assert response.diagnostics.response_dimension == 10
+    assert response.diagnostics.response_dimension > 9
+    np.testing.assert_allclose(
+        response.density_response,
+        rhf_oracle_case.response.density_response,
+        rtol=0.0,
+        atol=1.0e-11,
+    )
 
 
 @pytest.mark.parametrize(

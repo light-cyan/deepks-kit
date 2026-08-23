@@ -729,7 +729,23 @@ def _normalize_provenance(
     reference["basis_sha256"] = basis_hash
 
     response = _require_mapping(provenance["response"], "response")
-    _require_exact_keys(response, {"backend", "adapter", "controls"}, "response")
+    response_keys = {"backend", "adapter", "controls"}
+    blocked_response_fields = {
+        "coordinate_block_size",
+        "response_block_count",
+    }
+    present_blocked_fields = blocked_response_fields.intersection(response)
+    if present_blocked_fields:
+        response_keys.update(blocked_response_fields)
+    _require_exact_keys(response, response_keys, "response")
+    for field_name in present_blocked_fields:
+        field_value = response[field_name]
+        if (
+            isinstance(field_value, bool)
+            or not isinstance(field_value, int)
+            or field_value <= 0
+        ):
+            raise _error(f"response.{field_name} must be a positive integer")
     if response["backend"] != "rhf_direct":
         raise _error("v1 force data require the rhf_direct response backend")
     if response["adapter"] != "deepks.deephf.pyscf_rhf.RHFResponseAdapter":
@@ -1007,7 +1023,6 @@ def _normalize_provenance(
             isinstance(response_dimension, bool)
             or not isinstance(response_dimension, int)
             or response_dimension != expected_response_dimension
-            or response_dimension > diagnostics["operator_dimension_limit"]
         ):
             raise _error(f"frame {frame_index} response dimension is invalid")
         expected_condition = (
@@ -1344,8 +1359,24 @@ def _validate_contract_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
         raise _error("force contract basis fingerprint is inconsistent")
 
     response = manifest["response"]
-    if not isinstance(response, dict) or set(response) != {"backend", "adapter", "controls"}:
+    canonical_response_keys = {"backend", "adapter", "controls"}
+    if isinstance(response, dict) and "coordinate_block_size" in response:
+        canonical_response_keys.update(
+            {"coordinate_block_size", "response_block_count"}
+        )
+    if not isinstance(response, dict) or set(response) != canonical_response_keys:
         raise _error("force contract response provenance is not canonical")
+    for field_name in ("coordinate_block_size", "response_block_count"):
+        if field_name in response:
+            field_value = response[field_name]
+            if (
+                isinstance(field_value, bool)
+                or not isinstance(field_value, int)
+                or field_value <= 0
+            ):
+                raise _error(
+                    f"force contract response {field_name} is invalid"
+                )
     generation = manifest["generation"]
     compatibility = _json_fingerprint(
         _compatibility_seed(

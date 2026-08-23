@@ -19,7 +19,11 @@ from pyscf.scf import cphf, hf as scf_hf
 
 from deepks.descriptor import is_ghost_atom
 
-from .adjoint import AdjointError, solve_scalar_adjoint
+from .adjoint import (
+    AdjointError,
+    scalar_operator_fingerprint,
+    solve_scalar_adjoint,
+)
 from .capabilities import DeePHFCapabilityError
 
 
@@ -334,7 +338,7 @@ class RHFRootSnapshot:
 
 @dataclass(frozen=True)
 class RHFResponseDiagnostics:
-    """Independent diagnostics for one complete nuclear CPHF solve."""
+    """Independent diagnostics for one full or coordinate-block CPHF solve."""
 
     minimum_orbital_gap: float
     pyscf_version: str
@@ -365,11 +369,12 @@ class RHFResponseDiagnostics:
 
 @dataclass(frozen=True)
 class RHFResponse:
-    """Complete first-order RHF state for all nuclear coordinates."""
+    """First-order RHF state for the recorded nuclear coordinates."""
 
     reference_identity: int
     state_fingerprint: str
     integrity_fingerprint: str
+    atom_indices: tuple[int, ...]
     mo_response: np.ndarray
     mo_response_occupied_virtual: np.ndarray
     mo_response_metric: np.ndarray
@@ -383,6 +388,31 @@ class RHFResponse:
     hamiltonian_derivative: np.ndarray
     orbital_response_residual: np.ndarray
     diagnostics: RHFResponseDiagnostics
+
+
+@dataclass(frozen=True)
+class RHFBlockedResponseSummary:
+    """Compact provenance for a direct response consumed block by block."""
+
+    reference_identity: int
+    state_fingerprint: str
+    integrity_fingerprint: str
+    coordinate_block_size: int
+    block_count: int
+    diagnostics: RHFResponseDiagnostics
+
+
+def blocked_response_summary_integrity_fingerprint(
+    summary: RHFBlockedResponseSummary,
+) -> str:
+    """Return a digest covering one compact blocked-response summary."""
+    digest = hashlib.sha256()
+    for field_definition in fields(summary):
+        if field_definition.name == "integrity_fingerprint":
+            continue
+        digest.update(field_definition.name.encode("utf-8"))
+        digest.update(repr(getattr(summary, field_definition.name)).encode("utf-8"))
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -416,6 +446,9 @@ class RHFAdjointDiagnostics:
     transpose_residual_rms: float
     maximum_physical_residual: float
     physical_residual_rms: float
+    max_cycle: int
+    krylov_restart: int
+    iteration_count: int
 
 
 @dataclass(frozen=True)
@@ -1365,6 +1398,7 @@ class _RHFLinearResponseCore:
             operator_dimension_limit,
             "operator_dimension_limit",
         )
+        self._operator_diagnostics_cache = None
         tolerance_values = (
             self.cphf_tolerance,
             self.residual_tolerance,
@@ -1397,6 +1431,32 @@ class _RHFLinearResponseCore:
     def molecule(self):
         return self.reference.mol
 
+    def _response_atom_indices(self, atom_indices) -> tuple[int, ...]:
+        if atom_indices is None:
+            return tuple(range(self.molecule.natm))
+        try:
+            indices = tuple(atom_indices)
+        except TypeError as error:
+            raise TypeError("response atom_indices must be iterable") from error
+        if not indices:
+            raise ValueError("response atom_indices must not be empty")
+        validated_indices = []
+        for atom_index in indices:
+            if isinstance(atom_index, (bool, np.bool_)):
+                raise TypeError("response atom indices must be integers")
+            try:
+                validated = operator.index(atom_index)
+            except TypeError as error:
+                raise TypeError("response atom indices must be integers") from error
+            if validated < 0 or validated >= self.molecule.natm:
+                raise IndexError("response atom index is outside the molecule")
+            if validated in validated_indices:
+                raise ValueError(
+                    "response atom_indices must not contain duplicates"
+                )
+            validated_indices.append(validated)
+        return tuple(validated_indices)
+
     def _state(self):
         coefficient = np.asarray(self.reference.mo_coeff)
         energy = np.asarray(self.reference.mo_energy)
@@ -1416,8 +1476,9 @@ class _RHFLinearResponseCore:
             )
         return coefficient, energy, occupation, occupied, virtual, minimum_gap
 
-    def _overlap_derivative(self) -> np.ndarray:
+    def _overlap_derivative(self, atom_indices=None) -> np.ndarray:
         molecule = self.molecule
+        atom_indices = self._response_atom_indices(atom_indices)
         nao = molecule.nao
         try:
             integral = -molecule.intor("int1e_ipovlp", comp=3)
@@ -1430,13 +1491,15 @@ class _RHFLinearResponseCore:
             (3, nao, nao),
             "overlap-derivative integral",
         )
-        result = np.zeros((molecule.natm, 3, nao, nao))
-        for atom_index, atom_slice in enumerate(molecule.aoslice_by_atom()):
+        result = np.zeros((len(atom_indices), 3, nao, nao))
+        atom_slices = molecule.aoslice_by_atom()
+        for result_index, atom_index in enumerate(atom_indices):
+            atom_slice = atom_slices[atom_index]
             ao_start, ao_stop = atom_slice[2:]
-            result[atom_index, :, ao_start:ao_stop] += integral[
+            result[result_index, :, ao_start:ao_stop] += integral[
                 :, ao_start:ao_stop
             ]
-            result[atom_index, :, :, ao_start:ao_stop] += integral[
+            result[result_index, :, :, ao_start:ao_stop] += integral[
                 :, ao_start:ao_stop
             ].transpose(0, 2, 1)
         return result
@@ -1445,14 +1508,17 @@ class _RHFLinearResponseCore:
         self,
         coefficient: np.ndarray,
         occupation: np.ndarray,
+        atom_indices=None,
     ) -> np.ndarray:
+        atom_indices = self._response_atom_indices(atom_indices)
         try:
             hessian = rhf_hessian.Hessian(self.reference)
             derivatives = hessian.make_h1(
                 coefficient,
                 occupation,
-                atmlst=range(self.molecule.natm),
+                atmlst=atom_indices,
             )
+            derivatives = [derivatives[index] for index in atom_indices]
         except Exception as error:
             raise RHFResponseError(
                 f"PySCF RHF Hamiltonian derivative construction failed: {error}"
@@ -1461,7 +1527,7 @@ class _RHFLinearResponseCore:
             raise RHFResponseError(
                 "PySCF RHF Hamiltonian derivative is incomplete"
             )
-        expected = (self.molecule.natm, 3, self.molecule.nao, self.molecule.nao)
+        expected = (len(atom_indices), 3, self.molecule.nao, self.molecule.nao)
         return _validated_float64_array(
             derivatives,
             expected,
@@ -1527,21 +1593,17 @@ class _RHFLinearResponseCore:
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> tuple[np.ndarray, int, float, float, float, float]:
-        """Build and audit the unshifted physical occupied-virtual operator."""
+        """Build and audit a small unshifted occupied-virtual operator."""
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))
         dimension = nocc * nvir
-        if dimension > self.operator_dimension_limit:
-            raise DeePHFCapabilityError(
-                "RHF occupied-virtual response dimension exceeds the explicit "
-                f"condition-audit limit: {dimension} > {self.operator_dimension_limit}"
-            )
-        identity = np.eye(dimension, dtype=np.float64)
         matrix = np.empty((dimension, dimension), dtype=np.float64)
         batch_size = min(64, dimension)
         for start in range(0, dimension, batch_size):
             stop = min(start + batch_size, dimension)
-            roots = identity[start:stop].reshape(-1, nvir, nocc)
+            flat_roots = np.zeros((stop - start, dimension), dtype=np.float64)
+            flat_roots[np.arange(stop - start), np.arange(start, stop)] = 1.0
+            roots = flat_roots.reshape(-1, nvir, nocc)
             images = self._apply_occupied_virtual_operator(
                 roots,
                 coefficient,
@@ -1595,6 +1657,116 @@ class _RHFLinearResponseCore:
             symmetry_residual,
         )
 
+    def _matrix_free_response_operator_diagnostics(
+        self,
+        coefficient: np.ndarray,
+        energy: np.ndarray,
+        occupation: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> tuple[int, float, float, float, float]:
+        """Estimate large-operator extremal eigenvalues with short Lanczos runs."""
+        nocc = int(np.count_nonzero(occupied))
+        nvir = int(np.count_nonzero(virtual))
+        dimension = nocc * nvir
+
+        def apply_flat(vector: np.ndarray) -> np.ndarray:
+            amplitudes = np.asarray(vector, dtype=np.float64).reshape(nvir, nocc)
+            image = self._apply_occupied_virtual_operator(
+                amplitudes,
+                coefficient,
+                energy,
+                occupation,
+                occupied,
+                virtual,
+            )
+            result = np.asarray(image, dtype=np.float64).reshape(dimension)
+            if not np.isfinite(result).all():
+                raise RHFResponseError(
+                    "the RHF occupied-virtual response action is nonfinite"
+                )
+            return result
+
+        indices = np.arange(1, dimension + 1, dtype=np.float64)
+        left_probe = np.sin(indices) + np.cos(indices * np.sqrt(2.0))
+        right_probe = np.sin(indices * np.sqrt(3.0)) - np.cos(
+            indices * np.sqrt(5.0)
+        )
+        left_probe /= np.linalg.norm(left_probe)
+        right_probe /= np.linalg.norm(right_probe)
+        left_image = apply_flat(left_probe)
+        right_image = apply_flat(right_probe)
+        symmetry_residual = float(
+            abs(np.dot(left_probe, right_image) - np.dot(left_image, right_probe))
+        )
+        if symmetry_residual > self.operator_symmetry_tolerance:
+            raise RHFResponseError(
+                "the RHF occupied-virtual response operator violates sampled "
+                f"symmetry: {symmetry_residual:.3e} > "
+                f"{self.operator_symmetry_tolerance:.3e}"
+            )
+
+        lanczos_steps = min(16, dimension)
+        basis: list[np.ndarray] = []
+        diagonal: list[float] = []
+        off_diagonal: list[float] = []
+        vector = left_probe
+        previous = np.zeros_like(vector)
+        previous_norm = 0.0
+        for _ in range(lanczos_steps):
+            basis.append(vector)
+            image = apply_flat(vector) - previous_norm * previous
+            rayleigh = float(np.dot(vector, image))
+            diagonal.append(rayleigh)
+            image -= rayleigh * vector
+            for basis_vector in basis:
+                image -= np.dot(basis_vector, image) * basis_vector
+            next_norm = float(np.linalg.norm(image))
+            if not np.isfinite(next_norm):
+                raise RHFResponseError(
+                    "the RHF matrix-free stability estimate is nonfinite"
+                )
+            if len(diagonal) == lanczos_steps or next_norm <= np.finfo(float).eps:
+                break
+            off_diagonal.append(next_norm)
+            previous, vector = vector, image / next_norm
+            previous_norm = next_norm
+        tridiagonal = np.diag(np.asarray(diagonal, dtype=np.float64))
+        if off_diagonal:
+            off = np.asarray(off_diagonal, dtype=np.float64)
+            tridiagonal += np.diag(off, 1) + np.diag(off, -1)
+        try:
+            eigenvalue_estimates = np.linalg.eigvalsh(tridiagonal)
+        except np.linalg.LinAlgError as error:
+            raise RHFResponseError(
+                f"the RHF matrix-free stability estimate failed: {error}"
+            ) from error
+        minimum_eigenvalue = float(eigenvalue_estimates[0])
+        maximum_eigenvalue = float(eigenvalue_estimates[-1])
+        if minimum_eigenvalue <= self.operator_stability_tolerance:
+            raise DeePHFCapabilityError(
+                "the RHF occupied-virtual response operator is unstable or singular: "
+                f"estimated minimum eigenvalue {minimum_eigenvalue:.3e} <= "
+                f"{self.operator_stability_tolerance:.3e}"
+            )
+        condition_number = maximum_eigenvalue / minimum_eigenvalue
+        if (
+            not np.isfinite(condition_number)
+            or condition_number > self.operator_condition_tolerance
+        ):
+            raise DeePHFCapabilityError(
+                "the RHF occupied-virtual response operator is ill conditioned: "
+                f"estimated condition number {condition_number:.3e} > "
+                f"{self.operator_condition_tolerance:.3e}"
+            )
+        return (
+            dimension,
+            minimum_eigenvalue,
+            maximum_eigenvalue,
+            float(condition_number),
+            symmetry_residual,
+        )
+
     def _response_operator_diagnostics(
         self,
         coefficient: np.ndarray,
@@ -1603,28 +1775,47 @@ class _RHFLinearResponseCore:
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> tuple[int, float, float, float, float]:
-        """Return the accepted physical response-operator diagnostics."""
-        (
-            _matrix,
-            dimension,
-            minimum_eigenvalue,
-            maximum_eigenvalue,
-            condition_number,
-            symmetry_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
-            coefficient,
-            energy,
-            occupation,
-            occupied,
-            virtual,
+        """Return exact small-system or matrix-free large-system diagnostics."""
+        state_fingerprint = reference_fingerprint(self.reference)
+        if self._operator_diagnostics_cache is not None:
+            cached_fingerprint, cached_diagnostics = self._operator_diagnostics_cache
+            if cached_fingerprint == state_fingerprint:
+                return cached_diagnostics
+        dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
         )
-        return (
-            dimension,
-            minimum_eigenvalue,
-            maximum_eigenvalue,
-            condition_number,
-            symmetry_residual,
-        )
+        if dimension > self.operator_dimension_limit:
+            diagnostics = self._matrix_free_response_operator_diagnostics(
+                coefficient,
+                energy,
+                occupation,
+                occupied,
+                virtual,
+            )
+        else:
+            (
+                _matrix,
+                audited_dimension,
+                minimum_eigenvalue,
+                maximum_eigenvalue,
+                condition_number,
+                symmetry_residual,
+            ) = self._response_operator_matrix_and_diagnostics(
+                coefficient,
+                energy,
+                occupation,
+                occupied,
+                virtual,
+            )
+            diagnostics = (
+                audited_dimension,
+                minimum_eigenvalue,
+                maximum_eigenvalue,
+                condition_number,
+                symmetry_residual,
+            )
+        self._operator_diagnostics_cache = (state_fingerprint, diagnostics)
+        return diagnostics
 
     def _induced_mo_potential(
         self,
@@ -1682,6 +1873,17 @@ class _RHFLinearResponseCore:
 class RHFResponseAdapter(_RHFLinearResponseCore):
     """Solve and audit molecular RHF nuclear CPHF through PySCF 2.14."""
 
+    def coordinate_blocks(self, block_size: int):
+        """Yield audited responses while retaining at most one atom block."""
+        block_size = _cycle_limit(block_size, "coordinate_block_size")
+        if block_size <= 0:
+            raise ValueError("coordinate_block_size must be positive")
+        for start in range(0, self.molecule.natm, block_size):
+            atom_indices = tuple(
+                range(start, min(start + block_size, self.molecule.natm))
+            )
+            yield atom_indices, self.solve(atom_indices=atom_indices)
+
     def _orbital_residual(
         self,
         mo_response: np.ndarray,
@@ -1735,10 +1937,12 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             occupied,
             virtual,
         )
-        expected_overlap_derivative = self._overlap_derivative()
+        atom_indices = self._response_atom_indices(response.atom_indices)
+        expected_overlap_derivative = self._overlap_derivative(atom_indices)
         expected_hamiltonian_derivative = self._hamiltonian_derivative(
             coefficient,
             occupation,
+            atom_indices,
         )
         derivative_fields = (
             (
@@ -2000,9 +2204,10 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             )
         return response, residual, tuple(residual_history)
 
-    def solve(self) -> RHFResponse:
-        """Return the audited complete first-order AO density response."""
+    def solve(self, atom_indices=None) -> RHFResponse:
+        """Return an audited first-order response for selected atoms."""
         validate_reference(self.reference)
+        atom_indices = self._response_atom_indices(atom_indices)
         (
             coefficient,
             energy,
@@ -2025,10 +2230,11 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             virtual,
         )
         overlap = np.asarray(self.reference.get_ovlp())
-        overlap_derivative = self._overlap_derivative()
+        overlap_derivative = self._overlap_derivative(atom_indices)
         hamiltonian_derivative = self._hamiltonian_derivative(
             coefficient,
             occupation,
+            atom_indices,
         )
         occupied_coefficients = coefficient[:, occupied]
         hamiltonian_mo = np.einsum(
@@ -2205,6 +2411,7 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             reference_identity=id(self.reference),
             state_fingerprint=reference_fingerprint(self.reference),
             integrity_fingerprint="",
+            atom_indices=atom_indices,
             mo_response=_immutable_array(mo_response),
             mo_response_occupied_virtual=_immutable_array(
                 occupied_virtual_response
@@ -2236,12 +2443,11 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
 
 
 class _RHFScalarAdjointProblem:
-    """Bind an audited RHF operator to the reference-neutral adjoint protocol."""
+    """Bind the RHF occupied-virtual action to the adjoint protocol."""
 
     def __init__(
         self,
         adapter: "RHFAdjointAdapter",
-        matrix: np.ndarray,
         coefficient: np.ndarray,
         energy: np.ndarray,
         occupation: np.ndarray,
@@ -2249,7 +2455,6 @@ class _RHFScalarAdjointProblem:
         virtual: np.ndarray,
     ):
         self._adapter = adapter
-        self._matrix = _immutable_array(matrix)
         self._coefficient = coefficient
         self._energy = energy
         self._occupation = occupation
@@ -2262,8 +2467,22 @@ class _RHFScalarAdjointProblem:
     def dimension(self) -> int:
         return self._nocc * self._nvir
 
-    def dense_operator(self) -> np.ndarray:
-        return self._matrix
+    @property
+    def operator_fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        digest.update(b"pyscf-2.14-rhf-occupied-virtual-operator-v1")
+        for value in (
+            self._coefficient,
+            self._energy,
+            self._occupation,
+            self._occupied,
+            self._virtual,
+        ):
+            array = np.ascontiguousarray(value)
+            digest.update(array.dtype.str.encode("ascii"))
+            digest.update(repr(array.shape).encode("ascii"))
+            digest.update(array.tobytes())
+        return digest.hexdigest()
 
     def apply(self, vector: np.ndarray) -> np.ndarray:
         amplitudes = np.asarray(vector).reshape(self._nvir, self._nocc)
@@ -2278,9 +2497,17 @@ class _RHFScalarAdjointProblem:
         return np.asarray(image).reshape(self.dimension)
 
     def apply_transpose(self, vector: np.ndarray) -> np.ndarray:
-        # The strict RHF gate independently proves that this physical operator
-        # is symmetric before the adjoint solve is attempted.
+        # The real closed-shell orbital Hessian is symmetric in this space.
         return self.apply(vector)
+
+    def precondition(self, vector: np.ndarray) -> np.ndarray:
+        gaps = (
+            self._energy[self._virtual, None]
+            - self._energy[self._occupied]
+        )
+        return np.asarray(vector).reshape(self.dimension) / gaps.reshape(
+            self.dimension
+        )
 
 
 class RHFAdjointAdapter(_RHFLinearResponseCore):
@@ -2297,6 +2524,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         operator_symmetry_tolerance: float = 1.0e-10,
         operator_dimension_limit: int = 512,
         objective_symmetry_tolerance: float = 1.0e-10,
+        max_cycle: int = 100,
+        krylov_restart: int = 50,
     ):
         validate_pyscf_version()
         self.reference = validate_reference(reference)
@@ -2324,9 +2553,15 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             operator_dimension_limit,
             "operator_dimension_limit",
         )
+        self._operator_diagnostics_cache = None
         self.objective_symmetry_tolerance = _adjoint_real_control(
             objective_symmetry_tolerance,
             "objective_symmetry_tolerance",
+        )
+        self.max_cycle = _cycle_limit(max_cycle, "max_cycle")
+        self.krylov_restart = _cycle_limit(
+            krylov_restart,
+            "krylov_restart",
         )
         if (
             self.residual_tolerance <= 0
@@ -2339,6 +2574,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             raise ValueError("adjoint tolerances are invalid")
         if self.operator_dimension_limit <= 0:
             raise ValueError("adjoint operator_dimension_limit must be positive")
+        if self.max_cycle <= 0 or self.krylov_restart <= 0:
+            raise ValueError("adjoint Krylov cycle limits must be positive")
 
     def _validated_objective_potential(self, value) -> np.ndarray:
         potential = _validated_float64_array(
@@ -2428,7 +2665,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             raise RHFAdjointError(
                 "the supplied RHF adjoint PySCF version does not match the runtime"
             )
-        if diagnostics.solver != "numpy.linalg.solve(A.T, b)":
+        if diagnostics.solver != "scipy.sparse.linalg.gmres(A.T, b)":
             raise RHFAdjointError(
                 "the supplied RHF adjoint solver convention is invalid"
             )
@@ -2443,6 +2680,14 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         if type(diagnostics.operator_dimension_limit) is not int:
             raise RHFAdjointError(
                 "the supplied RHF adjoint dimension limit has an invalid type"
+            )
+        if (
+            type(diagnostics.max_cycle) is not int
+            or type(diagnostics.krylov_restart) is not int
+            or type(diagnostics.iteration_count) is not int
+        ):
+            raise RHFAdjointError(
+                "the supplied RHF adjoint Krylov diagnostics have invalid types"
             )
         diagnostic_reals = (
             diagnostics.minimum_orbital_gap,
@@ -2484,6 +2729,9 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             or diagnostics.operator_dimension_limit <= 0
             or diagnostics.objective_symmetry_tolerance <= 0
             or diagnostics.response_dimension <= 0
+            or diagnostics.max_cycle <= 0
+            or diagnostics.krylov_restart <= 0
+            or diagnostics.iteration_count < 0
         ):
             raise RHFAdjointError(
                 "the supplied RHF adjoint controls are invalid"
@@ -2502,6 +2750,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             "objective_symmetry_tolerance": (
                 self.objective_symmetry_tolerance
             ),
+            "max_cycle": self.max_cycle,
+            "krylov_restart": self.krylov_restart,
         }
         for name, expected in accepted_controls.items():
             if getattr(diagnostics, name) != expected:
@@ -2560,34 +2810,29 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             expected_objective_gradient,
             "bilateral occupied-virtual objective gradient",
         )
-        (
-            response_operator,
-            response_dimension,
-            minimum_eigenvalue,
-            maximum_eigenvalue,
-            condition_number,
-            symmetry_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        response_dimension = dimension
+        minimum_eigenvalue = diagnostics.operator_minimum_eigenvalue
+        maximum_eigenvalue = diagnostics.operator_maximum_eigenvalue
+        condition_number = diagnostics.operator_condition_number
+        symmetry_residual = diagnostics.operator_symmetry_residual
+        problem = _RHFScalarAdjointProblem(
+            self,
             coefficient,
             energy,
             occupation,
             occupied,
             virtual,
         )
-        operator_digest = hashlib.sha256()
-        operator_array = np.ascontiguousarray(response_operator)
-        operator_digest.update(operator_array.dtype.str.encode("ascii"))
-        operator_digest.update(repr(operator_array.shape).encode("ascii"))
-        operator_digest.update(operator_array.tobytes())
-        if adjoint.operator_fingerprint != operator_digest.hexdigest():
+        expected_operator_fingerprint = scalar_operator_fingerprint(
+            problem,
+            solver="gmres",
+        )
+        if adjoint.operator_fingerprint != expected_operator_fingerprint:
             raise RHFAdjointError(
                 "the supplied RHF adjoint response operator is inconsistent"
             )
         zvector = adjoint.zvector
         objective_vector = expected_objective_gradient.reshape(dimension)
-        solver_residual = (
-            response_operator.T @ zvector.reshape(dimension) - objective_vector
-        ).reshape(nvir, nocc)
         physical_residual = (
             self._apply_occupied_virtual_operator(
                 zvector,
@@ -2599,10 +2844,11 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             ).reshape(dimension)
             - objective_vector
         ).reshape(nvir, nocc)
+        solver_residual = physical_residual
         self._require_close(
             adjoint.solver_residual,
             solver_residual,
-            "literal transpose residual",
+            "matrix-free solver residual",
         )
         self._require_close(
             adjoint.transpose_residual,
@@ -2802,7 +3048,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             > diagnostics.objective_symmetry_tolerance
             or measured["adjoint_potential_symmetry_residual"]
             > diagnostics.objective_symmetry_tolerance
-            or response_dimension > diagnostics.operator_dimension_limit
         ):
             raise RHFAdjointError(
                 "the supplied RHF adjoint exceeds an accepted control"
@@ -2840,13 +3085,12 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             minimum_gap,
         ) = self._state()
         (
-            response_operator,
             response_dimension,
             operator_minimum_eigenvalue,
             operator_maximum_eigenvalue,
             operator_condition_number,
             operator_symmetry_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._response_operator_diagnostics(
             coefficient,
             energy,
             occupation,
@@ -2870,7 +3114,6 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         )
         problem = _RHFScalarAdjointProblem(
             self,
-            response_operator,
             coefficient,
             energy,
             occupation,
@@ -2882,6 +3125,9 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             objective_orbital_gradient.reshape(response_dimension),
             residual_tolerance=self.residual_tolerance,
             require_physical_residual=True,
+            solver="gmres",
+            max_cycle=self.max_cycle,
+            restart=self.krylov_restart,
         )
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))
@@ -3051,6 +3297,9 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             physical_residual_rms=(
                 linear_diagnostics.physical_residual_rms
             ),
+            max_cycle=self.max_cycle,
+            krylov_restart=self.krylov_restart,
+            iteration_count=linear_diagnostics.iteration_count,
         )
         adjoint = RHFAdjoint(
             reference_identity=id(self.reference),

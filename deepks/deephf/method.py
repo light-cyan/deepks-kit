@@ -52,6 +52,7 @@ _DIRECT_RESPONSE_OPTIONS = frozenset(
         "operator_condition_tolerance",
         "operator_symmetry_tolerance",
         "operator_dimension_limit",
+        "coordinate_block_size",
     }
 )
 _ZVECTOR_OPTIONS = frozenset(
@@ -63,6 +64,8 @@ _ZVECTOR_OPTIONS = frozenset(
         "operator_symmetry_tolerance",
         "operator_dimension_limit",
         "objective_symmetry_tolerance",
+        "max_cycle",
+        "krylov_restart",
     }
 )
 _FORCE_DESCRIPTOR_FD_STEP = 1.0e-5
@@ -697,6 +700,7 @@ class DeePHF:
             _DIRECT_RESPONSE_OPTIONS,
             "direct",
         )
+        options.pop("coordinate_block_size", None)
         response = RHFResponseAdapter(self.reference, **options).solve()
         self._trusted_response = response
         self._trusted_response_integrity = response.integrity_fingerprint
@@ -846,6 +850,8 @@ class DeePHF:
             objective_symmetry_tolerance=(
                 diagnostics.objective_symmetry_tolerance
             ),
+            max_cycle=diagnostics.max_cycle,
+            krylov_restart=diagnostics.krylov_restart,
         )
         audit_adapter.audit_adjoint(
             adjoint,
@@ -871,6 +877,10 @@ class DeePHF:
         if response.integrity_fingerprint != response_integrity_fingerprint(response):
             raise RHFResponseError("the supplied RHF response failed its integrity check")
         natm = self.mol.natm
+        if response.atom_indices != tuple(range(natm)):
+            raise RHFResponseError(
+                "the supplied RHF response does not cover every atom"
+            )
         nao = self.mol.nao
         nmo = self.reference.mo_coeff.shape[1]
         nocc = int(np.count_nonzero(self.reference.mo_occ > 0))
@@ -1047,7 +1057,6 @@ class DeePHF:
             or diagnostics.operator_dimension_limit <= 0
             or diagnostics.response_dimension <= 0
             or diagnostics.response_dimension != nocc * nvir
-            or diagnostics.response_dimension > diagnostics.operator_dimension_limit
             or diagnostics.operator_minimum_eigenvalue
             <= diagnostics.operator_stability_tolerance
             or diagnostics.operator_condition_number

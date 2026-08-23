@@ -55,6 +55,26 @@ def test_writer_rejects_explicit_jacobian_even_when_shape_matches(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [("coordinate_block_size", 0), ("response_block_count", True)],
+)
+def test_writer_rejects_invalid_blocked_response_provenance(
+    tmp_path,
+    field,
+    value,
+):
+    arrays, provenance = make_schema_inputs()
+    provenance["response"].update(
+        coordinate_block_size=2,
+        response_block_count=1,
+    )
+    provenance["response"][field] = value
+
+    with pytest.raises(ForceDataError, match=field):
+        write_force_dataset(tmp_path / field, arrays=arrays, provenance=provenance)
+
+
+@pytest.mark.parametrize(
     ("mutation", "message"),
     [
         (lambda arrays: arrays["descriptor"].astype(np.float32), "float64"),

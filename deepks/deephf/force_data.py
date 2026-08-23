@@ -124,13 +124,17 @@ def _response_provenance(response) -> dict[str, Any]:
             f"{diagnostics.residual_tolerance:.3e}"
         )
     diagnostic_values = _json_safe(asdict(diagnostics))
-    return {
+    provenance = {
         "backend": "pyscf-2.14-rhf-direct",
         "converged": True,
         "state_fingerprint": response.state_fingerprint,
         "integrity_fingerprint": response.integrity_fingerprint,
         "diagnostics": diagnostic_values,
     }
+    if hasattr(response, "coordinate_block_size"):
+        provenance["coordinate_block_size"] = response.coordinate_block_size
+        provenance["response_block_count"] = response.block_count
+    return provenance
 
 
 def _descriptor_diagnostics_provenance(diagnostics) -> dict[str, Any]:
@@ -205,6 +209,7 @@ def generate_rhf_force_frame(
     """
 
     options = dict(response_options or {})
+    options.setdefault("coordinate_block_size", 8)
     method = DeePHF(
         reference,
         None,
@@ -483,6 +488,21 @@ def write_rhf_force_dataset(
         }
         for frame in frames
     ]
+    response_metadata = {
+        "backend": "rhf_direct",
+        "adapter": "deepks.deephf.pyscf_rhf.RHFResponseAdapter",
+        "controls": {
+            name: first_response_diagnostics[name]
+            for name in response_control_names
+        },
+    }
+    if "coordinate_block_size" in first_response:
+        response_metadata["coordinate_block_size"] = first_response[
+            "coordinate_block_size"
+        ]
+        response_metadata["response_block_count"] = first_response[
+            "response_block_count"
+        ]
     provenance = {
         "atom_mapping": {
             "descriptor_to_raw": descriptor_to_raw,
@@ -513,14 +533,7 @@ def write_rhf_force_dataset(
             "occupations": first_reference["occupations"],
             "scf_controls": first_reference["scf_controls"],
         },
-        "response": {
-            "backend": "rhf_direct",
-            "adapter": "deepks.deephf.pyscf_rhf.RHFResponseAdapter",
-            "controls": {
-                name: first_response_diagnostics[name]
-                for name in response_control_names
-            },
-        },
+        "response": response_metadata,
         "frames": frame_provenance,
         "generation": {
             "producer": f"{GENERATOR_NAME}.rhf_direct",

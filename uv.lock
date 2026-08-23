@@ -266,6 +266,9 @@ dependencies = [
     { name = "paramiko" },
     { name = "pyscf" },
     { name = "ruamel-yaml" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
 ]
@@ -281,6 +284,7 @@ requires-dist = [
     { name = "paramiko" },
     { name = "pyscf" },
     { name = "ruamel-yaml" },
+    { name = "scipy" },
     { name = "torch", index = "https://download.pytorch.org/whl/cpu" },
 ]
 

@@ -2678,6 +2678,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             objective_vector,
             residual_tolerance=self.residual_tolerance,
             require_physical_residual=True,
+            solver="dense",
         )
         zvector = self._split_occupied_virtual(
             linear_result.solution,

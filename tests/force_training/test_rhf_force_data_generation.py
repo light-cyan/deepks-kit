@@ -107,6 +107,8 @@ def test_generated_frame_is_the_direct_relaxed_oracle(
     assert provenance["reference"]["converged"] is True
     assert provenance["response"]["backend"] == "pyscf-2.14-rhf-direct"
     assert provenance["response"]["converged"] is True
+    assert provenance["response"]["coordinate_block_size"] == 8
+    assert provenance["response"]["response_block_count"] == 1
     diagnostics = provenance["response"]["diagnostics"]
     assert diagnostics["maximum_residual"] <= diagnostics["residual_tolerance"]
     assert provenance["descriptor"]["differentiability"][

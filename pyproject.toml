@@ -21,6 +21,7 @@ dependencies = [
   "paramiko",
   "pyscf",
   "ruamel.yaml",
+  "scipy",
   "torch",
 ]
 
