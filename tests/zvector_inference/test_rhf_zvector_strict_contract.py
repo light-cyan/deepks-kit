@@ -214,31 +214,35 @@ def test_operator_stability_and_condition_number_gates_are_independent(
 ):
     method = zvector_algebra_case.method
     baseline = method.adjoint()
-    diagnostics = baseline.diagnostics
+    exact = RHFAdjointAdapter(
+        zvector_algebra_case.reference
+    ).validate_response_operator_exact()
+    _dimension, minimum, _maximum, condition, _symmetry = exact
+    assert baseline.diagnostics.operator_diagnostics_are_estimates is True
 
     with pytest.raises(
         DeePHFCapabilityError,
         match="response operator is unstable or singular",
     ):
-        method.gradient(
-            backend="zvector",
+        RHFAdjointAdapter(
+            zvector_algebra_case.reference,
             operator_stability_tolerance=(
-                diagnostics.operator_minimum_eigenvalue * 1.01
+                minimum * 1.01
             ),
-        )
+        ).validate_response_operator_exact()
     condition_limit = max(
         1.0 + 1.0e-8,
-        diagnostics.operator_condition_number * 0.5,
+        condition * 0.5,
     )
-    assert condition_limit < diagnostics.operator_condition_number
+    assert condition_limit < condition
     with pytest.raises(
         DeePHFCapabilityError,
         match="response operator is ill conditioned",
     ):
-        method.gradient(
-            backend="zvector",
+        RHFAdjointAdapter(
+            zvector_algebra_case.reference,
             operator_condition_tolerance=condition_limit,
-        )
+        ).validate_response_operator_exact()
 
 
 @pytest.mark.parametrize("corruption", ["nonfinite", "asymmetric"])

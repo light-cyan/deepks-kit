@@ -309,9 +309,12 @@ class DeePHF:
         with torch.enable_grad():
             return self._descriptor.dq_dP(self.ao_density())
 
-    def dq_dR_explicit(self):
+    def dq_dR_explicit(self, atom_indices=None):
         with torch.enable_grad():
-            return self._descriptor.dq_dR_explicit(self.ao_density())
+            return self._descriptor.dq_dR_explicit(
+                self.ao_density(),
+                raw_atom_indices=atom_indices,
+            )
 
     def _descriptor_values_tensor(self) -> torch.Tensor:
         self._assert_science_state("descriptor evaluation")
@@ -1021,6 +1024,10 @@ class DeePHF:
                     f"the supplied RHF {label} density response is inconsistent"
                 )
         diagnostics = response.diagnostics
+        if diagnostics.operator_diagnostics_are_estimates is not True:
+            raise RHFResponseError(
+                "the supplied RHF response operator diagnostics must be estimates"
+            )
         diagnostic_values = (
             diagnostics.minimum_orbital_gap,
             diagnostics.cphf_tolerance,
@@ -1057,10 +1064,6 @@ class DeePHF:
             or diagnostics.operator_dimension_limit <= 0
             or diagnostics.response_dimension <= 0
             or diagnostics.response_dimension != nocc * nvir
-            or diagnostics.operator_minimum_eigenvalue
-            <= diagnostics.operator_stability_tolerance
-            or diagnostics.operator_condition_number
-            > diagnostics.operator_condition_tolerance
             or diagnostics.operator_symmetry_residual
             > diagnostics.operator_symmetry_tolerance
         ):

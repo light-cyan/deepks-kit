@@ -483,7 +483,7 @@ def test_uhf_response_operator_stability_condition_and_dimension_gates_are_indep
             operator_stability_tolerance=(
                 diagnostics.operator_minimum_eigenvalue * 1.01
             ),
-        ).solve()
+        ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="ill conditioned"):
         UHFResponseAdapter(
             native_uhf_reference,
@@ -491,12 +491,12 @@ def test_uhf_response_operator_stability_condition_and_dimension_gates_are_indep
                 1.0001,
                 diagnostics.operator_condition_number * 0.99,
             ),
-        ).solve()
+        ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="dimension exceeds"):
         UHFResponseAdapter(
             native_uhf_reference,
             operator_dimension_limit=diagnostics.response_dimension - 1,
-        ).solve()
+        ).validate_response_operator_exact()
 
 
 def test_uhf_response_rejects_an_asymmetric_coupled_operator(

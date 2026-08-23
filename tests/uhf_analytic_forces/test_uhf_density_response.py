@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
 
+from deepks.deephf import UHFResponseAdapter
+
 
 def test_displaced_references_preserve_each_spin_occupied_subspace(
     uhf_oracle_case,
@@ -285,6 +287,9 @@ def test_coupled_operator_matches_independent_ao_integral_oracle(
     operator = uhf_oracle_case.coupled_operator
     eigenvalues = np.linalg.eigvalsh(operator)
     diagnostics = uhf_oracle_case.response.diagnostics
+    exact = UHFResponseAdapter(
+        uhf_oracle_case.reference
+    ).validate_response_operator_exact()
 
     assert operator.shape == (22, 22)
     np.testing.assert_allclose(
@@ -298,23 +303,24 @@ def test_coupled_operator_matches_independent_ao_integral_oracle(
     assert diagnostics.response_dimension == 22
     assert eigenvalues[0] > 0.08
     np.testing.assert_allclose(
-        diagnostics.operator_minimum_eigenvalue,
+        exact[3],
         eigenvalues[0],
         rtol=2.0e-13,
         atol=2.0e-13,
     )
     np.testing.assert_allclose(
-        diagnostics.operator_maximum_eigenvalue,
+        exact[4],
         eigenvalues[-1],
         rtol=2.0e-13,
         atol=2.0e-13,
     )
     np.testing.assert_allclose(
-        diagnostics.operator_condition_number,
+        exact[5],
         eigenvalues[-1] / eigenvalues[0],
         rtol=2.0e-13,
         atol=2.0e-13,
     )
+    assert diagnostics.operator_diagnostics_are_estimates is True
     assert np.linalg.norm(operator[:10, 10:]) > 0.1
     assert np.linalg.norm(operator[10:, :10]) > 0.1
 

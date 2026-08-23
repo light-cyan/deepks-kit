@@ -101,7 +101,12 @@ class RHFDeePHFGradients:
             return None
         return self.response_result.diagnostics
 
-    def _blocked_response(self, block_size, objective_ao_potential):
+    def _blocked_response(
+        self,
+        block_size,
+        objective_ao_potential,
+        atom_indices,
+    ):
         if isinstance(block_size, (bool, np.bool_)):
             raise TypeError("coordinate_block_size must be an integer")
         try:
@@ -118,17 +123,24 @@ class RHFDeePHFGradients:
         adapter = RHFResponseAdapter(self.base.reference, **options)
         dq_dP = self.base.dq_dP()
         expected_shape = (
-            self.mol.natm,
+            len(atom_indices),
             3,
             self.base.n_descriptor_atoms,
             self.base.n_descriptor_features,
         )
         dq_response = np.empty(expected_shape, dtype=np.float64)
-        metric_gradient = np.empty((self.mol.natm, 3), dtype=np.float64)
+        metric_gradient = np.empty((len(atom_indices), 3), dtype=np.float64)
         occupied_virtual_gradient = np.empty_like(metric_gradient)
         block_diagnostics = []
-        for atom_indices, response in adapter.coordinate_blocks(block_size):
-            target = list(atom_indices)
+        result_positions = {
+            atom_index: result_index
+            for result_index, atom_index in enumerate(atom_indices)
+        }
+        for block_atoms, response in adapter.coordinate_blocks(
+            block_size,
+            atom_indices=atom_indices,
+        ):
+            target = [result_positions[atom_index] for atom_index in block_atoms]
             dq_response[target] = np.einsum(
                 "apij,bxij->bxap",
                 dq_dP,
@@ -145,7 +157,7 @@ class RHFDeePHFGradients:
                 response.density_response_occupied_virtual,
             )
             block_diagnostics.append(
-                (len(atom_indices), response.diagnostics)
+                (len(block_atoms), response.diagnostics)
             )
         worst = max(
             (diagnostics for _, diagnostics in block_diagnostics),
@@ -199,11 +211,24 @@ class RHFDeePHFGradients:
         self._reset_results()
         self._validate_driver_binding()
         atom_indices = _validate_atom_indices(self.mol, atmlst)
+        calculation_atom_indices = (
+            tuple(range(self.mol.natm))
+            if atom_indices is None
+            else atom_indices
+        )
         self.descriptor_diagnostics = self.base.validate_force_compatibility()
         self.reference_gradient = np.asarray(
-            self.base.reference.nuc_grad_method().kernel()
+            self.base.reference.nuc_grad_method().kernel(
+                atmlst=(
+                    None
+                    if atom_indices is None
+                    else list(calculation_atom_indices)
+                )
+            )
         )
-        self.dq_dR_explicit = self.base.dq_dR_explicit()
+        self.dq_dR_explicit = self.base.dq_dR_explicit(
+            atom_indices=calculation_atom_indices,
+        )
         sensitivity = self.base.correction_sensitivity()
         objective_ao_potential = self.base._correction_ao_potential(
             sensitivity
@@ -213,11 +238,19 @@ class RHFDeePHFGradients:
             self.base.response_options.get("coordinate_block_size"),
         )
         if coordinate_block_size is None:
-            response_options = dict(self.response_options)
+            response_options = {
+                **self.base.response_options,
+                **self.response_options,
+            }
             response_options.pop("coordinate_block_size", None)
-            self.response_result = self.base.response(**response_options)
-            self.dq_dR_response = self.base.dq_dR_response(
-                response=self.response_result
+            self.response_result = RHFResponseAdapter(
+                self.base.reference,
+                **response_options,
+            ).solve(atom_indices=calculation_atom_indices)
+            self.dq_dR_response = np.einsum(
+                "apij,bxij->bxap",
+                self.base.dq_dP(),
+                self.response_result.density_response,
             )
             self.correction_gradient_metric = np.einsum(
                 "ij,bxij->bx",
@@ -238,6 +271,7 @@ class RHFDeePHFGradients:
             ) = self._blocked_response(
                 coordinate_block_size,
                 objective_ao_potential,
+                calculation_atom_indices,
             )
         self.dq_dR_relaxed = self.dq_dR_explicit + self.dq_dR_response
         self.correction_gradient_explicit = np.einsum(
@@ -267,10 +301,7 @@ class RHFDeePHFGradients:
         self.de_full = self.reference_gradient + self.correction_gradient
         if not np.isfinite(self.de_full).all():
             raise RHFResponseError("the RHF DeePHF analytic gradient is nonfinite")
-        if atom_indices is None:
-            self.de = self.de_full
-        else:
-            self.de = self.de_full[list(atom_indices)]
+        self.de = self.de_full
         return self.de
 
     def run(self, atmlst=None):

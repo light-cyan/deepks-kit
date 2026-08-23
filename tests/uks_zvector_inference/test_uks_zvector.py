@@ -6,6 +6,8 @@ import sys
 import numpy as np
 import pytest
 
+import deepks.deephf.pyscf_uhf as pyscf_uhf
+
 from deepks.deephf import (
     DeePHFCapabilityError,
     UKSAdjoint,
@@ -107,7 +109,30 @@ def test_unconverged_reference_fails_before_gradient(monkeypatch, uks_case):
 
 def test_operator_condition_gate_is_fail_closed(uks_case):
     with pytest.raises(DeePHFCapabilityError, match="ill conditioned"):
-        uks_case.method.response(operator_condition_tolerance=100.0)
+        UKSResponseAdapter(
+            uks_case.reference,
+            operator_condition_tolerance=100.0,
+        ).validate_response_operator_exact()
+
+
+def test_uks_production_response_and_adjoint_are_matrix_free(
+    uks_case,
+    monkeypatch,
+):
+    def forbidden_dense_audit(*_args, **_kwargs):
+        raise AssertionError("the UKS response matrix was materialized")
+
+    monkeypatch.setattr(
+        pyscf_uhf._UHFLinearResponseCore,
+        "_response_operator_matrix_and_diagnostics",
+        forbidden_dense_audit,
+    )
+    response = uks_case.method.response(operator_dimension_limit=1)
+    adjoint = uks_case.method.adjoint(operator_dimension_limit=1)
+
+    assert response.diagnostics.response_dimension > 1
+    assert response.diagnostics.operator_diagnostics_are_estimates is True
+    assert adjoint.diagnostics.iteration_count > 0
 
 
 def test_direct_failure_clears_results_without_zvector_fallback(monkeypatch, uks_case):

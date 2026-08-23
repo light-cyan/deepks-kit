@@ -142,7 +142,10 @@ def test_one_rks_scalar_correction_performs_exactly_one_adjoint_solve(
 
     assert adapter_calls == [(rks_oracle_case.reference.mol.nao,) * 2]
     assert scalar_calls == [(10, (10,))]
-    assert dense_calls == [((10, 10), (10,))]
+    assert dense_calls == []
+    assert driver.adjoint_result.diagnostics.solver == (
+        "scipy.sparse.linalg.gmres(A.T, b)"
+    )
     assert driver.adjoint_result.diagnostics.solve_count == 1
 
 

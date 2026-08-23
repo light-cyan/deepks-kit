@@ -440,6 +440,10 @@ def _compatibility_seed(
     generation: Mapping[str, Any],
     feature_count: int,
 ) -> dict[str, Any]:
+    scientific_response = {
+        name: response[name]
+        for name in ("backend", "adapter", "controls")
+    }
     return {
         "schema": {"id": SCHEMA_ID, "version": SCHEMA_VERSION},
         "conventions": _CONVENTIONS,
@@ -457,7 +461,7 @@ def _compatibility_seed(
             "spin": reference["spin"],
             "scf_controls": reference["scf_controls"],
         },
-        "response": response,
+        "response": scientific_response,
         "generation": generation,
         "dtype": "float64",
         "dimensions": {"n_feature": feature_count},
@@ -746,6 +750,15 @@ def _normalize_provenance(
             or field_value <= 0
         ):
             raise _error(f"response.{field_name} must be a positive integer")
+    if present_blocked_fields:
+        expected_block_count = (
+            raw_atom + response["coordinate_block_size"] - 1
+        ) // response["coordinate_block_size"]
+        if response["response_block_count"] != expected_block_count:
+            raise _error(
+                "response.response_block_count does not match atom count and "
+                "coordinate_block_size"
+            )
     if response["backend"] != "rhf_direct":
         raise _error("v1 force data require the rhf_direct response backend")
     if response["adapter"] != "deepks.deephf.pyscf_rhf.RHFResponseAdapter":
@@ -902,9 +915,12 @@ def _normalize_provenance(
             frame["response_diagnostics"],
             f"frames[{frame_index}].response_diagnostics",
         )
+        expected_diagnostic_names = set(_RESPONSE_DIAGNOSTIC_NAMES)
+        if "operator_diagnostics_are_estimates" in diagnostics:
+            expected_diagnostic_names.add("operator_diagnostics_are_estimates")
         _require_exact_keys(
             diagnostics,
-            _RESPONSE_DIAGNOSTIC_NAMES,
+            expected_diagnostic_names,
             f"frames[{frame_index}].response_diagnostics",
         )
         for diagnostic_name in (
@@ -962,6 +978,13 @@ def _normalize_provenance(
                     f"frame {frame_index} response diagnostic {control_name} "
                     "does not match response controls"
                 )
+        if (
+            "operator_diagnostics_are_estimates" in diagnostics
+            and diagnostics["operator_diagnostics_are_estimates"] is not True
+        ):
+            raise _error(
+                f"frame {frame_index} operator diagnostics must be estimates"
+            )
         if diagnostics["minimum_orbital_gap"] <= diagnostics["orbital_gap_tolerance"]:
             raise _error(
                 f"frame {frame_index} orbital gap does not exceed its tolerance"
@@ -979,20 +1002,6 @@ def _normalize_provenance(
                 raise _error(
                     f"frame {frame_index} {invariant_name} exceeds invariant tolerance"
                 )
-        if (
-            diagnostics["operator_minimum_eigenvalue"]
-            <= diagnostics["operator_stability_tolerance"]
-        ):
-            raise _error(
-                f"frame {frame_index} response operator is not strictly stable"
-            )
-        if (
-            diagnostics["operator_condition_number"]
-            > diagnostics["operator_condition_tolerance"]
-        ):
-            raise _error(
-                f"frame {frame_index} response operator is ill conditioned"
-            )
         if diagnostics["operator_condition_number"] < 1:
             raise _error(
                 f"frame {frame_index} response operator condition number is invalid"
@@ -1026,8 +1035,14 @@ def _normalize_provenance(
         ):
             raise _error(f"frame {frame_index} response dimension is invalid")
         expected_condition = (
-            diagnostics["operator_maximum_eigenvalue"]
-            / diagnostics["operator_minimum_eigenvalue"]
+            max(
+                abs(diagnostics["operator_minimum_eigenvalue"]),
+                abs(diagnostics["operator_maximum_eigenvalue"]),
+            )
+            / max(
+                abs(diagnostics["operator_minimum_eigenvalue"]),
+                np.finfo(np.float64).tiny,
+            )
         )
         if not math.isclose(
             diagnostics["operator_condition_number"],
@@ -1377,6 +1392,14 @@ def _validate_contract_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
                 raise _error(
                     f"force contract response {field_name} is invalid"
                 )
+    if "coordinate_block_size" in response:
+        expected_block_count = (
+            dimensions["n_raw_atom"] + response["coordinate_block_size"] - 1
+        ) // response["coordinate_block_size"]
+        if response["response_block_count"] != expected_block_count:
+            raise _error(
+                "force contract response block count is inconsistent"
+            )
     generation = manifest["generation"]
     compatibility = _json_fingerprint(
         _compatibility_seed(

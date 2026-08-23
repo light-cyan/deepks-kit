@@ -9,6 +9,7 @@ from deepks.deephf.capabilities import DeePHFCapabilityError
 from deepks.deephf.pyscf_rks import (
     RKSAdjointAdapter,
     RKSAdjointError,
+    RKSResponseError,
     rks_adjoint_integrity_fingerprint,
 )
 from conftest import _P4B_FIXTURES
@@ -146,8 +147,33 @@ def test_adjoint_enforces_operator_gates(
     )
     adapter = RKSAdjointAdapter(rks_reference, **options)
 
-    with pytest.raises((DeePHFCapabilityError, RKSAdjointError), match=message):
-        adapter.solve(objective_ao_potential)
+    with pytest.raises(
+        (DeePHFCapabilityError, RKSResponseError),
+        match=message,
+    ):
+        adapter.validate_response_operator_exact()
+
+
+def test_adjoint_production_solve_does_not_use_dense_debug_audit(
+    rks_reference,
+    objective_ao_potential,
+    monkeypatch,
+):
+    def forbidden_dense_audit(*_args, **_kwargs):
+        raise AssertionError("the RKS response matrix was materialized")
+
+    monkeypatch.setattr(
+        rks_adapter_module._RKSLinearResponseCore,
+        "_response_operator_matrix_and_diagnostics",
+        forbidden_dense_audit,
+    )
+    adjoint = RKSAdjointAdapter(
+        rks_reference,
+        operator_dimension_limit=1,
+    ).solve(objective_ao_potential)
+
+    assert adjoint.diagnostics.response_dimension > 1
+    assert adjoint.diagnostics.iteration_count > 0
 
 
 def test_adjoint_wraps_dense_solver_failure(
@@ -158,9 +184,9 @@ def test_adjoint_wraps_dense_solver_failure(
     def failed_solve(*_args, **_kwargs):
         raise np.linalg.LinAlgError("injected singular transpose")
 
-    monkeypatch.setattr(adjoint_module.np.linalg, "solve", failed_solve)
+    monkeypatch.setattr(adjoint_module, "gmres", failed_solve)
 
-    with pytest.raises(RKSAdjointError, match="dense transpose adjoint solve failed"):
+    with pytest.raises(RKSAdjointError, match="GMRES adjoint solver raised"):
         rks_adjoint_adapter.solve(objective_ao_potential)
 
 
@@ -169,10 +195,10 @@ def test_adjoint_rejects_nonfinite_solver_result(
     objective_ao_potential,
     monkeypatch,
 ):
-    def nonfinite_solve(matrix, right_hand_side):
-        return np.full_like(right_hand_side, np.nan)
+    def nonfinite_solve(_operator, right_hand_side, **_options):
+        return np.full_like(right_hand_side, np.nan), 0
 
-    monkeypatch.setattr(adjoint_module.np.linalg, "solve", nonfinite_solve)
+    monkeypatch.setattr(adjoint_module, "gmres", nonfinite_solve)
 
     with pytest.raises(RKSAdjointError, match="adjoint solution must be finite"):
         rks_adjoint_adapter.solve(objective_ao_potential)
@@ -183,14 +209,15 @@ def test_adjoint_rejects_literal_transpose_residual(
     objective_ao_potential,
     monkeypatch,
 ):
-    original_solve = adjoint_module.np.linalg.solve
+    original_solve = adjoint_module.gmres
 
-    def corrupted_solve(matrix, right_hand_side):
-        return original_solve(matrix, right_hand_side) + 1.0e-3
+    def corrupted_solve(matrix, right_hand_side, **options):
+        solution, info = original_solve(matrix, right_hand_side, **options)
+        return solution + 1.0e-3, info
 
-    monkeypatch.setattr(adjoint_module.np.linalg, "solve", corrupted_solve)
+    monkeypatch.setattr(adjoint_module, "gmres", corrupted_solve)
 
-    with pytest.raises(RKSAdjointError, match="literal transpose adjoint residual"):
+    with pytest.raises(RKSAdjointError, match="solver residual exceeds tolerance"):
         rks_adjoint_adapter.solve(objective_ao_potential)
 
 
@@ -210,7 +237,7 @@ def test_adjoint_rejects_independent_transpose_action_residual(
         corrupted_transpose,
     )
 
-    with pytest.raises(RKSAdjointError, match="independent transpose adjoint residual"):
+    with pytest.raises(RKSAdjointError, match="physical adjoint residual"):
         rks_adjoint_adapter.solve(objective_ao_potential)
 
 
@@ -219,9 +246,6 @@ def test_adjoint_rejects_physical_operator_residual(
     objective_ao_potential,
     monkeypatch,
 ):
-    def exact_transpose(self, vector):
-        return self.dense_operator().T @ vector
-
     original_apply = rks_adapter_module._RKSLinearResponseProblem.apply
 
     def corrupted_physical(self, vector):
@@ -229,16 +253,11 @@ def test_adjoint_rejects_physical_operator_residual(
 
     monkeypatch.setattr(
         rks_adapter_module._RKSLinearResponseProblem,
-        "apply_transpose",
-        exact_transpose,
-    )
-    monkeypatch.setattr(
-        rks_adapter_module._RKSLinearResponseProblem,
         "apply",
         corrupted_physical,
     )
 
-    with pytest.raises(RKSAdjointError, match="physical adjoint residual"):
+    with pytest.raises(RKSAdjointError, match="violates symmetry|physical adjoint residual"):
         rks_adjoint_adapter.solve(objective_ao_potential)
 
 

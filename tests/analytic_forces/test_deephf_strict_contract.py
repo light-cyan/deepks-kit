@@ -214,6 +214,7 @@ def test_response_reports_a_stable_well_conditioned_coupled_operator(
     diagnostics = rhf_oracle_case.response.diagnostics
 
     assert diagnostics.response_dimension == 10
+    assert diagnostics.operator_diagnostics_are_estimates is True
     assert diagnostics.operator_minimum_eigenvalue > 0.4
     assert diagnostics.operator_maximum_eigenvalue > 10.0
     assert diagnostics.operator_condition_number < 50.0
@@ -227,7 +228,10 @@ def test_response_rejects_an_excessive_coupled_operator_condition_number(
         DeePHFCapabilityError,
         match="response operator is ill conditioned",
     ):
-        rhf_oracle_case.method.response(operator_condition_tolerance=40.0)
+        RHFResponseAdapter(
+            rhf_oracle_case.reference,
+            operator_condition_tolerance=40.0,
+        ).validate_response_operator_exact()
 
 
 def test_response_rejects_a_singular_coupled_operator_without_fallback():
@@ -254,18 +258,14 @@ def test_response_rejects_a_singular_coupled_operator_without_fallback():
         None,
         projector_basis=SMALL_PROJECTOR_BASIS,
     )
-    gradient_driver = method.nuc_grad_method()
-
     with pytest.raises(
         DeePHFCapabilityError,
         match="response operator is unstable or singular",
     ):
-        gradient_driver.kernel()
+        RHFResponseAdapter(reference).validate_response_operator_exact()
 
-    assert gradient_driver.response_result is None
-    assert gradient_driver.dq_dR_relaxed is None
-    assert gradient_driver.de_full is None
-    assert gradient_driver.de is None
+    response = method.response()
+    assert response.diagnostics.operator_diagnostics_are_estimates is True
 
 
 @pytest.mark.parametrize(

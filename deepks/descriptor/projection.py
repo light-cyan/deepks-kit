@@ -161,13 +161,14 @@ class AtomicDensityDescriptor:
             ).detach().cpu().numpy()
         return [block.detach().cpu().numpy() for block in blocks]
 
-    def dq_dR_explicit(self, ao_density) -> np.ndarray:
+    def dq_dR_explicit(self, ao_density, raw_atom_indices=None) -> np.ndarray:
         result = dq_dR_explicit(
             self.mol,
             _as_ao_density_tensor(ao_density),
             self.overlap_shells,
             self.derivative_overlap_shells(),
             self.descriptor_atom_indices,
+            raw_atom_indices,
         )
         return result.detach().cpu().numpy()
 

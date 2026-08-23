@@ -128,6 +128,7 @@ def make_schema_inputs(frame_count=2):
                     "operator_condition_tolerance": 1.0e8,
                     "operator_symmetry_tolerance": 1.0e-10,
                     "operator_dimension_limit": 512,
+                    "operator_diagnostics_are_estimates": True,
                     "operator_minimum_eigenvalue": 0.25,
                     "operator_maximum_eigenvalue": 2.0,
                     "operator_condition_number": 8.0,
@@ -246,6 +247,34 @@ def test_force_schema_output_and_fingerprints_are_deterministic(tmp_path):
     assert (tmp_path / "first" / "force_data.json").read_bytes() == (
         tmp_path / "second" / "force_data.json"
     ).read_bytes()
+
+
+def test_coordinate_chunking_does_not_change_scientific_compatibility(tmp_path):
+    arrays, provenance = make_schema_inputs(frame_count=1)
+    one_atom_blocks = copy.deepcopy(provenance)
+    one_atom_blocks["response"].update(
+        coordinate_block_size=1,
+        response_block_count=2,
+    )
+    two_atom_block = copy.deepcopy(provenance)
+    two_atom_block["response"].update(
+        coordinate_block_size=2,
+        response_block_count=1,
+    )
+
+    first = write_force_dataset(
+        tmp_path / "one-atom-blocks",
+        arrays=copy.deepcopy(arrays),
+        provenance=one_atom_blocks,
+    )
+    second = write_force_dataset(
+        tmp_path / "two-atom-block",
+        arrays=copy.deepcopy(arrays),
+        provenance=two_atom_block,
+    )
+
+    assert first.compatibility_fingerprint == second.compatibility_fingerprint
+    assert first.manifest_fingerprint != second.manifest_fingerprint
 
 
 def test_force_checkpoint_metadata_round_trip_and_ignores_system_size(tmp_path):

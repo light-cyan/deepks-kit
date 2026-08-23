@@ -378,3 +378,18 @@ def test_writer_rejects_contradictory_scientific_provenance(
             arrays=arrays,
             provenance=provenance,
         )
+
+
+def test_writer_rejects_inconsistent_response_block_count(tmp_path):
+    arrays, provenance = make_schema_inputs(frame_count=1)
+    provenance["response"].update(
+        coordinate_block_size=1,
+        response_block_count=1,
+    )
+
+    with pytest.raises(ForceDataError, match="response_block_count does not match"):
+        write_force_dataset(
+            tmp_path / "inconsistent-block-count",
+            arrays=arrays,
+            provenance=provenance,
+        )

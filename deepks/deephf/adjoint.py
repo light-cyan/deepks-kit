@@ -61,6 +61,17 @@ class AdjointResult:
     diagnostics: AdjointDiagnostics
 
 
+@dataclass(frozen=True)
+class SymmetricOperatorTelemetry:
+    """Non-authoritative fixed-cost observations of a symmetric operator."""
+
+    dimension: int
+    minimum_ritz_value: float
+    maximum_ritz_value: float
+    condition_estimate: float
+    symmetry_residual: float
+
+
 def _immutable_array(value: np.ndarray) -> np.ndarray:
     array = np.ascontiguousarray(value)
     return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
@@ -246,11 +257,97 @@ def _isolated_problem_action(
     return action_result
 
 
+def symmetric_operator_telemetry(
+    problem: ScalarAdjointProblem,
+    *,
+    lanczos_steps: int = 16,
+) -> SymmetricOperatorTelemetry:
+    """Return bounded-memory Ritz telemetry without certifying the full spectrum."""
+    if not isinstance(problem, ScalarAdjointProblem):
+        raise AdjointError(
+            "operator telemetry problem does not implement the scalar protocol"
+        )
+    dimension = _validated_dimension(problem.dimension)
+    lanczos_steps = _validated_positive_integer(
+        lanczos_steps,
+        "lanczos_steps",
+    )
+
+    def apply(vector: np.ndarray, name: str) -> np.ndarray:
+        return _isolated_problem_action(
+            problem.apply,
+            vector,
+            dimension,
+            action_name=name,
+            result_name=name,
+        ).copy()
+
+    indices = np.arange(1, dimension + 1, dtype=np.float64)
+    left_probe = np.sin(indices) + np.cos(indices * np.sqrt(2.0))
+    right_probe = np.sin(indices * np.sqrt(3.0)) - np.cos(
+        indices * np.sqrt(5.0)
+    )
+    left_probe /= np.linalg.norm(left_probe)
+    right_probe /= np.linalg.norm(right_probe)
+    left_image = apply(left_probe, "operator telemetry left action")
+    right_image = apply(right_probe, "operator telemetry right action")
+    symmetry_residual = float(
+        abs(np.dot(left_probe, right_image) - np.dot(left_image, right_probe))
+    )
+
+    basis: list[np.ndarray] = []
+    diagonal: list[float] = []
+    off_diagonal: list[float] = []
+    vector = left_probe
+    previous = np.zeros_like(vector)
+    previous_norm = 0.0
+    for _ in range(min(lanczos_steps, dimension)):
+        basis.append(vector)
+        image = apply(vector, "operator telemetry Lanczos action")
+        image -= previous_norm * previous
+        rayleigh = float(np.dot(vector, image))
+        diagonal.append(rayleigh)
+        image -= rayleigh * vector
+        for basis_vector in basis:
+            image -= np.dot(basis_vector, image) * basis_vector
+        next_norm = float(np.linalg.norm(image))
+        if not np.isfinite(next_norm):
+            raise AdjointError("operator telemetry Lanczos norm is nonfinite")
+        if len(diagonal) == min(lanczos_steps, dimension) or next_norm <= np.finfo(float).eps:
+            break
+        off_diagonal.append(next_norm)
+        previous, vector = vector, image / next_norm
+        previous_norm = next_norm
+    tridiagonal = np.diag(np.asarray(diagonal, dtype=np.float64))
+    if off_diagonal:
+        off = np.asarray(off_diagonal, dtype=np.float64)
+        tridiagonal += np.diag(off, 1) + np.diag(off, -1)
+    try:
+        ritz_values = np.linalg.eigvalsh(tridiagonal)
+    except np.linalg.LinAlgError as error:
+        raise AdjointError(f"operator telemetry eigensolve failed: {error}") from error
+    minimum = float(ritz_values[0])
+    maximum = float(ritz_values[-1])
+    denominator = max(abs(minimum), np.finfo(np.float64).tiny)
+    condition_estimate = max(abs(minimum), abs(maximum)) / denominator
+    if not np.isfinite(
+        (minimum, maximum, condition_estimate, symmetry_residual)
+    ).all():
+        raise AdjointError("operator telemetry is nonfinite")
+    return SymmetricOperatorTelemetry(
+        dimension=dimension,
+        minimum_ritz_value=minimum,
+        maximum_ritz_value=maximum,
+        condition_estimate=float(condition_estimate),
+        symmetry_residual=symmetry_residual,
+    )
+
+
 def _matrix_free_operator_fingerprint(
     problem: ScalarAdjointProblem,
     dimension: int,
 ) -> str:
-    """Fingerprint deterministic transpose actions without materializing ``A``."""
+    """Fingerprint state evidence and deterministic actions without forming ``A``."""
     supplied_fingerprint = getattr(problem, "operator_fingerprint", None)
     if supplied_fingerprint is not None:
         if callable(supplied_fingerprint):
@@ -268,15 +365,16 @@ def _matrix_free_operator_fingerprint(
             raise AdjointError(
                 "matrix-free operator fingerprint must be a SHA-256 hex digest"
             ) from error
-        return supplied_fingerprint
     indices = np.arange(1, dimension + 1, dtype=np.float64)
     probes = (
         np.sin(indices) + np.cos(indices * np.sqrt(2.0)),
         np.sin(indices * np.sqrt(3.0)) - np.cos(indices * np.sqrt(5.0)),
     )
     digest = hashlib.sha256()
-    digest.update(b"matrix-free-scalar-adjoint-v1")
+    digest.update(b"matrix-free-scalar-adjoint-v2")
     digest.update(str(dimension).encode("ascii"))
+    if supplied_fingerprint is not None:
+        digest.update(bytes.fromhex(supplied_fingerprint))
     for probe in probes:
         probe /= np.linalg.norm(probe)
         image = _isolated_problem_action(
@@ -407,7 +505,7 @@ def solve_scalar_adjoint(
             iteration_count += 1
 
         try:
-            krylov_tolerance = min(residual_tolerance, 1.0e-11)
+            krylov_tolerance = min(residual_tolerance, 1.0e-12)
             solution, convergence_info = gmres(
                 linear_operator,
                 objective_gradient,

@@ -98,6 +98,7 @@ def write_force_contract_sample(
                     "operator_dimension_limit": response_controls[
                         "operator_dimension_limit"
                     ],
+                    "operator_diagnostics_are_estimates": True,
                     "operator_minimum_eigenvalue": 0.25,
                     "operator_maximum_eigenvalue": 2.0,
                     "operator_condition_number": 8.0,

@@ -868,6 +868,10 @@ class UKSResponseAdapter:
         except UHFResponseError as error:
             raise UKSResponseError(f"UKS response evaluation failed: {error}") from error
 
+    def validate_response_operator_exact(self):
+        """Run the bounded explicit debug audit of the internal UKS operator."""
+        return self._core.validate_response_operator_exact()
+
     def audit_response_equations(self, response: UKSResponse) -> None:
         """Rebuild one supplied UKS response without another CPHF solve."""
         validate_uks_reference(self.reference)
@@ -928,6 +932,8 @@ class UKSAdjointAdapter:
             "operator_symmetry_tolerance",
             "operator_dimension_limit",
             "objective_symmetry_tolerance",
+            "max_cycle",
+            "krylov_restart",
         ):
             setattr(self, name, getattr(self._core, name))
 
@@ -954,6 +960,10 @@ class UKSAdjointAdapter:
         weight_spin = np.stack(weight_spin)
         residual = float(np.max(np.abs(core_adjoint.correction_gradient_adjoint_nuclear_spin - fixed_spin - coordinate_spin - weight_spin), initial=0.0))
         return fixed_spin, coordinate_spin, weight_spin, float(fixed_residual), residual
+
+    def validate_response_operator_exact(self):
+        """Run the bounded explicit debug audit of the internal UKS operator."""
+        return self._core.validate_response_operator_exact()
 
     def solve(self, objective_ao_potential: np.ndarray) -> UKSAdjoint:
         """Return one immutable UKS adjoint from exactly one transpose solve."""

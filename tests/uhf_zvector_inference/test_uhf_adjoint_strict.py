@@ -56,7 +56,6 @@ def test_adjoint_operator_dimension_stability_and_condition_gates(
     uhf_oracle_case,
     independent_uhf_adjoint_oracle,
 ):
-    objective = independent_uhf_adjoint_oracle.objective_ao_potential
     dimension = uhf_oracle_case.coupled_operator.shape[0]
     minimum = float(np.linalg.eigvalsh(uhf_oracle_case.coupled_operator)[0])
     condition = float(np.linalg.cond(uhf_oracle_case.coupled_operator))
@@ -65,17 +64,39 @@ def test_adjoint_operator_dimension_stability_and_condition_gates(
         UHFAdjointAdapter(
             uhf_oracle_case.reference,
             operator_dimension_limit=dimension - 1,
-        ).solve(objective)
+        ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="unstable or singular"):
         UHFAdjointAdapter(
             uhf_oracle_case.reference,
             operator_stability_tolerance=minimum * 1.01,
-        ).solve(objective)
+        ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="ill conditioned"):
         UHFAdjointAdapter(
             uhf_oracle_case.reference,
             operator_condition_tolerance=condition * 0.99,
-        ).solve(objective)
+        ).validate_response_operator_exact()
+
+
+def test_adjoint_production_solve_does_not_use_dense_debug_audit(
+    uhf_oracle_case,
+    independent_uhf_adjoint_oracle,
+    monkeypatch,
+):
+    def forbidden_dense_audit(*_args, **_kwargs):
+        raise AssertionError("the UHF response matrix was materialized")
+
+    monkeypatch.setattr(
+        pyscf_uhf._UHFLinearResponseCore,
+        "_response_operator_matrix_and_diagnostics",
+        forbidden_dense_audit,
+    )
+    adjoint = UHFAdjointAdapter(
+        uhf_oracle_case.reference,
+        operator_dimension_limit=1,
+    ).solve(independent_uhf_adjoint_oracle.objective_ao_potential)
+
+    assert adjoint.diagnostics.response_dimension > 1
+    assert adjoint.diagnostics.iteration_count > 0
 
 
 def test_adjoint_rejects_operator_asymmetry_before_solve(
@@ -89,8 +110,7 @@ def test_adjoint_rejects_operator_asymmetry_before_solve(
     def asymmetric(self, vectors, *args, **kwargs):
         result = np.asarray(original(self, vectors, *args, **kwargs)).copy()
         array = np.asarray(vectors)
-        if array.ndim == 2 and array.shape[0] > 1:
-            result[0, 1] += 1.0e-3
+        result[..., 0] += 1.0e-3 * array[..., 1]
         return result
 
     monkeypatch.setattr(
@@ -98,8 +118,10 @@ def test_adjoint_rejects_operator_asymmetry_before_solve(
         "_apply_occupied_virtual_operator",
         asymmetric,
     )
-    with pytest.raises(UHFAdjointError, match="violates symmetry"):
-        UHFAdjointAdapter(uhf_oracle_case.reference).solve(objective)
+    with pytest.raises(pyscf_uhf.UHFResponseError, match="violates symmetry"):
+        UHFAdjointAdapter(
+            uhf_oracle_case.reference
+        ).validate_response_operator_exact()
 
 
 def test_adjoint_solver_and_independent_residual_faults_are_explicit(
@@ -112,7 +134,7 @@ def test_adjoint_solver_and_independent_residual_faults_are_explicit(
     def failed_solve(*args, **kwargs):
         raise np.linalg.LinAlgError("injected transpose failure")
 
-    monkeypatch.setattr(neutral_adjoint.np.linalg, "solve", failed_solve)
+    monkeypatch.setattr(neutral_adjoint, "gmres", failed_solve)
     with pytest.raises(UHFAdjointError, match="adjoint evaluation failed"):
         UHFAdjointAdapter(uhf_oracle_case.reference).solve(objective)
 
@@ -137,7 +159,7 @@ def test_adjoint_physical_residual_fault_is_not_hidden(
     )
     with pytest.raises(
         UHFAdjointError,
-        match="transpose adjoint residual|physical adjoint residual",
+        match="violates symmetry|transpose adjoint residual|physical adjoint residual",
     ):
         UHFAdjointAdapter(uhf_oracle_case.reference).solve(objective)
 

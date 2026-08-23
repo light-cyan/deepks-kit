@@ -18,7 +18,13 @@ from pyscf.scf import cphf, hf as scf_hf
 
 from deepks.descriptor import is_ghost_atom
 
-from .adjoint import AdjointError, ScalarAdjointProblem, solve_scalar_adjoint
+from .adjoint import (
+    AdjointError,
+    ScalarAdjointProblem,
+    scalar_operator_fingerprint,
+    solve_scalar_adjoint,
+    symmetric_operator_telemetry,
+)
 from .capabilities import DeePHFCapabilityError
 
 
@@ -118,6 +124,7 @@ class RKSResponseDiagnostics:
     operator_condition_tolerance: float
     operator_symmetry_tolerance: float
     operator_dimension_limit: int
+    operator_diagnostics_are_estimates: bool
     operator_minimum_eigenvalue: float
     operator_maximum_eigenvalue: float
     operator_condition_number: float
@@ -192,6 +199,7 @@ class RKSAdjointDiagnostics:
     operator_condition_tolerance: float
     operator_symmetry_tolerance: float
     operator_dimension_limit: int
+    operator_diagnostics_are_estimates: bool
     operator_minimum_eigenvalue: float
     operator_maximum_eigenvalue: float
     operator_condition_number: float
@@ -213,6 +221,9 @@ class RKSAdjointDiagnostics:
     transpose_residual_rms: float
     maximum_physical_residual: float
     physical_residual_rms: float
+    max_cycle: int
+    krylov_restart: int
+    iteration_count: int
 
 
 @dataclass(frozen=True)
@@ -1293,16 +1304,26 @@ def rks_adjoint_integrity_fingerprint(adjoint: RKSAdjoint) -> str:
 
 
 class _RKSLinearResponseProblem:
-    """Bind one audited RKS operator to the reference-neutral protocol."""
+    """Bind one action-only RKS operator to the reference-neutral protocol."""
 
-    def __init__(self, adapter: "_RKSLinearResponseCore", matrix: np.ndarray):
+    def __init__(self, adapter: "_RKSLinearResponseCore"):
         self._adapter = adapter
-        self._matrix = _immutable_array(matrix)
         self._state_fingerprint = rks_reference_fingerprint(adapter.reference)
+        coefficient, _energy, occupation, occupied, virtual, _gap = adapter._state()
+        self._dimension = int(np.count_nonzero(occupied)) * int(
+            np.count_nonzero(virtual)
+        )
 
     @property
     def dimension(self) -> int:
-        return self._matrix.shape[0]
+        return self._dimension
+
+    @property
+    def operator_fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        digest.update(b"pyscf-2.14-rks-occupied-virtual-operator-v1")
+        digest.update(self._state_fingerprint.encode("ascii"))
+        return digest.hexdigest()
 
     def _validate_state(self) -> None:
         validate_rks_reference(self._adapter.reference)
@@ -1310,10 +1331,6 @@ class _RKSLinearResponseProblem:
             raise RKSResponseError(
                 "the RKS reference changed after the linear-response problem was built"
             )
-
-    def dense_operator(self) -> np.ndarray:
-        self._validate_state()
-        return self._matrix
 
     def apply(self, vector: np.ndarray) -> np.ndarray:
         self._validate_state()
@@ -1346,6 +1363,14 @@ class _RKSLinearResponseProblem:
             "RKS transpose linear-response vector",
         )
         return self.apply(vector)
+
+    def precondition(self, vector: np.ndarray) -> np.ndarray:
+        self._validate_state()
+        _coefficient, energy, _occupation, occupied, virtual, _gap = (
+            self._adapter._state()
+        )
+        gaps = energy[virtual, None] - energy[occupied]
+        return np.asarray(vector).reshape(self.dimension) / gaps.reshape(-1)
 
 
 class _RKSLinearResponseCore:
@@ -2005,18 +2030,113 @@ class _RKSLinearResponseCore:
             reconstruction_residual,
         )
 
-    def linear_response_problem(self) -> ScalarAdjointProblem:
-        """Return the audited RKS operator through the neutral adjoint protocol."""
-        validate_rks_reference(self.reference)
+    def _matrix_free_response_operator_diagnostics(
+        self,
+        coefficient: np.ndarray,
+        energy: np.ndarray,
+        occupation: np.ndarray,
+        occupied: np.ndarray,
+        virtual: np.ndarray,
+    ) -> tuple[int, float, float, float, float, float]:
+        """Return fixed-cost spectral and XC reconstruction telemetry."""
+        problem = _RKSLinearResponseProblem(self)
+        try:
+            telemetry = symmetric_operator_telemetry(problem)
+        except AdjointError as error:
+            raise RKSResponseError(
+                f"RKS matrix-free operator telemetry failed: {error}"
+            ) from error
+        if telemetry.symmetry_residual > self.operator_symmetry_tolerance:
+            raise RKSResponseError(
+                "the RKS occupied-virtual response operator violates symmetry "
+                f"in sampled actions: {telemetry.symmetry_residual:.3e} > "
+                f"{self.operator_symmetry_tolerance:.3e}"
+            )
+
+        nocc = int(np.count_nonzero(occupied))
+        nvir = int(np.count_nonzero(virtual))
+        indices = np.arange(1, telemetry.dimension + 1, dtype=np.float64)
+        probes = (
+            np.sin(indices) + np.cos(indices * np.sqrt(2.0)),
+            np.sin(indices * np.sqrt(3.0)) - np.cos(indices * np.sqrt(5.0)),
+        )
+        reference_response = self.reference.gen_response(
+            coefficient,
+            occupation,
+            hermi=1,
+        )
+        reconstruction_residual = 0.0
+        for probe in probes:
+            probe /= np.linalg.norm(probe)
+            root = probe.reshape(nvir, nocc)
+            full_root = np.zeros((coefficient.shape[1], nocc), dtype=np.float64)
+            full_root[virtual] = root
+            density_root = self._density_from_mo_response(
+                full_root,
+                coefficient,
+                occupation,
+                occupied,
+            )
+            independent = self._induced_potential(density_root)
+            try:
+                pyscf_response = np.asarray(reference_response(density_root))
+            except Exception as error:
+                raise RKSResponseError(
+                    f"PySCF RKS induced-response probe failed: {error}"
+                ) from error
+            pyscf_response = _validated_float64_array(
+                pyscf_response,
+                density_root.shape,
+                "PySCF induced RKS response probe",
+            )
+            reconstruction_residual = max(
+                reconstruction_residual,
+                float(
+                    np.max(
+                        np.abs(independent - pyscf_response),
+                        initial=0.0,
+                    )
+                ),
+            )
+        if reconstruction_residual > self.invariant_tolerance:
+            raise RKSResponseError(
+                "the sampled direct-J plus dense-LDA response does not match "
+                f"PySCF: residual {reconstruction_residual:.3e}"
+            )
+        return (
+            telemetry.dimension,
+            telemetry.minimum_ritz_value,
+            telemetry.maximum_ritz_value,
+            telemetry.condition_estimate,
+            telemetry.symmetry_residual,
+            reconstruction_residual,
+        )
+
+    def validate_response_operator_exact(
+        self,
+    ) -> tuple[int, float, float, float, float, float]:
+        """Run an explicit dense stability audit for a bounded debug problem."""
         coefficient, energy, occupation, occupied, virtual, _gap = self._state()
-        matrix = self._response_operator_matrix_and_diagnostics(
+        return self._response_operator_matrix_and_diagnostics(
             coefficient,
             energy,
             occupation,
             occupied,
             virtual,
-        )[0]
-        problem = _RKSLinearResponseProblem(self, matrix)
+        )[1:]
+
+    def linear_response_problem(self) -> ScalarAdjointProblem:
+        """Return the action-only RKS operator through the neutral protocol."""
+        validate_rks_reference(self.reference)
+        coefficient, energy, occupation, occupied, virtual, _gap = self._state()
+        self._matrix_free_response_operator_diagnostics(
+            coefficient,
+            energy,
+            occupation,
+            occupied,
+            virtual,
+        )
+        problem = _RKSLinearResponseProblem(self)
         if not isinstance(problem, ScalarAdjointProblem):
             raise RKSResponseError(
                 "the RKS linear-response problem violates the neutral adjoint protocol"
@@ -2189,21 +2309,19 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         grid_provenance = _grid_provenance(self.reference)
         coefficient, energy, occupation, occupied, virtual, minimum_gap = self._state()
         (
-            operator_matrix,
             response_dimension,
             operator_minimum_eigenvalue,
             operator_maximum_eigenvalue,
             operator_condition_number,
             operator_symmetry_residual,
             induced_potential_reconstruction_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._matrix_free_response_operator_diagnostics(
             coefficient,
             energy,
             occupation,
             occupied,
             virtual,
         )
-        del operator_matrix
         overlap = np.asarray(self.reference.get_ovlp())
         overlap_derivative = self._overlap_derivative()
         (
@@ -2363,6 +2481,7 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             operator_condition_tolerance=self.operator_condition_tolerance,
             operator_symmetry_tolerance=self.operator_symmetry_tolerance,
             operator_dimension_limit=self.operator_dimension_limit,
+            operator_diagnostics_are_estimates=True,
             operator_minimum_eigenvalue=operator_minimum_eigenvalue,
             operator_maximum_eigenvalue=operator_maximum_eigenvalue,
             operator_condition_number=operator_condition_number,
@@ -2685,14 +2804,13 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 "the supplied RKS orbital residual is not independently reproducible"
             )
         (
-            _operator_matrix,
             response_dimension,
             operator_minimum_eigenvalue,
             operator_maximum_eigenvalue,
             operator_condition_number,
             operator_symmetry_residual,
             induced_potential_reconstruction_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._matrix_free_response_operator_diagnostics(
             coefficient,
             energy,
             occupation,
@@ -2819,6 +2937,10 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "quadrature_electron_count": quadrature_electron_count,
         }
         diagnostics = response.diagnostics
+        if diagnostics.operator_diagnostics_are_estimates is not True:
+            raise RKSResponseError(
+                "the supplied RKS response operator diagnostics must be estimates"
+            )
         exact_diagnostics = {
             "pyscf_version": pyscf.__version__,
             "libxc_version": str(libxc.__version__),
@@ -2909,6 +3031,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         operator_symmetry_tolerance: float = 1.0e-10,
         operator_dimension_limit: int = 512,
         objective_symmetry_tolerance: float = 1.0e-10,
+        max_cycle: int = 100,
+        krylov_restart: int = 50,
     ):
         super().__init__(
             reference,
@@ -2919,6 +3043,11 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             operator_condition_tolerance=operator_condition_tolerance,
             operator_symmetry_tolerance=operator_symmetry_tolerance,
             operator_dimension_limit=operator_dimension_limit,
+            max_cycle=max_cycle,
+        )
+        self.krylov_restart = _cycle_limit(
+            krylov_restart,
+            "krylov_restart",
         )
         self.objective_symmetry_tolerance = _response_real_control(
             objective_symmetry_tolerance,
@@ -2926,6 +3055,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         )
         if self.objective_symmetry_tolerance <= 0.0:
             raise ValueError("adjoint objective_symmetry_tolerance must be positive")
+        if self.krylov_restart <= 0:
+            raise ValueError("adjoint krylov_restart must be positive")
 
     def _validated_objective_potential(self, value) -> np.ndarray:
         potential = _validated_float64_array(
@@ -3200,14 +3331,13 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             minimum_gap,
         ) = self._state()
         (
-            response_operator,
             response_dimension,
             operator_minimum_eigenvalue,
             operator_maximum_eigenvalue,
             operator_condition_number,
             operator_symmetry_residual,
             induced_potential_reconstruction_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._matrix_free_response_operator_diagnostics(
             coefficient,
             energy,
             occupation,
@@ -3221,7 +3351,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             occupied,
             virtual,
         )
-        problem = _RKSLinearResponseProblem(self, response_operator)
+        problem = _RKSLinearResponseProblem(self)
         if not isinstance(problem, ScalarAdjointProblem):
             raise RKSAdjointError(
                 "the RKS adjoint operator violates the neutral scalar protocol"
@@ -3231,7 +3361,9 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             objective_orbital_gradient.reshape(response_dimension),
             residual_tolerance=self.residual_tolerance,
             require_physical_residual=True,
-            solver="dense",
+            solver="gmres",
+            max_cycle=self.max_cycle,
+            restart=self.krylov_restart,
         )
         nocc = int(np.count_nonzero(occupied))
         nvir = int(np.count_nonzero(virtual))
@@ -3335,6 +3467,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             operator_condition_tolerance=self.operator_condition_tolerance,
             operator_symmetry_tolerance=self.operator_symmetry_tolerance,
             operator_dimension_limit=self.operator_dimension_limit,
+            operator_diagnostics_are_estimates=True,
             operator_minimum_eigenvalue=operator_minimum_eigenvalue,
             operator_maximum_eigenvalue=operator_maximum_eigenvalue,
             operator_condition_number=operator_condition_number,
@@ -3376,6 +3509,9 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             physical_residual_rms=(
                 linear_diagnostics.physical_residual_rms
             ),
+            max_cycle=self.max_cycle,
+            krylov_restart=self.krylov_restart,
+            iteration_count=linear_diagnostics.iteration_count,
         )
         adjoint = RKSAdjoint(
             reference_identity=id(self.reference),
@@ -3485,7 +3621,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             raise RKSAdjointError(
                 "the supplied RKS adjoint grid provenance is invalid"
             )
-        if diagnostics.solver != "numpy.linalg.solve(A.T, b)":
+        if diagnostics.solver != "scipy.sparse.linalg.gmres(A.T, b)":
             raise RKSAdjointError(
                 "the supplied RKS adjoint solver convention is invalid"
             )
@@ -3497,10 +3633,23 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             diagnostics.grid_point_count,
             diagnostics.response_dimension,
             diagnostics.operator_dimension_limit,
+            diagnostics.max_cycle,
+            diagnostics.krylov_restart,
         )
         if any(type(value) is not int or value <= 0 for value in integer_diagnostics):
             raise RKSAdjointError(
                 "the supplied RKS adjoint integer diagnostics are invalid"
+            )
+        if (
+            type(diagnostics.iteration_count) is not int
+            or diagnostics.iteration_count < 0
+        ):
+            raise RKSAdjointError(
+                "the supplied RKS adjoint iteration count is invalid"
+            )
+        if diagnostics.operator_diagnostics_are_estimates is not True:
+            raise RKSAdjointError(
+                "the supplied RKS adjoint operator diagnostics must be estimates"
             )
         diagnostic_reals = (
             diagnostics.minimum_orbital_gap,
@@ -3546,6 +3695,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
             "operator_dimension_limit": self.operator_dimension_limit,
             "objective_symmetry_tolerance": self.objective_symmetry_tolerance,
+            "max_cycle": self.max_cycle,
+            "krylov_restart": self.krylov_restart,
         }
         for name, expected in controls.items():
             if getattr(diagnostics, name) != expected:
@@ -3633,28 +3784,40 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             "bilateral occupied-virtual objective gradient",
         )
         (
-            response_operator,
             response_dimension,
             minimum_eigenvalue,
             maximum_eigenvalue,
             condition_number,
             symmetry_residual,
             induced_potential_reconstruction_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._matrix_free_response_operator_diagnostics(
             coefficient,
             energy,
             occupation,
             occupied,
             virtual,
         )
-        if adjoint.operator_fingerprint != _array_fingerprint(response_operator):
+        problem = _RKSLinearResponseProblem(self)
+        expected_operator_fingerprint = scalar_operator_fingerprint(
+            problem,
+            solver="gmres",
+        )
+        if adjoint.operator_fingerprint != expected_operator_fingerprint:
             raise RKSAdjointError(
                 "the supplied RKS adjoint response operator is inconsistent"
             )
         objective_vector = expected_objective_gradient.reshape(dimension)
         zvector = adjoint.zvector
         solver_residual = (
-            response_operator.T @ zvector.reshape(dimension) - objective_vector
+            self._apply_occupied_virtual_operator(
+                zvector,
+                coefficient,
+                energy,
+                occupation,
+                occupied,
+                virtual,
+            ).reshape(dimension)
+            - objective_vector
         ).reshape(nvir, nocc)
         physical_residual = (
             self._apply_occupied_virtual_operator(
@@ -3819,8 +3982,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             or maximum_physical_residual > diagnostics.residual_tolerance
             or minimum_gap <= diagnostics.orbital_gap_tolerance
             or symmetry_residual > diagnostics.operator_symmetry_tolerance
-            or minimum_eigenvalue <= diagnostics.operator_stability_tolerance
-            or condition_number > diagnostics.operator_condition_tolerance
             or induced_potential_reconstruction_residual
             > diagnostics.invariant_tolerance
             or fixed_grid_xc_reconstruction_residual
@@ -3833,7 +3994,6 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             > diagnostics.objective_symmetry_tolerance
             or potential_symmetry_residual
             > diagnostics.objective_symmetry_tolerance
-            or response_dimension > diagnostics.operator_dimension_limit
         ):
             raise RKSAdjointError(
                 "the supplied RKS adjoint exceeds an accepted control"

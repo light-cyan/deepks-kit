@@ -696,13 +696,14 @@ def test_rks_response_operator_satisfies_the_reference_neutral_protocol(
     problem = RKSResponseAdapter(
         rks_oracle_case.reference
     ).linear_response_problem()
-    matrix = problem.dense_operator()
     vector = np.linspace(-0.37, 0.41, problem.dimension, dtype=np.float64)
+    identity = np.eye(problem.dimension, dtype=np.float64)
+    matrix = np.column_stack([problem.apply(root) for root in identity])
 
     assert isinstance(problem, ScalarAdjointProblem)
+    assert not hasattr(problem, "dense_operator")
     assert matrix.shape == (problem.dimension, problem.dimension)
     assert matrix.dtype == np.dtype(np.float64)
-    assert not matrix.flags.writeable
     np.testing.assert_allclose(
         problem.apply(vector),
         matrix @ vector,
@@ -741,28 +742,48 @@ def test_rks_response_operator_gates_dimension_stability_and_condition(
     rks_oracle_case,
 ):
     reference = rks_oracle_case.reference
-    diagnostics = rks_oracle_case.response.diagnostics
+    exact = RKSResponseAdapter(reference).validate_response_operator_exact()
+    dimension, minimum, _maximum, condition = exact[:4]
 
     with pytest.raises(DeePHFCapabilityError, match="dimension exceeds"):
         RKSResponseAdapter(
             reference,
-            operator_dimension_limit=diagnostics.response_dimension - 1,
-        ).linear_response_problem()
+            operator_dimension_limit=dimension - 1,
+        ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="unstable or singular"):
         RKSResponseAdapter(
             reference,
-            operator_stability_tolerance=(
-                diagnostics.operator_minimum_eigenvalue * 1.01
-            ),
-        ).linear_response_problem()
+            operator_stability_tolerance=minimum * 1.01,
+        ).validate_response_operator_exact()
     with pytest.raises(DeePHFCapabilityError, match="ill conditioned"):
         RKSResponseAdapter(
             reference,
             operator_condition_tolerance=max(
                 1.0001,
-                diagnostics.operator_condition_number * 0.99,
+                condition * 0.99,
             ),
-        ).linear_response_problem()
+        ).validate_response_operator_exact()
+
+
+def test_rks_production_response_does_not_use_dense_debug_audit(
+    rks_oracle_case,
+    monkeypatch,
+):
+    def forbidden_dense_audit(*_args, **_kwargs):
+        raise AssertionError("the RKS response matrix was materialized")
+
+    monkeypatch.setattr(
+        pyscf_rks._RKSLinearResponseCore,
+        "_response_operator_matrix_and_diagnostics",
+        forbidden_dense_audit,
+    )
+    response = RKSResponseAdapter(
+        rks_oracle_case.reference,
+        operator_dimension_limit=1,
+    ).solve()
+
+    assert response.diagnostics.response_dimension > 1
+    assert response.diagnostics.operator_diagnostics_are_estimates is True
 
 
 def test_rks_response_rejects_an_asymmetric_operator(

@@ -4,8 +4,12 @@ import torch
 from pyscf import gto, scf
 
 from deepks.deephf import DeePHF, RHFBlockedResponseSummary
-from deepks.deephf.adjoint import solve_scalar_adjoint
-from deepks.deephf.pyscf_rhf import _RHFLinearResponseCore
+from deepks.deephf.adjoint import (
+    scalar_operator_fingerprint,
+    solve_scalar_adjoint,
+    symmetric_operator_telemetry,
+)
+from deepks.deephf.pyscf_rhf import RHFResponseAdapter, _RHFLinearResponseCore
 from deepks.model.model import CorrNet
 
 
@@ -28,6 +32,25 @@ class _MatrixFreeProblem:
 
     def precondition(self, vector):
         return vector / np.diag(self.matrix)
+
+
+class _StateFingerprintProblem(_MatrixFreeProblem):
+    operator_fingerprint = "1" * 64
+
+
+class _DiagonalProblem:
+    def __init__(self, diagonal):
+        self.diagonal = diagonal
+
+    @property
+    def dimension(self):
+        return self.diagonal.size
+
+    def apply(self, vector):
+        return self.diagonal * vector
+
+    def apply_transpose(self, vector):
+        return self.apply(vector)
 
 
 @pytest.fixture(scope="module")
@@ -83,7 +106,28 @@ def test_generic_gmres_adjoint_never_requests_a_dense_operator():
     assert result.diagnostics.iteration_count > 0
 
 
-def test_rhf_zvector_uses_matrix_free_audit_above_the_dense_debug_limit(
+def test_operator_fingerprint_combines_state_and_action_evidence():
+    problem = _StateFingerprintProblem(np.eye(3, dtype=np.float64))
+    initial = scalar_operator_fingerprint(problem)
+    problem.matrix = np.diag(np.array([1.0, 1.0, 1.5]))
+    changed = scalar_operator_fingerprint(problem)
+
+    assert initial != changed
+
+
+def test_short_lanczos_values_are_explicitly_only_telemetry():
+    diagonal = np.concatenate(
+        (np.array([-1.0e-8]), np.linspace(1.0, 10.0, 999))
+    )
+    telemetry = symmetric_operator_telemetry(
+        _DiagonalProblem(diagonal)
+    )
+
+    assert telemetry.minimum_ritz_value > 0.0
+    assert diagonal.min() < 0.0
+
+
+def test_rhf_zvector_never_uses_the_dense_debug_audit(
     scalable_rhf_method,
     monkeypatch,
 ):
@@ -98,6 +142,7 @@ def test_rhf_zvector_uses_matrix_free_audit_above_the_dense_debug_limit(
     adjoint = scalable_rhf_method.adjoint(operator_dimension_limit=1)
     assert adjoint.diagnostics.response_dimension == 4
     assert adjoint.diagnostics.response_dimension > 1
+    assert adjoint.diagnostics.operator_diagnostics_are_estimates is True
     assert adjoint.diagnostics.iteration_count > 0
     assert adjoint.diagnostics.maximum_solver_residual < 1.0e-9
 
@@ -125,3 +170,26 @@ def test_direct_coordinate_blocks_match_full_response_without_retaining_it(
     assert blocked.response_result.coordinate_block_size == 1
     assert blocked.response_result.block_count == scalable_rhf_method.mol.natm
     assert not hasattr(blocked.response_result, "density_response")
+
+
+def test_selected_atoms_limit_coordinate_response_work(
+    scalable_rhf_method,
+    monkeypatch,
+):
+    solved_atoms = []
+    original_solve = RHFResponseAdapter.solve
+
+    def counted_solve(self, atom_indices=None):
+        solved_atoms.append(tuple(atom_indices))
+        return original_solve(self, atom_indices=atom_indices)
+
+    monkeypatch.setattr(RHFResponseAdapter, "solve", counted_solve)
+    driver = scalable_rhf_method.nuc_grad_method(
+        backend="direct",
+        coordinate_block_size=1,
+    )
+    selected = driver.kernel(atmlst=(3, 1))
+
+    assert solved_atoms == [(3,), (1,)]
+    assert selected.shape == (2, 3)
+    assert driver.dq_dR_response.shape[:2] == (2, 3)

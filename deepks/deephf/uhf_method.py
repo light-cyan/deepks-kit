@@ -41,6 +41,8 @@ _UHF_ZVECTOR_OPTIONS = frozenset(
         "operator_symmetry_tolerance",
         "operator_dimension_limit",
         "objective_symmetry_tolerance",
+        "max_cycle",
+        "krylov_restart",
     }
 )
 

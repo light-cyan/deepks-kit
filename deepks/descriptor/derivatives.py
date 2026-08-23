@@ -13,13 +13,22 @@ def dD_dR_explicit(
     overlap_shells: Sequence[torch.Tensor],
     derivative_overlap_shells: Sequence[torch.Tensor],
     descriptor_atom_indices: Sequence[int],
+    raw_atom_indices: Sequence[int] | None = None,
 ) -> list[torch.Tensor]:
     """Return fixed-density dD/dR with raw-atom and descriptor-atom axes."""
+    if raw_atom_indices is None:
+        raw_atom_indices = tuple(range(mol.natm))
+    else:
+        raw_atom_indices = tuple(raw_atom_indices)
+    raw_to_result = {
+        raw_atom_index: result_index
+        for result_index, raw_atom_index in enumerate(raw_atom_indices)
+    }
     atom_slices = mol.aoslice_by_atom()
     shell_sizes = [overlap.shape[-1] for overlap in overlap_shells]
     jacobian_blocks = [
         torch.zeros(
-            (mol.natm, 3, len(descriptor_atom_indices), size, size),
+            (len(raw_atom_indices), 3, len(descriptor_atom_indices), size, size),
             dtype=ao_density.dtype,
             device=ao_density.device,
         )
@@ -33,9 +42,9 @@ def dD_dR_explicit(
         projector_motion = torch.einsum(
             "xrap,rs,saq->xapq", derivative_overlap, ao_density, overlap
         )
-        for raw_atom_index in range(mol.natm):
+        for result_index, raw_atom_index in enumerate(raw_atom_indices):
             ao_start, ao_stop = atom_slices[raw_atom_index, 2:]
-            jacobian[raw_atom_index] -= torch.einsum(
+            jacobian[result_index] -= torch.einsum(
                 "xrap,rs,saq->xapq",
                 derivative_overlap[:, ao_start:ao_stop],
                 ao_density[ao_start:ao_stop],
@@ -44,9 +53,11 @@ def dD_dR_explicit(
         for descriptor_atom_index, raw_atom_index in enumerate(
             descriptor_atom_indices
         ):
-            jacobian[raw_atom_index, :, descriptor_atom_index] += (
-                projector_motion[:, descriptor_atom_index]
-            )
+            result_index = raw_to_result.get(raw_atom_index)
+            if result_index is not None:
+                jacobian[result_index, :, descriptor_atom_index] += (
+                    projector_motion[:, descriptor_atom_index]
+                )
         jacobian += jacobian.clone().transpose(-1, -2)
     return jacobian_blocks
 
@@ -57,6 +68,7 @@ def dq_dR_explicit(
     overlap_shells: Sequence[torch.Tensor],
     derivative_overlap_shells: Sequence[torch.Tensor],
     descriptor_atom_indices: Sequence[int],
+    raw_atom_indices: Sequence[int] | None = None,
 ) -> torch.Tensor:
     """Return fixed-density dq/dR with axes (raw_atom, xyz, descriptor_atom, feature)."""
     density_blocks = [
@@ -73,6 +85,7 @@ def dq_dR_explicit(
         overlap_shells,
         derivative_overlap_shells,
         descriptor_atom_indices,
+        raw_atom_indices,
     )
     shell_results = [
         torch.einsum("bxapq,avpq->bxav", coordinate, eigenvalue)

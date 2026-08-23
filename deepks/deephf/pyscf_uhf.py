@@ -17,7 +17,12 @@ from pyscf.scf import ucphf, uhf as scf_uhf
 from deepks.descriptor import is_ghost_atom
 
 from .capabilities import DeePHFCapabilityError
-from .adjoint import AdjointError, solve_scalar_adjoint
+from .adjoint import (
+    AdjointError,
+    scalar_operator_fingerprint,
+    solve_scalar_adjoint,
+    symmetric_operator_telemetry,
+)
 
 
 SUPPORTED_PYSCF_SERIES = (2, 14)
@@ -56,6 +61,7 @@ class UHFResponseDiagnostics:
     operator_condition_tolerance: float
     operator_symmetry_tolerance: float
     operator_dimension_limit: int
+    operator_diagnostics_are_estimates: bool
     operator_minimum_eigenvalue: float
     operator_maximum_eigenvalue: float
     operator_condition_number: float
@@ -127,6 +133,7 @@ class UHFAdjointDiagnostics:
     operator_condition_tolerance: float
     operator_symmetry_tolerance: float
     operator_dimension_limit: int
+    operator_diagnostics_are_estimates: bool
     operator_minimum_eigenvalue: float
     operator_maximum_eigenvalue: float
     operator_condition_number: float
@@ -148,6 +155,9 @@ class UHFAdjointDiagnostics:
     transpose_residual_rms: float
     maximum_physical_residual: float
     physical_residual_rms: float
+    max_cycle: int
+    krylov_restart: int
+    iteration_count: int
 
 
 @dataclass(frozen=True)
@@ -1111,7 +1121,43 @@ class _UHFLinearResponseCore:
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> tuple[int, int, int, float, float, float, float]:
-        """Return the direct-oracle operator diagnostics without its matrix."""
+        """Return non-authoritative fixed-cost matrix-free operator telemetry."""
+        problem = _UHFScalarAdjointProblem(
+            self,
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )
+        try:
+            telemetry = symmetric_operator_telemetry(problem)
+        except AdjointError as error:
+            raise UHFResponseError(
+                f"UHF matrix-free operator telemetry failed: {error}"
+            ) from error
+        if telemetry.symmetry_residual > self.operator_symmetry_tolerance:
+            raise UHFResponseError(
+                "the coupled UHF response operator violates symmetry in sampled actions: "
+                f"{telemetry.symmetry_residual:.3e} > "
+                f"{self.operator_symmetry_tolerance:.3e}"
+            )
+        dimensions = self._dimensions(occupied, virtual)
+        alpha_dimension, beta_dimension = dimensions[-2:]
+        return (
+            telemetry.dimension,
+            alpha_dimension,
+            beta_dimension,
+            telemetry.minimum_ritz_value,
+            telemetry.maximum_ritz_value,
+            telemetry.condition_estimate,
+            telemetry.symmetry_residual,
+        )
+
+    def validate_response_operator_exact(
+        self,
+    ) -> tuple[int, int, int, float, float, float, float]:
+        """Run an explicit dense stability audit for a bounded debug problem."""
+        coefficient, energy, _occupation, occupied, virtual, _gaps = self._state()
         return self._response_operator_matrix_and_diagnostics(
             coefficient,
             energy,
@@ -1602,6 +1648,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             operator_condition_tolerance=self.operator_condition_tolerance,
             operator_symmetry_tolerance=self.operator_symmetry_tolerance,
             operator_dimension_limit=self.operator_dimension_limit,
+            operator_diagnostics_are_estimates=True,
             operator_minimum_eigenvalue=operator_minimum_eigenvalue,
             operator_maximum_eigenvalue=operator_maximum_eigenvalue,
             operator_condition_number=operator_condition_number,
@@ -1791,7 +1838,12 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             if name in {"pyscf_version", "residual_history"}:
                 continue
             value = getattr(diagnostics, name)
-            if name in integer_fields:
+            if name == "operator_diagnostics_are_estimates":
+                if value is not True:
+                    raise UHFResponseError(
+                        "the supplied UHF operator diagnostics must be estimates"
+                    )
+            elif name in integer_fields:
                 if type(value) is not int:
                     raise UHFResponseError(
                         f"the supplied UHF response {name.replace('_', ' ')} must be an integer"
@@ -1892,15 +1944,11 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             raise UHFResponseError(
                 "the supplied UHF response beta gap is outside the adapter domain"
             )
-        if diagnostics.operator_minimum_eigenvalue <= self.operator_stability_tolerance:
-            raise UHFResponseError(
-                "the supplied UHF response operator is outside the stability domain"
-            )
         if diagnostics.operator_maximum_eigenvalue < diagnostics.operator_minimum_eigenvalue:
             raise UHFResponseError(
                 "the supplied UHF response operator spectral bounds are invalid"
             )
-        if not 1 <= diagnostics.operator_condition_number <= self.operator_condition_tolerance:
+        if diagnostics.operator_condition_number < 1:
             raise UHFResponseError(
                 "the supplied UHF response operator condition number is invalid"
             )
@@ -2265,19 +2313,17 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
 
 
 class _UHFScalarAdjointProblem:
-    """Bind one coupled UHF operator to the reference-neutral adjoint protocol."""
+    """Bind one coupled action-only UHF operator to the adjoint protocol."""
 
     def __init__(
         self,
         adapter: "UHFAdjointAdapter",
-        matrix: np.ndarray,
         coefficient: np.ndarray,
         energy: np.ndarray,
         occupied: np.ndarray,
         virtual: np.ndarray,
     ):
         self._adapter = adapter
-        self._matrix = _immutable_array(matrix)
         self._coefficient = coefficient
         self._energy = energy
         self._occupied = occupied
@@ -2289,8 +2335,16 @@ class _UHFScalarAdjointProblem:
     def dimension(self) -> int:
         return self._dimension
 
-    def dense_operator(self) -> np.ndarray:
-        return self._matrix
+    @property
+    def operator_fingerprint(self) -> str:
+        digest = hashlib.sha256()
+        digest.update(b"pyscf-2.14-coupled-uhf-occupied-virtual-operator-v1")
+        digest.update(
+            self._adapter._reference_fingerprint(
+                self._adapter.reference
+            ).encode("ascii")
+        )
+        return digest.hexdigest()
 
     def apply(self, vector: np.ndarray) -> np.ndarray:
         return np.asarray(
@@ -2304,8 +2358,20 @@ class _UHFScalarAdjointProblem:
         ).reshape(self.dimension)
 
     def apply_transpose(self, vector: np.ndarray) -> np.ndarray:
-        # The strict UHF gate independently proves coupled-operator symmetry.
+        # The real coupled UHF orbital Hessian is symmetric in this space.
         return self.apply(vector)
+
+    def precondition(self, vector: np.ndarray) -> np.ndarray:
+        alpha_gaps = (
+            self._energy[0, self._virtual[0], None]
+            - self._energy[0, self._occupied[0]]
+        ).reshape(-1)
+        beta_gaps = (
+            self._energy[1, self._virtual[1], None]
+            - self._energy[1, self._occupied[1]]
+        ).reshape(-1)
+        gaps = np.concatenate((alpha_gaps, beta_gaps))
+        return np.asarray(vector).reshape(self.dimension) / gaps
 
 
 class UHFAdjointAdapter(_UHFLinearResponseCore):
@@ -2323,6 +2389,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         operator_symmetry_tolerance: float = 1.0e-10,
         operator_dimension_limit: int = 512,
         objective_symmetry_tolerance: float = 1.0e-10,
+        max_cycle: int = 100,
+        krylov_restart: int = 50,
     ):
         validate_pyscf_version()
         self.reference = self._validate_reference(reference)
@@ -2358,6 +2426,11 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             objective_symmetry_tolerance,
             "adjoint objective_symmetry_tolerance",
         )
+        self.max_cycle = _cycle_limit(max_cycle, "adjoint max_cycle")
+        self.krylov_restart = _cycle_limit(
+            krylov_restart,
+            "adjoint krylov_restart",
+        )
         if (
             self.residual_tolerance <= 0
             or self.invariant_tolerance <= 0
@@ -2370,6 +2443,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             raise ValueError("UHF adjoint tolerances are invalid")
         if self.operator_dimension_limit <= 0:
             raise ValueError("UHF adjoint operator_dimension_limit must be positive")
+        if self.max_cycle <= 0 or self.krylov_restart <= 0:
+            raise ValueError("UHF adjoint Krylov cycle limits must be positive")
 
     @staticmethod
     def _matrix_fingerprint(matrix: np.ndarray) -> str:
@@ -2641,7 +2716,6 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             self._state()
         )
         (
-            response_operator,
             response_dimension,
             alpha_dimension,
             beta_dimension,
@@ -2649,7 +2723,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             operator_maximum_eigenvalue,
             operator_condition_number,
             operator_symmetry_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._response_operator_diagnostics(
             coefficient,
             energy,
             occupied,
@@ -2667,7 +2741,6 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         )
         problem = _UHFScalarAdjointProblem(
             self,
-            response_operator,
             coefficient,
             energy,
             occupied,
@@ -2678,7 +2751,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             objective_vector,
             residual_tolerance=self.residual_tolerance,
             require_physical_residual=True,
-            solver="dense",
+            solver="gmres",
+            max_cycle=self.max_cycle,
+            restart=self.krylov_restart,
         )
         zvector = self._split_occupied_virtual(
             linear_result.solution,
@@ -2763,6 +2838,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             operator_condition_tolerance=self.operator_condition_tolerance,
             operator_symmetry_tolerance=self.operator_symmetry_tolerance,
             operator_dimension_limit=self.operator_dimension_limit,
+            operator_diagnostics_are_estimates=True,
             operator_minimum_eigenvalue=operator_minimum_eigenvalue,
             operator_maximum_eigenvalue=operator_maximum_eigenvalue,
             operator_condition_number=operator_condition_number,
@@ -2788,6 +2864,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 linear_diagnostics.maximum_physical_residual
             ),
             physical_residual_rms=linear_diagnostics.physical_residual_rms,
+            max_cycle=self.max_cycle,
+            krylov_restart=self.krylov_restart,
+            iteration_count=linear_diagnostics.iteration_count,
         )
         adjoint = UHFAdjoint(
             reference_identity=id(self.reference),
@@ -2879,7 +2958,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             raise UHFAdjointError(
                 "the supplied UHF adjoint PySCF version does not match the runtime"
             )
-        if diagnostics.solver != "numpy.linalg.solve(A.T, b)":
+        if diagnostics.solver != "scipy.sparse.linalg.gmres(A.T, b)":
             raise UHFAdjointError(
                 "the supplied UHF adjoint solver convention is invalid"
             )
@@ -2889,6 +2968,9 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             diagnostics.beta_response_dimension,
             diagnostics.operator_dimension_limit,
             diagnostics.solve_count,
+            diagnostics.max_cycle,
+            diagnostics.krylov_restart,
+            diagnostics.iteration_count,
         )
         if any(type(value) is not int for value in integer_diagnostics):
             raise UHFAdjointError(
@@ -2897,6 +2979,10 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         if diagnostics.solve_count != 1:
             raise UHFAdjointError(
                 "the supplied UHF adjoint must contain exactly one scalar solve"
+            )
+        if diagnostics.operator_diagnostics_are_estimates is not True:
+            raise UHFAdjointError(
+                "the supplied UHF adjoint operator diagnostics must be estimates"
             )
         real_names = tuple(
             field.name
@@ -2910,6 +2996,10 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 "operator_dimension_limit",
                 "solver",
                 "solve_count",
+                "operator_diagnostics_are_estimates",
+                "max_cycle",
+                "krylov_restart",
+                "iteration_count",
             }
         )
         real_values = tuple(getattr(diagnostics, name) for name in real_names)
@@ -2929,6 +3019,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             "operator_symmetry_tolerance": self.operator_symmetry_tolerance,
             "operator_dimension_limit": self.operator_dimension_limit,
             "objective_symmetry_tolerance": self.objective_symmetry_tolerance,
+            "max_cycle": self.max_cycle,
+            "krylov_restart": self.krylov_restart,
         }
         for name, expected in accepted_controls.items():
             if getattr(diagnostics, name) != expected:
@@ -3000,7 +3092,6 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             "beta bilateral occupied-virtual objective gradient",
         )
         (
-            operator_matrix,
             measured_dimension,
             measured_alpha_dimension,
             measured_beta_dimension,
@@ -3008,13 +3099,24 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             maximum_eigenvalue,
             condition_number,
             symmetry_residual,
-        ) = self._response_operator_matrix_and_diagnostics(
+        ) = self._response_operator_diagnostics(
             coefficient,
             energy,
             occupied,
             virtual,
         )
-        if adjoint.operator_fingerprint != self._matrix_fingerprint(operator_matrix):
+        problem = _UHFScalarAdjointProblem(
+            self,
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )
+        expected_operator_fingerprint = scalar_operator_fingerprint(
+            problem,
+            solver="gmres",
+        )
+        if adjoint.operator_fingerprint != expected_operator_fingerprint:
             raise UHFAdjointError(
                 "the supplied UHF adjoint response operator is inconsistent"
             )
@@ -3024,7 +3126,14 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             tuple(value.reshape(-1) for value in objective_gradients)
         )
         solver_residual = self._split_occupied_virtual(
-            operator_matrix.T @ zflat - objective_flat,
+            self._apply_occupied_virtual_operator(
+                zflat,
+                coefficient,
+                energy,
+                occupied,
+                virtual,
+            )
+            - objective_flat,
             occupied,
             virtual,
         )

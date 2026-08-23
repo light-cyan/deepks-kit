@@ -123,26 +123,28 @@ def test_coupled_operator_spectrum_matches_independent_ao_integrals(
     )
 
     np.testing.assert_allclose(operator, operator.T, rtol=0.0, atol=2.0e-14)
+    exact = UHFResponseAdapter(response_reference).validate_response_operator_exact()
     np.testing.assert_allclose(
-        diagnostics.operator_minimum_eigenvalue,
+        exact[3],
         eigenvalues[0],
         rtol=2.0e-12,
         atol=2.0e-12,
     )
     np.testing.assert_allclose(
-        diagnostics.operator_maximum_eigenvalue,
+        exact[4],
         eigenvalues[-1],
         rtol=2.0e-12,
         atol=2.0e-12,
     )
     np.testing.assert_allclose(
-        diagnostics.operator_condition_number,
+        exact[5],
         eigenvalues[-1] / eigenvalues[0],
         rtol=2.0e-12,
         atol=2.0e-12,
     )
     assert diagnostics.alpha_response_dimension == alpha_dimension
     assert diagnostics.beta_response_dimension == beta_dimension
+    assert diagnostics.operator_diagnostics_are_estimates is True
     assert diagnostics.response_dimension == alpha_dimension + beta_dimension
     assert diagnostics.operator_symmetry_residual < 2.0e-14
 
@@ -366,7 +368,31 @@ def test_coupled_operator_domain_gates_are_explicit(
     message,
 ):
     with pytest.raises(DeePHFCapabilityError, match=message):
-        UHFResponseAdapter(response_reference, **options).solve()
+        UHFResponseAdapter(
+            response_reference,
+            **options,
+        ).validate_response_operator_exact()
+
+
+def test_production_response_does_not_use_dense_debug_audit(
+    response_reference,
+    monkeypatch,
+):
+    def forbidden_dense_audit(*_args, **_kwargs):
+        raise AssertionError("the UHF response matrix was materialized")
+
+    monkeypatch.setattr(
+        pyscf_uhf._UHFLinearResponseCore,
+        "_response_operator_matrix_and_diagnostics",
+        forbidden_dense_audit,
+    )
+    response = UHFResponseAdapter(
+        response_reference,
+        operator_dimension_limit=1,
+    ).solve()
+
+    assert response.diagnostics.response_dimension > 1
+    assert response.diagnostics.operator_diagnostics_are_estimates is True
 
 
 def test_nonsymmetric_coupled_operator_is_rejected(
