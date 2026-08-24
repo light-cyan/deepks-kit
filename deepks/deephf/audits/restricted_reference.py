@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
-from ..capabilities import DeePHFCapabilityError
-from pyscf.gto import mole as gto_mole
-from deepks.descriptor import is_ghost_atom
+from numbers import Real
+
 import numpy as np
-from ..capabilities import reference_is_transaction_validated
+from pyscf import dft
+from pyscf.gto import mole as gto_mole
 from pyscf.scf import hf as scf_hf
+
+from deepks.descriptor import is_ghost_atom
+
+from ..capabilities import DeePHFCapabilityError, reference_is_transaction_validated
+from ..pyscf_dft_provenance import (
+    SUPPORTED_LIBXC_COMPONENTS,
+    _GRID_PROVENANCE_CACHE,
+    _build_grid_provenance,
+    _functional_provenance,
+    validate_pyscf_version,
+)
+from ..pyscf_rks_reference import _dense_ground_state_lda_quadrature
 
 
 def _validate_molecule(mol):
@@ -252,27 +264,6 @@ def validate_reference(reference):
     ao_state = _evaluated_ao_state(reference, mol)
     _validate_ao_state(reference, mol, mo_coeff, mo_energy, ao_state)
     return reference
-
-
-__all__ = ['validate_reference']
-
-"""Strict reference audits separated from reference state ownership."""
-
-from ..capabilities import DeePHFCapabilityError
-from numbers import Real
-from ..pyscf_dft_provenance import SUPPORTED_LIBXC_COMPONENTS
-from ..pyscf_dft_provenance import _GRID_PROVENANCE_CACHE
-from ..pyscf_dft_provenance import _build_grid_provenance
-from ..pyscf_dft_provenance import _functional_provenance
-from pyscf import dft
-from pyscf.gto import mole as gto_mole
-from deepks.descriptor import is_ghost_atom
-import numpy as np
-from pyscf.scf import hf as scf_hf
-from ..pyscf_dft_provenance import validate_pyscf_version
-from ..pyscf_rks_reference import (
-    _dense_ground_state_lda_quadrature,
-)
 
 
 def _validate_reference_contract(reference):

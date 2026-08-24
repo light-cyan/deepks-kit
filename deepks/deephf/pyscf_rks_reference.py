@@ -1,4 +1,4 @@
-"""Internal implementation extracted from pyscf_rks.py."""
+"""Strict finite-grid RKS reference state and native gradient support."""
 
 import hashlib
 import numpy as np
@@ -15,6 +15,7 @@ from .capabilities import (
 from .pyscf_dft_provenance import (
     RKSAdjoint,
     RKSResponse,
+    RKSResponseError,
     _GRID_PROVENANCE_CACHE,
     _NATIVE_RKS_GRADIENT_METHODS,
     _SUPPORTED_BECKE_SCHEME,
@@ -27,6 +28,7 @@ from .pyscf_dft_provenance import (
     _grid_arrays,
     _qualified_name,
     _static_callable_definitions,
+    _validated_float64_array,
     _validate_dft_implementations,
 )
 from .contracts import dataclass_fingerprint, update_digest as _update_fingerprint_value
@@ -256,12 +258,6 @@ def rks_adjoint_integrity_fingerprint(adjoint: RKSAdjoint) -> str:
         adjoint,
         excluded=frozenset({"integrity_fingerprint"}),
     )
-
-"""Internal implementation extracted from pyscf_rks.py."""
-
-import numpy as np
-from pyscf.grad import rks as rks_grad
-from .pyscf_dft_provenance import RKSResponseError, _validated_float64_array, _validate_dft_implementations
 
 def native_rks_gradient(reference, atom_indices=None) -> np.ndarray:
     """Evaluate one selected native RKS gradient with grid response."""

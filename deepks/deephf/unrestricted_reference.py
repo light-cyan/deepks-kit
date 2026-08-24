@@ -1,19 +1,27 @@
-"""Isolated PySCF 2.14 adapter for molecular UHF response and adjoints."""
+"""Strict PySCF adapters for molecular unrestricted response and adjoints."""
 
 from dataclasses import dataclass
+from functools import partial
 import hashlib
+from numbers import Real
+import weakref
 
 import numpy as np
 import pyscf
+from pyscf import dft
+from pyscf.dft import libxc, numint
 from pyscf.gto import mole as gto_mole
+from pyscf.grad import uks as uks_grad
 from pyscf.scf import hf as scf_hf
 
-
-from .capabilities import DeePHFCapabilityError, transaction_reference_fingerprint
 from .adjoint import AdjointError
-from functools import partial
-
+from .capabilities import (
+    DeePHFCapabilityError,
+    reference_is_transaction_validated,
+    transaction_reference_fingerprint,
+)
 from .contracts import (
+    array_fingerprint as _array_fingerprint,
     dataclass_fingerprint,
     immutable_array as _immutable_array,
     integer_control,
@@ -22,6 +30,17 @@ from .contracts import (
     validated_float64_array,
     version_series as _canonical_version_series,
 )
+from .pyscf_dft_provenance import (
+    RKSFunctionalProvenance,
+    RKSGridProvenance,
+    SUPPORTED_LIBXC_VERSION,
+    SUPPORTED_NUMINT_CUTOFF,
+    _GRID_PROVENANCE_CACHE,
+    _normalized_functional_components,
+    _static_callable_definitions,
+    _validate_dft_implementations,
+)
+from .pyscf_rks_reference import _dft_reference_validation_fingerprint
 
 
 SUPPORTED_PYSCF_SERIES = (2, 14)
@@ -436,37 +455,6 @@ def _validated_response_array(value, expected_shape, name: str) -> np.ndarray:
 
 _cycle_limit = integer_control
 _response_real_control = real_control
-
-"""Isolated PySCF 2.14 adapter for strict finite-grid molecular UKS response."""
-
-from dataclasses import dataclass
-from numbers import Real
-import weakref
-
-import numpy as np
-from pyscf import dft
-from pyscf.dft import libxc, numint
-from pyscf.grad import uks as uks_grad
-
-
-from .capabilities import (
-    DeePHFCapabilityError,
-    reference_is_transaction_validated,
-    transaction_reference_fingerprint,
-)
-from .contracts import array_fingerprint as _array_fingerprint, dataclass_fingerprint
-from .pyscf_dft_provenance import (
-    RKSFunctionalProvenance,
-    RKSGridProvenance,
-    SUPPORTED_LIBXC_VERSION,
-    SUPPORTED_NUMINT_CUTOFF,
-    _GRID_PROVENANCE_CACHE,
-    _normalized_functional_components,
-    _static_callable_definitions,
-    _validate_dft_implementations,
-)
-from .pyscf_rks_reference import _dft_reference_validation_fingerprint
-
 
 _SUPPORTED_NATIVE_UNRESTRICTED_GRADIENT = _native_unrestricted_gradient
 _NATIVE_UKS_GRADIENT_METHODS = (

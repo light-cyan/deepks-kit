@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
-from numbers import Real
-from ..unrestricted_reference import UHFAdjoint
-from ..unrestricted_reference import UHFAdjointDiagnostics
-from ..unrestricted_reference import UHFAdjointError
 from dataclasses import fields
+from numbers import Real
+
 import numpy as np
 import pyscf
+
 from ..adjoint import scalar_operator_fingerprint
-from ..unrestricted_reference import uhf_adjoint_integrity_fingerprint
+from ..pyscf_dft_provenance import _grid_provenance
 from ..pyscf_uhf_adjoint import (
     _UHFScalarAdjointProblem,
+)
+from ..pyscf_uks_response import _require_wrapper_close
+from ..unrestricted_reference import (
+    UHFAdjoint,
+    UHFAdjointDiagnostics,
+    UHFAdjointError,
+    UKSAdjoint,
+    UKSAdjointDiagnostics,
+    UKSAdjointError,
+    _uks_functional_provenance,
+    uhf_adjoint_integrity_fingerprint,
+    uks_adjoint_integrity_fingerprint,
+    validate_uks_reference,
 )
 
 
@@ -340,24 +352,6 @@ def audit_adjoint(
         self, adjoint, expected_objective_ao_potential
     )
     _audit_adjoint_result(self, adjoint, diagnostics, state)
-
-
-__all__ = ["audit_adjoint", "audit_uks_adjoint"]
-"""UKS validation audit separated from production composition."""
-
-from numbers import Real
-from ..unrestricted_reference import UHFAdjointError
-from ..unrestricted_reference import UKSAdjoint
-from ..unrestricted_reference import UKSAdjointDiagnostics
-from ..unrestricted_reference import UKSAdjointError
-from ..pyscf_dft_provenance import _grid_provenance
-from ..unrestricted_reference import _uks_functional_provenance
-import numpy as np
-from ..unrestricted_reference import uks_adjoint_integrity_fingerprint
-from ..unrestricted_reference import validate_uks_reference
-from ..pyscf_uks_response import (
-    _require_wrapper_close,
-)
 
 
 def audit_uks_adjoint(self, adjoint: UKSAdjoint, expected_objective_ao_potential: np.ndarray) -> None:

@@ -127,7 +127,7 @@ class RKSDeePHF(DeePHF):
 
             return RKSDeePHFGradients(
                 self,
-                response_options=backend_options,
+                options=backend_options,
                 retain_details=retain_details,
             )
         _validated_backend_options(
@@ -140,7 +140,7 @@ class RKSDeePHF(DeePHF):
 
         return RKSDeePHFZVectorGradients(
             self,
-            adjoint_options=backend_options,
+            options=backend_options,
             retain_details=retain_details,
         )
 

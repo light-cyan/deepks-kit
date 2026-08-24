@@ -5,8 +5,22 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 PRODUCTION_LIMIT = 1000
 CALCULATION_FUNCTION_LIMIT = 199
-MODULE_COUNT_LIMIT = 42
+MODULE_COUNT_LIMIT = 41
 FACADE_NAMES = {"pyscf_rhf.py", "pyscf_uhf.py", "pyscf_rks.py", "pyscf_uks.py"}
+CONSOLIDATED_MODULES = {
+    "gradient.py",
+    "zvector.py",
+    "scanner.py",
+    "pyscf_rks_reference.py",
+    "unrestricted_method.py",
+    "unrestricted_reference.py",
+    "audits/restricted_reference.py",
+    "audits/unrestricted_reference.py",
+    "audits/rhf_response_audit.py",
+    "audits/rks_response_audit.py",
+    "audits/unrestricted_adjoint.py",
+    "audits/unrestricted_response.py",
+}
 AUDIT_ORCHESTRATORS = {
     "_audit_adjoint",
     "_audit_rks_reference",
@@ -99,6 +113,70 @@ def test_production_functions_have_no_long_exact_ast_duplicates():
             else:
                 implementations[body] = location
     assert duplicates == {}
+
+
+def test_consolidated_modules_have_one_header_and_import_section():
+    directory = ROOT / "deepks" / "deephf"
+    for name in CONSOLIDATED_MODULES:
+        tree = ast.parse((directory / name).read_text(encoding="utf-8"))
+        string_expressions = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ]
+        assert string_expressions == [tree.body[0]], name
+        import_indices = [
+            index
+            for index, node in enumerate(tree.body[1:], start=1)
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+        ]
+        assert import_indices == list(range(1, 1 + len(import_indices))), name
+
+
+def test_consolidated_modules_have_unique_imports_and_one_final_export():
+    directory = ROOT / "deepks" / "deephf"
+    for name in CONSOLIDATED_MODULES:
+        tree = ast.parse((directory / name).read_text(encoding="utf-8"))
+        imported_names = []
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                imported_names.extend(alias.asname or alias.name for alias in node.names)
+        assert len(imported_names) == len(set(imported_names)), name
+        exports = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets)
+        ]
+        assert len(exports) <= 1, name
+        if exports:
+            assert exports[0] is tree.body[-1], name
+
+
+def test_family_gradient_drivers_inherit_the_shared_constructor():
+    directory = ROOT / "deepks" / "deephf"
+    family_classes = {
+        "RHFDeePHFGradients",
+        "RKSDeePHFGradients",
+        "UHFDeePHFGradients",
+        "UKSDeePHFGradients",
+        "RHFDeePHFZVectorGradients",
+        "RKSDeePHFZVectorGradients",
+        "UHFDeePHFZVectorGradients",
+        "UKSDeePHFZVectorGradients",
+    }
+    constructors = {}
+    for name in ("gradient.py", "zvector.py"):
+        tree = ast.parse((directory / name).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name in family_classes:
+                constructors[node.name] = [
+                    item for item in node.body if isinstance(item, ast.FunctionDef) and item.name == "__init__"
+                ]
+    assert set(constructors) == family_classes
+    assert all(value == [] for value in constructors.values())
 
 
 def test_dense_audit_implementations_are_isolated_from_production_modules():

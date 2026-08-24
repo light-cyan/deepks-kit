@@ -48,6 +48,8 @@ def run_public_sequence(method, backend="direct"):
     counts = method.operation_counts
     # Construction performs one additional full binding fingerprint outside this scope.
     assert counts["science_state_fingerprints"] <= 2
+    assert counts["complete_model_fingerprints"] <= 4
+    assert counts["public_model_value_fingerprints"] <= 2
     assert counts["state_version_validations"] <= 2
     assert counts["cache_state_fingerprints"] <= 2
     assert counts["cache_hits"] > 0
@@ -76,6 +78,8 @@ def test_controlled_workflow_has_no_intermediate_cache_state_scans():
     assert np.isfinite(descriptor).all()
     counts = method.operation_counts
     assert counts["science_state_fingerprints"] <= 2
+    assert counts["complete_model_fingerprints"] <= 2
+    assert counts.get("public_model_value_fingerprints", 0) == 0
     assert counts.get("state_version_validations", 0) == 0
     assert counts.get("cache_state_fingerprints", 0) == 0
     assert counts["descriptor_evaluations"] == 1

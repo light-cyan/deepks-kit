@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from ..pyscf_rhf_reference import RHFResponseError
 import numpy as np
 import pyscf
-from ..pyscf_rhf_reference import validate_reference
+
+from ..capabilities import DeePHFCapabilityError
+from ..pyscf_rhf_reference import RHFResponseError, validate_reference
 
 
 def _rebuild_response_equations(self, response: RHFResponse):
@@ -185,15 +186,6 @@ def audit_response_equations(self, response: RHFResponse) -> None:
     """Rebuild derivative inputs, equations, and invariants for a supplied response."""
     state = _rebuild_response_equations(self, response)
     _audit_response_invariants(self, response, state)
-
-
-__all__ = ['audit_response_equations']
-
-"""Bounded dense response-operator audits."""
-
-from ..capabilities import DeePHFCapabilityError
-from ..pyscf_rhf_reference import RHFResponseError
-import numpy as np
 
 
 def _response_operator_matrix_and_diagnostics(

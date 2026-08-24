@@ -293,11 +293,15 @@ class DeePHF:
             ) from error
         if evidence != context.state_evidence:
             self._invalidate_cached_state(boundary)
-        if self.model is not None and type(self.model) is not CorrNet:
-            context.count("conservative_model_fingerprints")
+        if self.model is not None:
+            if type(self.model) is not CorrNet:
+                context.count("conservative_model_fingerprints")
+            context.count("complete_model_fingerprints")
+            context.count("public_model_value_fingerprints")
             if model_state_fingerprint(self.model) != context.model_state_token:
                 self._invalidate_cached_state(boundary)
-            context.discard_generic_model_cache()
+            if type(self.model) is not CorrNet:
+                context.discard_generic_model_cache()
         fingerprint = self._current_cache_state_fingerprint()
         if fingerprint != context.cache_state_token:
             self._invalidate_cached_state(boundary)
@@ -811,7 +815,7 @@ class DeePHF:
             )
             return RHFDeePHFGradients(
                 self,
-                response_options=backend_options,
+                options=backend_options,
                 retain_details=retain_details,
             )
         from .zvector import RHFDeePHFZVectorGradients
@@ -824,7 +828,7 @@ class DeePHF:
         )
         return RHFDeePHFZVectorGradients(
             self,
-            adjoint_options=backend_options,
+            options=backend_options,
             retain_details=retain_details,
         )
 

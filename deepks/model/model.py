@@ -810,7 +810,13 @@ _FORCE_CORRNET_ELEMENT_CONSTANT = vars(CorrNet)["get_elem_const"]
 _FORCE_DENSENET_FORWARD = vars(DenseNet)["forward"]
 _FORCE_TRACE_FORWARD = vars(TraceEmbedding)["forward"]
 _FORCE_THERMAL_FORWARD = vars(ThermalEmbedding)["forward"]
+_FORCE_THERMAL_UPDATE_RUNNING_STATS = vars(ThermalEmbedding)["update_running_stats"]
 _FORCE_LINEAR_FORWARD = vars(nn.Linear)["forward"]
+_TRUSTED_CORRNET_HELPERS = (
+    ("pad_masked", pad_masked),
+    ("masked_softmax", masked_softmax),
+    ("unpad_masked", unpad_masked),
+)
 _FORCE_DISPATCH_NAMES = ("__call__", "_wrapped_call_impl", "_call_impl")
 
 
@@ -833,6 +839,20 @@ def _has_trusted_dispatch(module_type):
             _static_definitions(module_type), _FORCE_MODULE_DISPATCH, strict=True
         )
     )
+
+
+def _trusted_corrnet_helper_evidence():
+    """Return current identities for project-owned CorrNet forward helpers."""
+    return tuple(
+        (
+            name,
+            id(globals().get(name)),
+            id(getattr(globals().get(name), "__code__", None)),
+        )
+        for name, _trusted in _TRUSTED_CORRNET_HELPERS
+    )
+
+
 _FORCE_ACTIVATIONS = frozenset(
     {
         torch.sigmoid,
@@ -896,8 +916,23 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         if "forward" in vars(embedder) or vars(TraceEmbedding).get("forward") is not _FORCE_TRACE_FORWARD:
             raise ValueError("the force trace embedding was replaced")
     elif type(embedder) is ThermalEmbedding and not training:
-        if "forward" in vars(embedder) or vars(ThermalEmbedding).get("forward") is not _FORCE_THERMAL_FORWARD:
+        if (
+            "forward" in vars(embedder)
+            or vars(ThermalEmbedding).get("forward") is not _FORCE_THERMAL_FORWARD
+            or vars(ThermalEmbedding).get("update_running_stats")
+            is not _FORCE_THERMAL_UPDATE_RUNNING_STATS
+        ):
             raise ValueError("the force thermal embedding was replaced")
+        replaced_helpers = [
+            name
+            for name, trusted in _TRUSTED_CORRNET_HELPERS
+            if globals().get(name) is not trusted
+        ]
+        if replaced_helpers:
+            raise ValueError(
+                "the force thermal embedding helpers were replaced: "
+                + ", ".join(replaced_helpers)
+            )
     elif type(embedder) is ThermalEmbedding:
         raise ValueError("force-aware training does not support stateful thermal embedding")
     else:
@@ -1025,6 +1060,10 @@ def force_model_structure_evidence(model):
             id(vars(DenseNet).get("forward")),
             id(vars(TraceEmbedding).get("forward")),
             id(vars(ThermalEmbedding).get("forward")),
+            id(vars(ThermalEmbedding).get("update_running_stats")),
+            _trusted_corrnet_helper_evidence()
+            if type(model.embedder) is ThermalEmbedding
+            else (),
             id(vars(nn.Linear).get("forward")),
             tuple((id(owner), id(definition)) for owner, definition in _static_definitions(nn.Module)),
             dispatch,

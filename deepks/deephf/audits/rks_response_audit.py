@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
-from ..pyscf_dft_provenance import RKSFunctionalProvenance
-from ..pyscf_dft_provenance import RKSGridProvenance
-from ..pyscf_dft_provenance import RKSResponse
-from ..pyscf_dft_provenance import RKSResponseDiagnostics
-from ..pyscf_dft_provenance import RKSResponseError
-from ..pyscf_dft_provenance import _functional_provenance
-from ..pyscf_dft_provenance import _grid_provenance
-from ..pyscf_dft_provenance import _validated_float64_array
-from pyscf.dft import libxc
 import numpy as np
 import pyscf
-from ..pyscf_rks_reference import rks_reference_fingerprint
-from ..pyscf_rks_reference import rks_response_integrity_fingerprint
-from ..pyscf_rks_reference import validate_rks_reference
+from pyscf.dft import libxc
+
+from ..capabilities import DeePHFCapabilityError
+from ..pyscf_dft_provenance import (
+    RKSFunctionalProvenance,
+    RKSGridProvenance,
+    RKSResponse,
+    RKSResponseDiagnostics,
+    RKSResponseError,
+    _functional_provenance,
+    _grid_provenance,
+    _validated_float64_array,
+)
+from ..pyscf_rks_reference import (
+    rks_reference_fingerprint,
+    rks_response_integrity_fingerprint,
+    validate_rks_reference,
+)
 
 
 def _validated_response_state(self, response):
@@ -465,16 +471,6 @@ def audit_response_equations(self, response: RKSResponse) -> None:
         self, response, state, response_views
     )
     _audit_response_diagnostics(self, response, state, measured)
-
-
-__all__ = ['audit_response_equations']
-
-"""Bounded dense response-operator audits."""
-
-from ..capabilities import DeePHFCapabilityError
-from ..pyscf_dft_provenance import RKSResponseError
-from ..pyscf_dft_provenance import _validated_float64_array
-import numpy as np
 
 
 def _response_operator_matrix_and_diagnostics(

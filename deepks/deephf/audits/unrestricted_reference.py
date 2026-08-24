@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from ..capabilities import DeePHFCapabilityError
-from pyscf.gto import mole as gto_mole
-from deepks.descriptor import is_ghost_atom
+from numbers import Real
+
 import numpy as np
-from ..capabilities import reference_is_transaction_validated
+from pyscf import dft
+from pyscf.gto import mole as gto_mole
+from pyscf.scf import hf as scf_hf
 from pyscf.scf import uhf as scf_uhf
+
+from deepks.descriptor import is_ghost_atom
+
+from ..capabilities import DeePHFCapabilityError, reference_is_transaction_validated
+from ..pyscf_dft_provenance import _GRID_PROVENANCE_CACHE, _build_grid_provenance
 from ..unrestricted_reference import (
     UHFResponseError,
+    _dense_uks_quadrature,
     _direct_effective_potential,
+    _uks_functional_provenance,
+    validate_pyscf_version,
 )
 
 
@@ -322,26 +331,6 @@ def validate_uhf_reference(reference):
     state = _validated_orbital_state(reference, molecule)
     _validate_ao_state(reference, molecule, state)
     return reference
-
-
-__all__ = ['validate_uhf_reference']
-
-"""Strict reference audits separated from reference state ownership."""
-
-from ..capabilities import DeePHFCapabilityError
-from numbers import Real
-from ..pyscf_dft_provenance import _GRID_PROVENANCE_CACHE
-from ..pyscf_dft_provenance import _build_grid_provenance
-from pyscf import dft
-from pyscf.gto import mole as gto_mole
-from deepks.descriptor import is_ghost_atom
-import numpy as np
-from pyscf.scf import hf as scf_hf
-from ..unrestricted_reference import validate_pyscf_version
-from ..unrestricted_reference import (
-    _dense_uks_quadrature,
-    _uks_functional_provenance,
-)
 
 
 def _validated_uks_state(reference):

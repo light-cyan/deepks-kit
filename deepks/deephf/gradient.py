@@ -1,4 +1,4 @@
-"""Strict direct-oracle nuclear gradients for RHF DeePHF."""
+"""Strict direct-oracle nuclear gradients for all DeePHF families."""
 
 from dataclasses import replace
 import operator
@@ -6,6 +6,7 @@ import operator
 import numpy as np
 
 from .driver import GradientDriver
+from .pyscf_dft_provenance import RKSResponseError
 from .pyscf_rhf_reference import (
     RHFBlockedResponseSummary,
     RHFResponseError,
@@ -13,6 +14,13 @@ from .pyscf_rhf_reference import (
     reference_fingerprint,
 )
 from .pyscf_rhf_response import RHFResponseAdapter
+from .pyscf_rks_reference import native_rks_gradient
+from .pyscf_uks_response import native_uks_gradient
+from .unrestricted_reference import (
+    UHFResponseError,
+    UKSResponseError,
+    _native_unrestricted_gradient,
+)
 
 
 class RHFDeePHFGradients(GradientDriver):
@@ -30,9 +38,6 @@ class RHFDeePHFGradients(GradientDriver):
         from .method import DeePHF
 
         return DeePHF
-
-    def __init__(self, method, response_options=None, retain_details=True):
-        super().__init__(method, response_options, retain_details)
 
     def _blocked_response(
         self,
@@ -318,15 +323,6 @@ class RHFDeePHFGradients(GradientDriver):
             "de_full": de_full,
         }
 
-"""Strict direct-oracle nuclear gradients for finite-grid RKS DeePHF."""
-
-import numpy as np
-
-from .driver import GradientDriver
-from .pyscf_dft_provenance import RKSResponseError
-from .pyscf_rks_reference import native_rks_gradient
-
-
 class RKSDeePHFGradients(GradientDriver):
     """Contract the complete pure-LDA RKS response with one correction model."""
 
@@ -342,9 +338,6 @@ class RKSDeePHFGradients(GradientDriver):
         from .rks_method import RKSDeePHF
 
         return RKSDeePHF
-
-    def __init__(self, method, response_options=None, retain_details=True):
-        super().__init__(method, response_options, retain_details)
 
     def _detail_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
@@ -461,16 +454,6 @@ class RKSDeePHFGradients(GradientDriver):
         )
 
 
-__all__ = ["RKSDeePHFGradients"]
-
-"""Strict direct-oracle nuclear gradients for UHF DeePHF."""
-
-import numpy as np
-
-from .driver import GradientDriver
-from .unrestricted_reference import UHFResponseError, _native_unrestricted_gradient
-
-
 class UHFDeePHFGradients(GradientDriver):
     """Contract the complete coupled UHF response with one correction model."""
 
@@ -486,9 +469,6 @@ class UHFDeePHFGradients(GradientDriver):
         from .unrestricted_method import UHFDeePHF
 
         return UHFDeePHF
-
-    def __init__(self, method, response_options=None, retain_details=True):
-        super().__init__(method, response_options, retain_details)
 
     def _detail_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
@@ -621,16 +601,6 @@ class UHFDeePHFGradients(GradientDriver):
         )
 
 
-__all__ = ["UHFDeePHFGradients"]
-
-"""Strict direct-oracle nuclear gradients for finite-grid UKS DeePHF."""
-
-import numpy as np
-
-from .unrestricted_reference import UKSResponseError
-from .pyscf_uks_response import native_uks_gradient
-
-
 class UKSDeePHFGradients(UHFDeePHFGradients):
     """Contract the complete coupled UKS response with one correction model."""
 
@@ -645,9 +615,6 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
         from .unrestricted_method import UKSDeePHF
 
         return UKSDeePHF
-
-    def __init__(self, method, response_options=None, retain_details=True):
-        super().__init__(method, response_options, retain_details)
 
     def _detail_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
@@ -749,8 +716,6 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
     def as_scanner(self, **scanner_options):
         raise UKSResponseError("UKS DeePHF does not provide a gradient scanner")
 
-
-__all__ = ["UKSDeePHFGradients"]
 
 __all__ = [
     "RHFDeePHFGradients",

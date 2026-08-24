@@ -1,15 +1,32 @@
-"""Internal implementation extracted from pyscf_rhf.py."""
+"""Strict fresh-reference state and geometry scanning for RHF DeePHF."""
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from functools import partial
+import math
+from types import MappingProxyType
 from typing import Any
 import weakref
+
 import numpy as np
 from pyscf import gto
 from pyscf.gto import mole as gto_mole
 from pyscf.scf import hf as scf_hf
-from .capabilities import DeePHFCapabilityError
+
+from .capabilities import (
+    DeePHFCapabilityError,
+    force_model_fingerprint,
+    validate_force_model,
+)
+from .contracts import (
+    dataclass_fingerprint,
+    immutable_array,
+    integer_control,
+    real_control,
+    validated_float64_array,
+)
+from .driver import validate_atom_indices
 from .pyscf_rhf_reference import (
     RHFAdjoint,
     RHFResponse,
@@ -25,14 +42,6 @@ from .pyscf_rhf_reference import (
     reference_fingerprint,
     validate_pyscf_version,
     validate_reference,
-)
-from functools import partial
-
-from .contracts import (
-    dataclass_fingerprint,
-    integer_control,
-    real_control,
-    validated_float64_array,
 )
 
 class RHFScannerReferenceFactory:
@@ -432,25 +441,6 @@ _validated_float64_array = partial(
     validated_float64_array,
     error_type=RHFResponseError,
 )
-
-"""Strict fresh-reference geometry scanner for RHF DeePHF gradients."""
-
-from collections.abc import Mapping
-from copy import deepcopy
-from dataclasses import dataclass
-import math
-from types import MappingProxyType
-
-import numpy as np
-
-from .capabilities import (
-    DeePHFCapabilityError,
-    force_model_fingerprint,
-    validate_force_model,
-)
-from .contracts import immutable_array
-from .driver import validate_atom_indices
-
 
 class RHFDeePHFScannerError(RuntimeError):
     """Raised when strict scanner state cannot be constructed or published."""

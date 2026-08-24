@@ -1,4 +1,4 @@
-"""Perturbative DeePHF energy method for a strict native UHF reference."""
+"""Perturbative DeePHF energy methods for strict unrestricted references."""
 
 import numpy as np
 
@@ -13,12 +13,18 @@ from .method import (
     _validated_backend_options,
 )
 from .pyscf_uhf_adjoint import UHFAdjointAdapter
+from .pyscf_uks_response import UKSAdjointAdapter, UKSResponseAdapter
 from .unrestricted_reference import (
     UHFResponse,
     UHFResponseDiagnostics,
     UHFResponseError,
+    UKSResponse,
+    UKSResponseDiagnostics,
+    UKSResponseError,
     uhf_reference_fingerprint,
+    uks_reference_fingerprint,
     validate_uhf_reference,
+    validate_uks_reference,
 )
 from .pyscf_uhf_response import UHFResponseAdapter
 
@@ -217,7 +223,7 @@ class UHFDeePHF(DeePHF):
 
             return UHFDeePHFGradients(
                 self,
-                response_options=backend_options,
+                options=backend_options,
                 retain_details=retain_details,
             )
         _validated_backend_options(
@@ -230,26 +236,9 @@ class UHFDeePHF(DeePHF):
 
         return UHFDeePHFZVectorGradients(
             self,
-            adjoint_options=backend_options,
+            options=backend_options,
             retain_details=retain_details,
         )
-
-"""Perturbative DeePHF energy method for a strict finite-grid UKS reference."""
-
-
-from .method import (
-    _DIRECT_RESPONSE_OPTIONS,
-    _validated_backend_options,
-)
-from .unrestricted_reference import (
-    UKSResponse,
-    UKSResponseDiagnostics,
-    UKSResponseError,
-    uks_reference_fingerprint,
-    validate_uks_reference,
-)
-from .pyscf_uks_response import UKSAdjointAdapter, UKSResponseAdapter
-
 
 _UKS_ZVECTOR_OPTIONS = frozenset(
     {
@@ -306,7 +295,7 @@ class UKSDeePHF(UHFDeePHF):
 
             return UKSDeePHFGradients(
                 self,
-                response_options=backend_options,
+                options=backend_options,
                 retain_details=retain_details,
             )
         _validated_backend_options(self.adjoint_options, backend_options, _UKS_ZVECTOR_OPTIONS, backend)
@@ -314,11 +303,9 @@ class UKSDeePHF(UHFDeePHF):
 
         return UKSDeePHFZVectorGradients(
             self,
-            adjoint_options=backend_options,
+            options=backend_options,
             retain_details=retain_details,
         )
 
-
-__all__ = ["UKSDeePHF"]
 
 __all__ = ["UHFDeePHF", "UKSDeePHF"]

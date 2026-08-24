@@ -1,9 +1,17 @@
-"""Strict scalar-adjoint nuclear gradients for RHF DeePHF."""
+"""Strict scalar-adjoint nuclear gradients for all DeePHF families."""
 
 import numpy as np
 
 from .driver import GradientDriver
+from .pyscf_dft_provenance import RKSAdjointError
 from .pyscf_rhf_reference import RHFAdjointError
+from .pyscf_rks_reference import native_rks_gradient
+from .pyscf_uks_response import native_uks_gradient
+from .unrestricted_reference import (
+    UHFAdjointError,
+    UKSAdjointError,
+    _native_unrestricted_gradient,
+)
 
 
 class RHFDeePHFZVectorGradients(GradientDriver):
@@ -21,9 +29,6 @@ class RHFDeePHFZVectorGradients(GradientDriver):
         from .method import DeePHF
 
         return DeePHF
-
-    def __init__(self, method, adjoint_options=None, retain_details=True):
-        super().__init__(method, adjoint_options, retain_details)
 
     def _compact_kernel(self, atom_indices):
         force_inputs = self.base._force_inputs()
@@ -172,15 +177,6 @@ class RHFDeePHFZVectorGradients(GradientDriver):
             "de_full": de_full,
         }
 
-"""Strict scalar-adjoint nuclear gradients for finite-grid RKS DeePHF."""
-
-import numpy as np
-
-from .driver import GradientDriver
-from .pyscf_dft_provenance import RKSAdjointError
-from .pyscf_rks_reference import native_rks_gradient
-
-
 class RKSDeePHFZVectorGradients(GradientDriver):
     """Evaluate one pure-LDA RKS correction through a scalar adjoint."""
 
@@ -196,9 +192,6 @@ class RKSDeePHFZVectorGradients(GradientDriver):
         from .rks_method import RKSDeePHF
 
         return RKSDeePHF
-
-    def __init__(self, method, adjoint_options=None, retain_details=True):
-        super().__init__(method, adjoint_options, retain_details)
 
     def _detail_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
@@ -328,16 +321,6 @@ class RKSDeePHFZVectorGradients(GradientDriver):
         )
 
 
-__all__ = ["RKSDeePHFZVectorGradients"]
-
-"""Strict coupled scalar-adjoint nuclear gradients for UHF DeePHF."""
-
-import numpy as np
-
-from .driver import GradientDriver
-from .unrestricted_reference import UHFAdjointError, _native_unrestricted_gradient
-
-
 class UHFDeePHFZVectorGradients(GradientDriver):
     """Evaluate one unrestricted correction through a coupled scalar adjoint."""
 
@@ -353,9 +336,6 @@ class UHFDeePHFZVectorGradients(GradientDriver):
         from .unrestricted_method import UHFDeePHF
 
         return UHFDeePHF
-
-    def __init__(self, method, adjoint_options=None, retain_details=True):
-        super().__init__(method, adjoint_options, retain_details)
 
     def _validated_native_gradient(self, atom_indices) -> np.ndarray:
         self.base._validate_science_state("UHF Z-vector native gradient evaluation")
@@ -496,16 +476,6 @@ class UHFDeePHFZVectorGradients(GradientDriver):
         )
 
 
-__all__ = ["UHFDeePHFZVectorGradients"]
-
-"""Strict coupled scalar-adjoint nuclear gradients for UKS DeePHF."""
-
-import numpy as np
-
-from .unrestricted_reference import UKSAdjointError
-from .pyscf_uks_response import native_uks_gradient
-
-
 class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
     """Evaluate one finite-grid UKS correction through one coupled adjoint."""
 
@@ -520,9 +490,6 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
         from .unrestricted_method import UKSDeePHF
 
         return UKSDeePHF
-
-    def __init__(self, method, adjoint_options=None, retain_details=True):
-        super().__init__(method, adjoint_options, retain_details)
 
     def _detail_kernel(self, atom_indices) -> dict:
         diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
@@ -635,8 +602,6 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
     def as_scanner(self, **scanner_options):
         raise UKSAdjointError("UKS DeePHF does not provide a gradient scanner")
 
-
-__all__ = ["UKSDeePHFZVectorGradients"]
 
 __all__ = [
     "RHFDeePHFZVectorGradients",

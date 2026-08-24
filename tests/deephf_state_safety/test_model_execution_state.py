@@ -5,20 +5,32 @@ import pytest
 import torch
 from pyscf import gto
 
+import deepks.model.model as model_module
 from deepks.deephf import DeePHF, build_reference
 from deepks.deephf.capabilities import DeePHFCapabilityError
-from deepks.model.model import CorrNet, model_execution_state_evidence
+from deepks.model.model import (
+    CorrNet,
+    model_execution_state_evidence,
+    model_execution_state_fingerprint,
+)
 
 
 PROJECTOR_BASIS = [[0, [0.8, 1.0]]]
+THERMAL_PROJECTOR_BASIS = [[1, [0.8, 1.0]]]
 
 
-def _model(*, embedding=None, elem_table=None):
+def _model(
+    *,
+    embedding=None,
+    elem_table=None,
+    input_dim=1,
+    projector_basis=PROJECTOR_BASIS,
+):
     model = CorrNet(
-        input_dim=1,
+        input_dim=input_dim,
         hidden_sizes=(1,),
         actv_fn="gelu",
-        proj_basis=PROJECTOR_BASIS,
+        proj_basis=projector_basis,
         embedding=embedding,
         elem_table=elem_table,
     ).double()
@@ -29,6 +41,25 @@ def _model(*, embedding=None, elem_table=None):
         model.linear.weight.fill_(0.23)
         model.linear.bias.fill_(0.17)
     return model.eval()
+
+
+def _thermal_method():
+    molecule = gto.M(
+        atom="H 0 0 0; H 0 0 1.4",
+        basis="sto-3g",
+        unit="Bohr",
+        spin=0,
+        verbose=0,
+    )
+    return DeePHF(
+        build_reference(molecule, "rhf"),
+        _model(
+            embedding={"type": "thermal"},
+            input_dim=3,
+            projector_basis=THERMAL_PROJECTOR_BASIS,
+        ),
+        projector_basis=THERMAL_PROJECTOR_BASIS,
+    )
 
 
 @pytest.fixture
@@ -47,19 +78,120 @@ def method():
     )
 
 
-def _assert_reuse_rejected(method, mutation):
+def _assert_reuse_rejected(method, mutation, *, publish_gradient=False):
+    driver = (
+        method.nuc_grad_method(backend="direct", retain_details=False)
+        if publish_gradient
+        else None
+    )
+    boundary_rejected = False
     with pytest.raises(DeePHFCapabilityError, match="scientific state changed"):
         with method.calculation():
             method.kernel()
+            if driver is not None:
+                driver.kernel()
             mutation(method.model)
-            method.correction_energy()
+            try:
+                method.correction_energy()
+            except DeePHFCapabilityError:
+                boundary_rejected = True
+                raise
+    assert boundary_rejected
     assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
+    if driver is not None:
+        assert driver.de is None
     assert method.operation_counts["cache_invalidations"] == 1
+    if driver is None:
+        assert method.operation_counts.get("public_model_value_fingerprints", 0) == 0
 
 
 def _mutate_bias(model):
     with torch.no_grad():
         model.linear.bias.add_(0.2)
+
+
+def _assert_untracked_value_mutation_rejected(method, mutation):
+    old_energy = method.kernel()
+    old_gradient = method.gradient(backend="direct")
+    driver = method.nuc_grad_method(backend="direct", retain_details=False)
+    boundary_rejected = False
+    with pytest.raises(DeePHFCapabilityError, match="scientific state changed"):
+        with method.calculation():
+            method.kernel()
+            driver.kernel()
+            mutation(method.model)
+            try:
+                method.correction_energy()
+            except DeePHFCapabilityError:
+                boundary_rejected = True
+                raise
+    assert boundary_rejected
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
+    assert driver.de is None
+    assert method.operation_counts["cache_invalidations"] == 1
+    assert method.operation_counts["public_model_value_fingerprints"] == 2
+
+    new_energy = method.kernel()
+    new_gradient = method.gradient(backend="direct")
+    assert abs(new_energy - old_energy) > 1.0e-6
+    assert np.max(np.abs(new_gradient - old_gradient)) > 1.0e-8
+
+
+def test_data_parameter_mutation_fails_at_public_reuse_boundary(method):
+    _assert_untracked_value_mutation_rejected(
+        method,
+        lambda model: model.linear.weight.data.add_(0.4),
+    )
+
+
+def test_numpy_alias_buffer_mutation_fails_at_public_reuse_boundary():
+    method = _thermal_method()
+
+    def mutate_running_variance(model):
+        shared = model.embedder.running_var.detach().numpy()
+        shared[...] = 4.0
+
+    _assert_untracked_value_mutation_rejected(method, mutate_running_variance)
+
+
+def _replacement_helper(name, original):
+    if name == "pad_masked":
+        def replacement(tensor, mask, padding_value=0):
+            return original(tensor, mask, padding_value) + 0.4 * mask.to(tensor)
+    elif name == "masked_softmax":
+        def replacement(input, mask, dim=-1):
+            return original(input, mask, dim) * 0.5
+    else:
+        def replacement(padded, mask):
+            return original(padded, mask) + 0.4
+    return replacement
+
+
+@pytest.mark.parametrize(
+    "helper_name",
+    ("pad_masked", "masked_softmax", "unpad_masked"),
+)
+def test_thermal_helper_replacement_changes_fingerprint_and_rejects_cached_energy(
+    helper_name,
+):
+    method = _thermal_method()
+    original = getattr(model_module, helper_name)
+    replacement = _replacement_helper(helper_name, original)
+    original_fingerprint = model_execution_state_fingerprint(method.model)
+    original_energy = method.correction_energy()
+    try:
+        _assert_reuse_rejected(
+            method,
+            lambda _model: setattr(model_module, helper_name, replacement),
+            publish_gradient=True,
+        )
+        changed_fingerprint = model_execution_state_fingerprint(method.model)
+        assert changed_fingerprint != original_fingerprint
+        fresh_energy = method.correction_energy()
+        assert abs(fresh_energy - original_energy) > 1.0e-6
+    finally:
+        setattr(model_module, helper_name, original)
+    assert model_execution_state_fingerprint(method.model) == original_fingerprint
 
 
 @pytest.mark.parametrize(
