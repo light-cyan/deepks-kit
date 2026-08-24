@@ -4,7 +4,12 @@ import numpy as np
 import pytest
 
 import deepks.deephf.adjoint as neutral_adjoint
-import deepks.deephf.pyscf_uhf as pyscf_uhf
+import deepks.deephf.pyscf_uhf_adjoint as uhf_adjoint_module
+from deepks.deephf.unrestricted_reference import (
+    UHFResponseError,
+    uhf_adjoint_integrity_fingerprint,
+)
+from deepks.deephf.pyscf_uhf_response_core import _UHFLinearResponseCore
 from pyscf import scf
 from deepks.deephf import (
     DeePHFCapabilityError,
@@ -86,7 +91,7 @@ def test_adjoint_production_solve_does_not_use_dense_debug_audit(
         raise AssertionError("the UHF response matrix was materialized")
 
     monkeypatch.setattr(
-        pyscf_uhf._UHFLinearResponseCore,
+        _UHFLinearResponseCore,
         "_response_operator_matrix_and_diagnostics",
         forbidden_dense_audit,
     )
@@ -118,7 +123,7 @@ def test_adjoint_rejects_operator_asymmetry_before_solve(
         "_apply_occupied_virtual_operator",
         asymmetric,
     )
-    with pytest.raises(pyscf_uhf.UHFResponseError, match="violates symmetry"):
+    with pytest.raises(UHFResponseError, match="violates symmetry"):
         UHFAdjointAdapter(
             uhf_oracle_case.reference
         ).validate_response_operator_exact()
@@ -160,7 +165,7 @@ def test_adjoint_arrays_are_immutable_and_audit_does_not_resolve(
     def forbidden_solve(*args, **kwargs):
         raise AssertionError("audit must not solve another adjoint")
 
-    monkeypatch.setattr(pyscf_uhf, "solve_scalar_adjoint", forbidden_solve)
+    monkeypatch.setattr(uhf_adjoint_module, "solve_scalar_adjoint", forbidden_solve)
     adapter.audit_adjoint(adjoint, objective)
 
 
@@ -186,7 +191,7 @@ def test_adjoint_audit_rejects_foreign_stale_and_resealed_results(
     forged = replace(adjoint, alpha_zvector=mutable)
     forged = replace(
         forged,
-        integrity_fingerprint=pyscf_uhf.uhf_adjoint_integrity_fingerprint(
+        integrity_fingerprint=uhf_adjoint_integrity_fingerprint(
             forged
         ),
     )
@@ -200,7 +205,7 @@ def test_adjoint_audit_rejects_foreign_stale_and_resealed_results(
     forged = replace(adjoint, alpha_zvector=shifted)
     forged = replace(
         forged,
-        integrity_fingerprint=pyscf_uhf.uhf_adjoint_integrity_fingerprint(
+        integrity_fingerprint=uhf_adjoint_integrity_fingerprint(
             forged
         ),
     )
@@ -224,7 +229,7 @@ def test_adjoint_audit_rejects_coordinated_control_forgery(
     )
     forged = replace(
         forged,
-        integrity_fingerprint=pyscf_uhf.uhf_adjoint_integrity_fingerprint(
+        integrity_fingerprint=uhf_adjoint_integrity_fingerprint(
             forged
         ),
     )

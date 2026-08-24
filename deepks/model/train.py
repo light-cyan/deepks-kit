@@ -26,12 +26,12 @@ from deepks.model.evaluate import (
     _predict_correction,
     _validate_model_state,
     model_reference,
-    model_state_evidence,
 )
 from deepks.model.model import (
     CorrNet,
     FORCE_JACOBIAN_SEMANTICS,
     force_model_structure_evidence,
+    model_execution_state_evidence,
     normalize_force_contract_fingerprint,
     validate_force_model_architecture,
 )
@@ -396,10 +396,10 @@ class Evaluator:
             _validate_model_state(model, descriptor)
             self._validated_model = model
             self._model_structure_evidence = structure
-            self._model_state_evidence = model_state_evidence(model)
+            self._model_state_evidence = model_execution_state_evidence(model)
             self._model_device = descriptor.device
             return
-        state = model_state_evidence(model)
+        state = model_execution_state_evidence(model)
         if state != self._model_state_evidence or descriptor.device != self._model_device:
             _validate_model_state(model, descriptor)
             self._model_state_evidence = state

@@ -6,7 +6,7 @@ import pytest
 from pyscf import gto
 from pyscf.scf import hf as scf_hf
 
-import deepks.deephf.pyscf_rhf as pyscf_rhf
+from deepks.deephf import pyscf_rhf_reference
 from deepks.deephf.pyscf_rhf import (
     RHFScannerReferenceError,
     RHFScannerReferenceFactory,
@@ -21,7 +21,7 @@ def _resealed_root(root, **changes):
     )
     return replace(
         forged,
-        integrity_fingerprint=pyscf_rhf._root_integrity_fingerprint(forged),
+        integrity_fingerprint=pyscf_rhf_reference._root_integrity_fingerprint(forged),
     )
 
 
@@ -58,7 +58,7 @@ def test_factory_builds_fresh_native_rhf_without_a_warm_start(
     assert candidate_root.minimum_occupied_overlap > 0.99
     assert not candidate_root.occupied_coefficients.flags.writeable
     assert not candidate_root.occupations.flags.writeable
-    assert initial_root.integrity_fingerprint == pyscf_rhf._root_integrity_fingerprint(
+    assert initial_root.integrity_fingerprint == pyscf_rhf_reference._root_integrity_fingerprint(
         initial_root
     )
 
@@ -186,7 +186,7 @@ def test_factory_rejects_same_object_root_resealing(zvector_algebra_case):
     object.__setattr__(
         root,
         "integrity_fingerprint",
-        pyscf_rhf._root_integrity_fingerprint(root),
+        pyscf_rhf_reference._root_integrity_fingerprint(root),
     )
 
     with pytest.raises(

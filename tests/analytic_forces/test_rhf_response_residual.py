@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-import deepks.deephf.pyscf_rhf as pyscf_rhf
+from deepks.deephf import pyscf_rhf_response
 from deepks.deephf import DeePHF, RHFResponseError
 
 
@@ -24,7 +24,7 @@ def test_corrupted_cphf_solution_fails_without_explicit_fallback(
     rhf_oracle_case,
     monkeypatch,
 ):
-    original_solve = pyscf_rhf.cphf.solve
+    original_solve = pyscf_rhf_response.cphf.solve
     occupations = np.asarray(rhf_oracle_case.reference.mo_occ)
     nmo = occupations.size
     nocc = int(np.count_nonzero(occupations > 0))
@@ -36,7 +36,7 @@ def test_corrupted_cphf_solution_fails_without_explicit_fallback(
         response.reshape(-1, nmo, nocc)[:, first_virtual, 0] += 1.0e-4
         return response, orbital_energy_response
 
-    monkeypatch.setattr(pyscf_rhf.cphf, "solve", corrupted_solve)
+    monkeypatch.setattr(pyscf_rhf_response.cphf, "solve", corrupted_solve)
     method = DeePHF(
         rhf_oracle_case.reference,
         rhf_oracle_case.model,

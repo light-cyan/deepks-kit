@@ -13,7 +13,7 @@ from .pyscf_dft_provenance import (
     _validated_grid_response_blocks,
 )
 from .pyscf_uhf_adjoint import UHFAdjointAdapter
-from .pyscf_uhf_reference import (
+from .unrestricted_reference import (
     UHFAdjoint,
     UHFAdjointError,
     UHFResponseError,
@@ -21,7 +21,7 @@ from .pyscf_uhf_reference import (
     _validated_float64_array,
 )
 from .pyscf_uhf_response import UHFResponseAdapter
-from .pyscf_uks_reference import (
+from .unrestricted_reference import (
     UKSAdjoint,
     UKSAdjointDiagnostics,
     UKSAdjointError,
@@ -412,7 +412,7 @@ class UKSResponseAdapter:
         return self._core.validate_response_operator_exact()
 
     def audit_response_equations(self, response: UKSResponse) -> None:
-        from .audits.uks_response import audit_response_equations as audit
+        from .audits.unrestricted_response import audit_uks_response_equations as audit
         return audit(self, response)
 
 
@@ -536,7 +536,7 @@ class UKSAdjointAdapter:
             raise UKSAdjointError(f"UKS adjoint evaluation failed: {error}") from error
 
     def audit_adjoint(self, adjoint: UKSAdjoint, expected_objective_ao_potential: np.ndarray) -> None:
-        from .audits.uks_adjoint import audit_adjoint as audit
+        from .audits.unrestricted_adjoint import audit_uks_adjoint as audit
         return audit(self, adjoint, expected_objective_ao_potential)
 
 

@@ -2,13 +2,20 @@ import ast
 import inspect
 import textwrap
 
+import deepks.deephf.gradient as direct_module
+import deepks.deephf.zvector as adjoint_module
+
 from deepks.deephf.gradient import RHFDeePHFGradients
-from deepks.deephf.rks_gradient import RKSDeePHFGradients
-from deepks.deephf.rks_zvector import RKSDeePHFZVectorGradients
-from deepks.deephf.uhf_gradient import UHFDeePHFGradients
-from deepks.deephf.uhf_zvector import UHFDeePHFZVectorGradients
-from deepks.deephf.uks_gradient import UKSDeePHFGradients
-from deepks.deephf.uks_zvector import UKSDeePHFZVectorGradients
+from deepks.deephf.gradient import (
+    RKSDeePHFGradients,
+    UHFDeePHFGradients,
+    UKSDeePHFGradients,
+)
+from deepks.deephf.zvector import (
+    RKSDeePHFZVectorGradients,
+    UHFDeePHFZVectorGradients,
+    UKSDeePHFZVectorGradients,
+)
 from deepks.deephf.zvector import RHFDeePHFZVectorGradients
 
 
@@ -43,3 +50,19 @@ def test_zvector_drivers_do_not_call_direct_response_entry_points():
         calls = called_attributes(driver._compact_kernel) | called_attributes(driver._detail_kernel)
         assert "_solve_response" not in calls
         assert "response" not in calls
+
+
+def test_direct_and_scalar_adjoint_drivers_are_physically_separate():
+    assert direct_module.__file__ != adjoint_module.__file__
+    assert all(driver.__module__ == direct_module.__name__ for driver in (
+        RHFDeePHFGradients,
+        RKSDeePHFGradients,
+        UHFDeePHFGradients,
+        UKSDeePHFGradients,
+    ))
+    assert all(driver.__module__ == adjoint_module.__name__ for driver in (
+        RHFDeePHFZVectorGradients,
+        RKSDeePHFZVectorGradients,
+        UHFDeePHFZVectorGradients,
+        UKSDeePHFZVectorGradients,
+    ))

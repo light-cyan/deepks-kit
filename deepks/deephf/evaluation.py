@@ -21,6 +21,7 @@ class EvaluationContext:
         self.method = method
         self.state_token = state_token
         self.cache_state_token = method._latest_cache_state_fingerprint
+        self.model_state_token = method._latest_model_state_fingerprint
         self.state_evidence = method._state_version_evidence()
         self.counters = Counter() if counters is None else counters
         self._density = None
@@ -31,8 +32,30 @@ class EvaluationContext:
         self._sensitivity = None
         self._diagnostics = {}
 
+    @property
+    def has_cached_values(self) -> bool:
+        """Whether a public boundary can consume calculation-scoped state."""
+        return any(
+            value is not None
+            for value in (
+                self._density,
+                self._spin_density,
+                self._workspace,
+                self._model_values,
+                self._model_output,
+                self._sensitivity,
+            )
+        ) or bool(self._diagnostics)
+
     def count(self, operation: str) -> None:
         self.counters[operation] += 1
+
+    def discard_generic_model_cache(self) -> None:
+        """Prevent reuse when a generic module has no exhaustive graph contract."""
+        self._model_output = None
+        self._sensitivity = None
+        self._diagnostics.clear()
+        self.count("generic_model_cache_resets")
 
     @property
     def density(self) -> np.ndarray:

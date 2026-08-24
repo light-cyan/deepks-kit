@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import pytest
 
-import deepks.deephf.pyscf_uhf as pyscf_uhf
+from deepks.deephf.pyscf_uhf_response_core import _UHFLinearResponseCore
 
 from deepks.deephf import (
     DeePHFCapabilityError,
@@ -119,7 +119,7 @@ def test_uks_production_response_and_adjoint_are_matrix_free(
         raise AssertionError("the UKS response matrix was materialized")
 
     monkeypatch.setattr(
-        pyscf_uhf._UHFLinearResponseCore,
+        _UHFLinearResponseCore,
         "_response_operator_matrix_and_diagnostics",
         forbidden_dense_audit,
     )

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from numbers import Real
-from ..pyscf_uhf_reference import UHFResponse
-from ..pyscf_uhf_reference import UHFResponseDiagnostics
-from ..pyscf_uhf_reference import UHFResponseError
-from ..pyscf_uhf_reference import _validated_response_array
+from ..unrestricted_reference import UHFResponse
+from ..unrestricted_reference import UHFResponseDiagnostics
+from ..unrestricted_reference import UHFResponseError
+from ..unrestricted_reference import _validated_response_array
 from dataclasses import fields
 import numpy as np
 import pyscf
-from ..pyscf_uhf_reference import uhf_response_integrity_fingerprint
+from ..unrestricted_reference import uhf_response_integrity_fingerprint
 
 
 def _validate_response_arrays(
@@ -625,3 +625,177 @@ def audit_response_equations(self, response: UHFResponse) -> None:
 
 
 __all__ = ['_validate_supplied_structure', 'audit_response_equations']
+
+"""Bounded dense response-operator audits."""
+
+from ..capabilities import DeePHFCapabilityError
+from ..unrestricted_reference import UHFResponseError
+import numpy as np
+
+
+def _response_operator_matrix_and_diagnostics(
+    self,
+    coefficient: np.ndarray,
+    energy: np.ndarray,
+    occupied: np.ndarray,
+    virtual: np.ndarray,
+) -> tuple[np.ndarray, int, int, int, float, float, float, float]:
+    dimensions = self._dimensions(occupied, virtual)
+    alpha_dimension, beta_dimension = dimensions[-2:]
+    dimension = alpha_dimension + beta_dimension
+    if dimension > self.operator_dimension_limit:
+        raise DeePHFCapabilityError(
+            "UHF coupled occupied-virtual response dimension exceeds the "
+            f"condition-audit limit: {dimension} > {self.operator_dimension_limit}"
+        )
+    identity = np.eye(dimension, dtype=np.float64)
+    matrix = np.empty((dimension, dimension), dtype=np.float64)
+    batch_size = min(64, dimension)
+    for start in range(0, dimension, batch_size):
+        stop = min(start + batch_size, dimension)
+        images = self._apply_occupied_virtual_operator(
+            identity[start:stop],
+            coefficient,
+            energy,
+            occupied,
+            virtual,
+        )
+        matrix[:, start:stop] = images.T
+    if not np.isfinite(matrix).all():
+        raise UHFResponseError(
+            "the coupled UHF occupied-virtual response operator is nonfinite"
+        )
+    symmetry_residual = float(
+        np.max(np.abs(matrix - matrix.T), initial=0.0)
+    )
+    if symmetry_residual > self.operator_symmetry_tolerance:
+        raise UHFResponseError(
+            "the coupled UHF occupied-virtual response operator violates symmetry: "
+            f"{symmetry_residual:.3e} > {self.operator_symmetry_tolerance:.3e}"
+        )
+    try:
+        eigenvalues = np.linalg.eigvalsh(0.5 * (matrix + matrix.T))
+    except np.linalg.LinAlgError as error:
+        raise UHFResponseError(
+            f"the coupled UHF response-operator eigensolve failed: {error}"
+        ) from error
+    minimum_eigenvalue = float(eigenvalues[0])
+    maximum_eigenvalue = float(eigenvalues[-1])
+    if minimum_eigenvalue <= self.operator_stability_tolerance:
+        raise DeePHFCapabilityError(
+            "the coupled UHF occupied-virtual response operator is unstable or "
+            f"singular: minimum eigenvalue {minimum_eigenvalue:.3e} <= "
+            f"{self.operator_stability_tolerance:.3e}"
+        )
+    condition_number = maximum_eigenvalue / minimum_eigenvalue
+    if (
+        not np.isfinite(condition_number)
+        or condition_number > self.operator_condition_tolerance
+    ):
+        raise DeePHFCapabilityError(
+            "the coupled UHF occupied-virtual response operator is ill conditioned: "
+            f"{condition_number:.3e} > {self.operator_condition_tolerance:.3e}"
+        )
+    return (
+        matrix,
+        dimension,
+        alpha_dimension,
+        beta_dimension,
+        minimum_eigenvalue,
+        maximum_eigenvalue,
+        float(condition_number),
+        symmetry_residual,
+    )
+
+
+def validate_response_operator_exact(
+    self,
+) -> tuple[int, int, int, float, float, float, float]:
+    """Run an explicit dense stability audit for a bounded debug problem."""
+    coefficient, energy, _occupation, occupied, virtual, _gaps = self._state()
+    return self._response_operator_matrix_and_diagnostics(
+        coefficient,
+        energy,
+        occupied,
+        virtual,
+    )[1:]
+
+
+__all__ = ['_response_operator_matrix_and_diagnostics', 'validate_response_operator_exact']
+
+"""UKS validation audit separated from production composition."""
+
+from numbers import Real
+from ..unrestricted_reference import UHFResponseError
+from ..unrestricted_reference import UKSResponse
+from ..unrestricted_reference import UKSResponseDiagnostics
+from ..unrestricted_reference import UKSResponseError
+from ..pyscf_dft_provenance import _grid_provenance
+from ..unrestricted_reference import _uks_functional_provenance
+import numpy as np
+from ..unrestricted_reference import uks_response_integrity_fingerprint
+from ..unrestricted_reference import validate_uks_reference
+from ..pyscf_uks_response import (
+    _require_wrapper_close,
+)
+
+
+def audit_uks_response_equations(self, response: UKSResponse) -> None:
+    """Rebuild one supplied UKS response without another CPHF solve."""
+    validate_uks_reference(self.reference)
+    if type(response) is not UKSResponse or type(response.diagnostics) is not UKSResponseDiagnostics:
+        raise UKSResponseError("the supplied UKS response has an invalid type")
+    if response.integrity_fingerprint != uks_response_integrity_fingerprint(response):
+        raise UKSResponseError("the supplied UKS response failed its integrity check")
+    if (
+        response.functional != _uks_functional_provenance(self.reference)
+        or response.grid != _grid_provenance(self.reference)
+    ):
+        raise UKSResponseError("the supplied UKS response provenance is inconsistent")
+    if response.diagnostics.functional != response.functional or response.diagnostics.grid != response.grid:
+        raise UKSResponseError("the supplied UKS response diagnostics provenance is inconsistent")
+    try:
+        self._core.audit_response_equations(response.core)
+    except UHFResponseError as error:
+        raise UKSResponseError(f"UKS response audit failed: {error}") from error
+    full, fixed, coordinate, weight = self._components(self._core)
+    expected_shape = (2, len(response.core.atom_indices), 3, self.reference.mol.nao, self.reference.mol.nao)
+    arrays = {
+        "fixed-grid Hamiltonian derivative": (response.hamiltonian_derivative_fixed_grid_spin, fixed),
+        "grid-coordinate XC derivative": (response.xc_hamiltonian_derivative_grid_coordinate_spin, coordinate),
+        "grid-weight XC derivative": (response.xc_hamiltonian_derivative_grid_weight_spin, weight),
+    }
+    for name, (actual, expected) in arrays.items():
+        if (
+            type(actual) is not np.ndarray
+            or actual.shape != expected_shape
+            or actual.dtype != np.dtype(np.float64)
+            or actual.flags.writeable
+            or not np.isfinite(actual).all()
+        ):
+            raise UKSResponseError(f"the supplied UKS {name} is invalid")
+        _require_wrapper_close(actual, expected, name, UKSResponseError)
+    reconstruction = float(np.max(np.abs(full - fixed - coordinate - weight), initial=0.0))
+    measured = {
+        "hamiltonian_reconstruction_residual": reconstruction,
+    }
+    for name, expected in measured.items():
+        stored = getattr(response.diagnostics, name)
+        if (
+            isinstance(stored, (bool, np.bool_))
+            or not isinstance(stored, Real)
+            or not np.isfinite(stored)
+            or not np.isclose(stored, expected, rtol=1.0e-10, atol=1.0e-12)
+        ):
+            raise UKSResponseError(f"the supplied UKS {name} diagnostic is inconsistent")
+    if max(measured.values()) > response.diagnostics.invariant_tolerance:
+        raise UKSResponseError("the supplied UKS response invariant exceeds tolerance")
+
+
+__all__ = [
+    "_response_operator_matrix_and_diagnostics",
+    "_validate_supplied_structure",
+    "audit_response_equations",
+    "audit_uks_response_equations",
+    "validate_response_operator_exact",
+]

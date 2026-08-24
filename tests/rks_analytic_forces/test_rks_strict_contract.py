@@ -8,7 +8,10 @@ from pyscf.dft import gen_grid, libxc, radi
 
 import deepks.deephf.pyscf_rks as pyscf_rks
 import deepks.deephf.pyscf_dft_provenance as dft_provenance
-import deepks.deephf.rks_gradient as rks_gradient
+import deepks.deephf.pyscf_rks_reference as rks_reference_module
+import deepks.deephf.pyscf_rks_response as rks_response_module
+from deepks.deephf.pyscf_rks_response_core import _RKSLinearResponseCore
+import deepks.deephf.gradient as rks_gradient
 from deepks.deephf import (
     DeePHFCapabilityError,
     RHFDeePHFGradients,
@@ -392,14 +395,14 @@ def test_rks_rejects_grid_instance_hooks_and_response_order_faults(
         with pytest.raises(DeePHFCapabilityError, match="grid has unsupported instance hooks"):
             validate_rks_reference(reference)
 
-    original_generator = pyscf_rks.rks_grad.grids_response_cc
+    original_generator = rks_reference_module.rks_grad.grids_response_cc
 
     def reversed_blocks(grid):
         return tuple(reversed(tuple(original_generator(grid))))
 
     with monkeypatch.context() as patch:
         patch.setattr(
-            pyscf_rks.rks_grad,
+            rks_reference_module.rks_grad,
             "grids_response_cc",
             reversed_blocks,
         )
@@ -775,7 +778,7 @@ def test_rks_production_response_does_not_use_dense_debug_audit(
         raise AssertionError("the RKS response matrix was materialized")
 
     monkeypatch.setattr(
-        pyscf_rks._RKSLinearResponseCore,
+        _RKSLinearResponseCore,
         "_response_operator_matrix_and_diagnostics",
         forbidden_dense_audit,
     )
@@ -819,7 +822,7 @@ def test_corrupted_cpks_solution_fails_the_independent_residual(
     monkeypatch,
 ):
     reference = rks_oracle_case.reference
-    original_solve = pyscf_rks.cphf.solve
+    original_solve = rks_response_module.cphf.solve
     first_virtual = int(np.flatnonzero(np.asarray(reference.mo_occ) == 0.0)[0])
 
     def corrupted_solve(*args, **kwargs):
@@ -830,7 +833,7 @@ def test_corrupted_cpks_solution_fails_the_independent_residual(
         ] += 1.0e-4
         return response, energy_response
 
-    monkeypatch.setattr(pyscf_rks.cphf, "solve", corrupted_solve)
+    monkeypatch.setattr(rks_response_module.cphf, "solve", corrupted_solve)
 
     with pytest.raises(RKSResponseError, match="residual exceeds tolerance"):
         RKSResponseAdapter(
@@ -1142,7 +1145,7 @@ def test_grid_weight_derivative_fault_is_rejected_before_any_response_solve(
     monkeypatch,
 ):
     reference = rks_oracle_case.reference
-    original_generator = pyscf_rks.rks_grad.grids_response_cc
+    original_generator = rks_reference_module.rks_grad.grids_response_cc
     solve_calls = 0
 
     def perturbed_grid_response(grid):
@@ -1162,7 +1165,7 @@ def test_grid_weight_derivative_fault_is_rejected_before_any_response_solve(
         raise AssertionError("grid-weight fault reached the CPKS solver")
 
     monkeypatch.setattr(
-        pyscf_rks.rks_grad,
+        rks_reference_module.rks_grad,
         "grids_response_cc",
         perturbed_grid_response,
     )
@@ -1171,7 +1174,7 @@ def test_grid_weight_derivative_fault_is_rejected_before_any_response_solve(
         "_SUPPORTED_GRIDS_RESPONSE",
         perturbed_grid_response,
     )
-    monkeypatch.setattr(pyscf_rks.cphf, "solve", forbidden_cpks_solve)
+    monkeypatch.setattr(rks_response_module.cphf, "solve", forbidden_cpks_solve)
 
     with pytest.raises(
         DeePHFCapabilityError,
@@ -1187,7 +1190,7 @@ def test_grid_host_block_repartition_is_rejected_before_response_solve(
     monkeypatch,
 ):
     reference = rks_oracle_case.reference
-    original_generator = pyscf_rks.rks_grad.grids_response_cc
+    original_generator = rks_reference_module.rks_grad.grids_response_cc
     solve_calls = 0
 
     def repartitioned_grid_response(grid):
@@ -1219,7 +1222,7 @@ def test_grid_host_block_repartition_is_rejected_before_response_solve(
         raise AssertionError("grid host-block fault reached the CPKS solver")
 
     monkeypatch.setattr(
-        pyscf_rks.rks_grad,
+        rks_reference_module.rks_grad,
         "grids_response_cc",
         repartitioned_grid_response,
     )
@@ -1228,7 +1231,7 @@ def test_grid_host_block_repartition_is_rejected_before_response_solve(
         "_SUPPORTED_GRIDS_RESPONSE",
         repartitioned_grid_response,
     )
-    monkeypatch.setattr(pyscf_rks.cphf, "solve", forbidden_cpks_solve)
+    monkeypatch.setattr(rks_response_module.cphf, "solve", forbidden_cpks_solve)
 
     with pytest.raises(
         DeePHFCapabilityError,
@@ -1261,7 +1264,7 @@ def test_cross_molecule_strict_rks_smoke_and_block_weight_fault(
         hydrogen.mol.nao,
     )
 
-    original_generator = pyscf_rks.rks_grad.grids_response_cc
+    original_generator = rks_reference_module.rks_grad.grids_response_cc
 
     def changed_block_weight(grid):
         blocks = []
@@ -1273,9 +1276,9 @@ def test_cross_molecule_strict_rks_smoke_and_block_weight_fault(
             )
         return tuple(blocks)
 
-    assert 0.0 < pyscf_rks._GRID_RESPONSE_WEIGHT_ATOL < 1.0e-170
+    assert 0.0 < dft_provenance._GRID_RESPONSE_WEIGHT_ATOL < 1.0e-170
     monkeypatch.setattr(
-        pyscf_rks.rks_grad,
+        rks_reference_module.rks_grad,
         "grids_response_cc",
         changed_block_weight,
     )

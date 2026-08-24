@@ -51,13 +51,17 @@ def test_compact_direct_gradient_builds_one_density_response(
         solved = True
         return result
 
-    def counted(instance, *args):
+    def counted(*args):
         nonlocal coordinate_calls
         coordinate_calls += solved
-        return original(instance, *args)
+        return original(*args)
 
     monkeypatch.setattr(RHFResponseAdapter, "_solve_orbitals", counted_solve)
-    monkeypatch.setattr(RHFResponseAdapter, "_density_from_mo_response", counted)
+    monkeypatch.setattr(
+        RHFResponseAdapter,
+        "_density_from_mo_response",
+        staticmethod(counted),
+    )
     driver = rhf_oracle_case.method.nuc_grad_method(retain_details=False)
     driver.kernel(atmlst=(1,))
 

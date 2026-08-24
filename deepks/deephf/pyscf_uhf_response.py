@@ -4,7 +4,7 @@ from dataclasses import fields, replace
 import numpy as np
 import pyscf
 from pyscf.scf import ucphf
-from .pyscf_uhf_reference import (
+from .unrestricted_reference import (
     UHFResponse,
     UHFResponseDiagnostics,
     UHFResponseError,
@@ -572,9 +572,9 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> None:
-        from .audits.uhf_response import _validate_supplied_structure as audit
+        from .audits.unrestricted_response import _validate_supplied_structure as audit
         return audit(self, response, occupied, virtual)
 
     def audit_response_equations(self, response: UHFResponse) -> None:
-        from .audits.uhf_response import audit_response_equations as audit
+        from .audits.unrestricted_response import audit_response_equations as audit
         return audit(self, response)

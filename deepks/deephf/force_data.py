@@ -218,7 +218,7 @@ def generate_rhf_force_frame(
         "f_target",
     )
 
-    with method.calculation():
+    with method._controlled_calculation():
         method.kernel()
         gradient = method.nuc_grad_method(
             backend="direct",

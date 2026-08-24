@@ -139,11 +139,15 @@ class DeePHF:
         self._last_operation_counts = {}
         self._calculation_depth = 0
         self._public_boundary_depth = 0
+        self._controlled_workflow_depth = 0
         self._evaluation_context = None
         self._transaction_publishers = None
         self._bound_science_state_fingerprint = (
             self._current_science_state_fingerprint()
         )
+        self._bound_reference_state_fingerprint = self._latest_reference_state_fingerprint
+        self._bound_descriptor_state_fingerprint = self._latest_descriptor_state_fingerprint
+        self._bound_model_state_fingerprint = self._latest_model_state_fingerprint
         self._science_transaction_depth = 0
         self._science_transaction_fingerprint = None
         self.response_options = dict(response_options or {})
@@ -199,13 +203,17 @@ class DeePHF:
             )
         )
         descriptor_fingerprint = self._descriptor_science_fingerprint()
+        self._latest_descriptor_state_fingerprint = descriptor_fingerprint
         self._latest_cache_state_fingerprint = self._combined_cache_fingerprint(
             self._latest_reference_state_fingerprint,
             descriptor_fingerprint,
         )
         digest.update(self._latest_reference_state_fingerprint.encode("ascii"))
         digest.update(descriptor_fingerprint.encode("ascii"))
-        digest.update(model_state_fingerprint(self.model).encode("ascii"))
+        if self._active_operation_counts is not None:
+            self._active_operation_counts["complete_model_fingerprints"] += 1
+        self._latest_model_state_fingerprint = model_state_fingerprint(self.model)
+        digest.update(self._latest_model_state_fingerprint.encode("ascii"))
         digest.update(str(self.device).encode("utf-8"))
         return digest.hexdigest()
 
@@ -276,6 +284,7 @@ class DeePHF:
     def _validate_cached_state(self, boundary: str) -> None:
         context = self._context()
         context.count("state_version_validations")
+        context.count("cheap_state_evidence_validations")
         try:
             evidence = self._state_version_evidence()
         except Exception as error:
@@ -284,6 +293,11 @@ class DeePHF:
             ) from error
         if evidence != context.state_evidence:
             self._invalidate_cached_state(boundary)
+        if self.model is not None and type(self.model) is not CorrNet:
+            context.count("conservative_model_fingerprints")
+            if model_state_fingerprint(self.model) != context.model_state_token:
+                self._invalidate_cached_state(boundary)
+            context.discard_generic_model_cache()
         fingerprint = self._current_cache_state_fingerprint()
         if fingerprint != context.cache_state_token:
             self._invalidate_cached_state(boundary)
@@ -318,11 +332,22 @@ class DeePHF:
                 f"the DeePHF scientific state could not be checked during {boundary}: {error}"
             ) from error
         if fingerprint != self._bound_science_state_fingerprint:
-            if type(self.model) is CorrNet:
-                validate_force_model(self.model)
-            raise DeePHFCapabilityError(
-                f"the DeePHF scientific state changed during {boundary}"
+            model_only_change = (
+                boundary == "calculation entry"
+                and self._latest_reference_state_fingerprint
+                == self._bound_reference_state_fingerprint
+                and self._latest_descriptor_state_fingerprint
+                == self._bound_descriptor_state_fingerprint
             )
+            if model_only_change:
+                self._bound_model_state_fingerprint = self._latest_model_state_fingerprint
+                self._bound_science_state_fingerprint = fingerprint
+            else:
+                if type(self.model) is CorrNet:
+                    validate_force_model(self.model)
+                raise DeePHFCapabilityError(
+                    f"the DeePHF scientific state changed during {boundary}"
+                )
         return fingerprint
 
     @contextmanager
@@ -375,6 +400,7 @@ class DeePHF:
         *,
         validate_cached_state=False,
         publisher=None,
+        controlled=False,
     ):
         outermost = self._calculation_depth == 0
         if outermost:
@@ -382,7 +408,13 @@ class DeePHF:
             self._transaction_publishers = {}
         self._register_result_publisher(publisher)
         self._calculation_depth += 1
-        public_boundary = validate_cached_state and self._public_boundary_depth == 0
+        if controlled:
+            self._controlled_workflow_depth += 1
+        public_boundary = (
+            validate_cached_state
+            and self._public_boundary_depth == 0
+            and self._controlled_workflow_depth == 0
+        )
         try:
             with self._science_state_transaction() as state_token:
                 if outermost:
@@ -391,7 +423,11 @@ class DeePHF:
                         state_token,
                         counters=self._active_operation_counts,
                     )
-                if public_boundary and not outermost:
+                if (
+                    public_boundary
+                    and not outermost
+                    and self._evaluation_context.has_cached_values
+                ):
                     self._validate_cached_state("public calculation boundary")
                 if validate_cached_state:
                     self._public_boundary_depth += 1
@@ -405,6 +441,8 @@ class DeePHF:
                 self._reset_transaction_publishers()
             raise
         finally:
+            if controlled:
+                self._controlled_workflow_depth -= 1
             self._calculation_depth -= 1
             if outermost:
                 self._last_operation_counts = dict(self._active_operation_counts)
@@ -416,6 +454,12 @@ class DeePHF:
     def calculation(self):
         """Share one validated evaluation context across a public workflow."""
         with self._calculation_context(publisher=self):
+            yield self
+
+    @contextmanager
+    def _controlled_calculation(self):
+        """Share state inside one uninterrupted package-owned workflow."""
+        with self._calculation_context(publisher=self, controlled=True):
             yield self
 
     @property

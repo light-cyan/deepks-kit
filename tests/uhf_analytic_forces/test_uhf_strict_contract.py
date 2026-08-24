@@ -5,7 +5,7 @@ import pytest
 import torch
 from pyscf import dft, gto, scf
 
-import deepks.deephf.pyscf_uhf as pyscf_uhf
+from pyscf.scf import ucphf
 from deepks.deephf import (
     DeePHF,
     DeePHFCapabilityError,
@@ -489,7 +489,7 @@ def test_corrupted_ucphf_solution_fails_the_independent_coupled_residual(
     native_uhf_reference,
     monkeypatch,
 ):
-    original_solve = pyscf_uhf.ucphf.solve
+    original_solve = ucphf.solve
     occupations = np.asarray(native_uhf_reference.mo_occ)
     first_alpha_virtual = int(np.flatnonzero(occupations[0] == 0)[0])
 
@@ -502,7 +502,7 @@ def test_corrupted_ucphf_solution_fails_the_independent_coupled_residual(
         ] += 1.0e-4
         return (alpha, beta), energy_response
 
-    monkeypatch.setattr(pyscf_uhf.ucphf, "solve", corrupted_solve)
+    monkeypatch.setattr(ucphf, "solve", corrupted_solve)
 
     with pytest.raises(UHFResponseError, match="residual exceeds tolerance"):
         UHFResponseAdapter(
@@ -521,7 +521,7 @@ def test_uhf_gradient_failure_clears_results_without_any_fallback(
     def failed_solve(*args, **kwargs):
         raise RuntimeError("injected UHF coupled solve failure")
 
-    monkeypatch.setattr(pyscf_uhf.ucphf, "solve", failed_solve)
+    monkeypatch.setattr(ucphf, "solve", failed_solve)
 
     with pytest.raises(
         UHFResponseError,

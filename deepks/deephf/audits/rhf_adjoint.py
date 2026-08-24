@@ -6,8 +6,8 @@ from ..pyscf_rhf_reference import RHFAdjoint
 from ..pyscf_rhf_reference import RHFAdjointDiagnostics
 from ..pyscf_rhf_reference import RHFAdjointError
 from numbers import Real
-from ..pyscf_rhf_scanner import _validated_float64_array
-from ..pyscf_rhf_scanner import adjoint_integrity_fingerprint
+from ..scanner import _validated_float64_array
+from ..scanner import adjoint_integrity_fingerprint
 import numpy as np
 import pyscf
 from ..pyscf_rhf_reference import reference_fingerprint

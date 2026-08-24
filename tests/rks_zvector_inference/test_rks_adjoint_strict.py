@@ -5,7 +5,9 @@ import numpy as np
 import pytest
 
 import deepks.deephf.adjoint as adjoint_module
-import deepks.deephf.pyscf_rks as rks_adapter_module
+import deepks.deephf.pyscf_rks_adjoint as rks_adjoint_module
+import deepks.deephf.pyscf_rks_response_core as rks_response_core
+from pyscf.scf import cphf
 from deepks.deephf.capabilities import DeePHFCapabilityError
 from deepks.deephf.pyscf_rks import (
     RKSAdjointAdapter,
@@ -67,7 +69,7 @@ def test_adjoint_rejects_non_real_scalar_controls(
     value,
 ):
     monkeypatch.setattr(
-        rks_adapter_module,
+        rks_adjoint_module,
         "validate_rks_reference",
         lambda reference: reference,
     )
@@ -97,7 +99,7 @@ def test_adjoint_rejects_invalid_numeric_controls(
     message,
 ):
     monkeypatch.setattr(
-        rks_adapter_module,
+        rks_adjoint_module,
         "validate_rks_reference",
         lambda reference: reference,
     )
@@ -142,7 +144,7 @@ def test_adjoint_enforces_operator_gates(
     message,
 ):
     monkeypatch.setattr(
-        rks_adapter_module,
+        rks_adjoint_module,
         "validate_rks_reference",
         lambda reference: reference,
     )
@@ -164,7 +166,7 @@ def test_adjoint_production_solve_does_not_use_dense_debug_audit(
         raise AssertionError("the RKS response matrix was materialized")
 
     monkeypatch.setattr(
-        rks_adapter_module._RKSLinearResponseCore,
+        rks_response_core._RKSLinearResponseCore,
         "_response_operator_matrix_and_diagnostics",
         forbidden_dense_audit,
     )
@@ -373,9 +375,9 @@ def test_adjoint_audit_never_performs_a_second_solve(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("the RKS adjoint audit attempted another solve")
 
-    monkeypatch.setattr(rks_adapter_module, "solve_scalar_adjoint", forbidden)
+    monkeypatch.setattr(rks_adjoint_module, "solve_scalar_adjoint", forbidden)
     monkeypatch.setattr(adjoint_module.np.linalg, "solve", forbidden)
-    monkeypatch.setattr(rks_adapter_module.cphf, "solve", forbidden)
+    monkeypatch.setattr(cphf, "solve", forbidden)
 
     rks_adjoint_adapter.audit_adjoint(
         rks_adjoint,

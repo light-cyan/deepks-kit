@@ -13,7 +13,7 @@ from .method import (
     _validated_backend_options,
 )
 from .pyscf_uhf_adjoint import UHFAdjointAdapter
-from .pyscf_uhf_reference import (
+from .unrestricted_reference import (
     UHFResponse,
     UHFResponseDiagnostics,
     UHFResponseError,
@@ -56,24 +56,6 @@ class UHFDeePHF(DeePHF):
     def _descriptor_rank_bound(self) -> int:
         occupied_count = int(np.count_nonzero(self.reference.mo_occ > 0))
         return min(int(self.mol.nao), occupied_count)
-
-    def __init__(
-        self,
-        reference,
-        model,
-        projector_basis=None,
-        device="cpu",
-        response_options=None,
-        adjoint_options=None,
-    ):
-        super().__init__(
-            reference,
-            model,
-            projector_basis=projector_basis,
-            device=device,
-            response_options=response_options,
-            adjoint_options=adjoint_options,
-        )
 
     @science_state_transaction
     def spin_ao_density(self) -> np.ndarray:
@@ -231,7 +213,7 @@ class UHFDeePHF(DeePHF):
                 _DIRECT_RESPONSE_OPTIONS,
                 backend,
             )
-            from .uhf_gradient import UHFDeePHFGradients
+            from .gradient import UHFDeePHFGradients
 
             return UHFDeePHFGradients(
                 self,
@@ -244,10 +226,99 @@ class UHFDeePHF(DeePHF):
             _UHF_ZVECTOR_OPTIONS,
             backend,
         )
-        from .uhf_zvector import UHFDeePHFZVectorGradients
+        from .zvector import UHFDeePHFZVectorGradients
 
         return UHFDeePHFZVectorGradients(
             self,
             adjoint_options=backend_options,
             retain_details=retain_details,
         )
+
+"""Perturbative DeePHF energy method for a strict finite-grid UKS reference."""
+
+
+from .method import (
+    _DIRECT_RESPONSE_OPTIONS,
+    _validated_backend_options,
+)
+from .unrestricted_reference import (
+    UKSResponse,
+    UKSResponseDiagnostics,
+    UKSResponseError,
+    uks_reference_fingerprint,
+    validate_uks_reference,
+)
+from .pyscf_uks_response import UKSAdjointAdapter, UKSResponseAdapter
+
+
+_UKS_ZVECTOR_OPTIONS = frozenset(
+    {
+        "residual_tolerance",
+        "invariant_tolerance",
+        "orbital_gap_tolerance",
+        "objective_symmetry_tolerance",
+        "max_cycle",
+        "krylov_restart",
+    }
+)
+
+
+class UKSDeePHF(UHFDeePHF):
+    """Evaluate a perturbative correction around one strict UKS reference."""
+
+    _adjoint_adapter_type = UKSAdjointAdapter
+    _response_adapter_type = UKSResponseAdapter
+    _zvector_options = _UKS_ZVECTOR_OPTIONS
+
+    @staticmethod
+    def _validate_reference_object(reference):
+        return validate_uks_reference(reference)
+
+    @staticmethod
+    def _reference_state_fingerprint(reference, *, use_transaction=True) -> str:
+        return uks_reference_fingerprint(
+            reference,
+            use_transaction=use_transaction,
+        )
+
+    def _validate_response(self, response: UKSResponse) -> UKSResponse:
+        """Audit one response produced by this exact UKS method."""
+        self._assert_science_state("UKS response consumption")
+        self._validate_reference_object(self.reference)
+        if (
+            type(response) is not UKSResponse
+            or type(response.diagnostics) is not UKSResponseDiagnostics
+        ):
+            raise UKSResponseError("the supplied UKS response has an invalid type")
+        if not self._is_sealed_response(response):
+            raise UKSResponseError(
+                "the supplied UKS response was not produced by this UKS DeePHF method"
+            )
+        return response
+
+    def nuc_grad_method(self, *, backend="direct", retain_details=True, **backend_options):
+        """Build one explicitly selected finite-grid UKS gradient backend."""
+        if type(backend) is not str or backend not in {"direct", "zvector"}:
+            raise ValueError("UKS gradient backend must be 'direct' or 'zvector'")
+        if backend == "direct":
+            _validated_backend_options(self.response_options, backend_options, _DIRECT_RESPONSE_OPTIONS, backend)
+            from .gradient import UKSDeePHFGradients
+
+            return UKSDeePHFGradients(
+                self,
+                response_options=backend_options,
+                retain_details=retain_details,
+            )
+        _validated_backend_options(self.adjoint_options, backend_options, _UKS_ZVECTOR_OPTIONS, backend)
+        from .zvector import UKSDeePHFZVectorGradients
+
+        return UKSDeePHFZVectorGradients(
+            self,
+            adjoint_options=backend_options,
+            retain_details=retain_details,
+        )
+
+
+__all__ = ["UKSDeePHF"]
+
+__all__ = ["UHFDeePHF", "UKSDeePHF"]

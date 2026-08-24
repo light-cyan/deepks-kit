@@ -11,8 +11,7 @@ from deepks.utils import get_sys_name, load_sys_paths
 
 from .method import DeePHF
 from .rks_method import RKSDeePHF
-from .uhf_method import UHFDeePHF
-from .uks_method import UKSDeePHF
+from .unrestricted_method import UHFDeePHF, UKSDeePHF
 
 
 METHOD_CLASSES = {
@@ -118,7 +117,7 @@ def evaluate_molecule(
         response_options=response_options,
         adjoint_options=adjoint_options,
     )
-    with method.calculation():
+    with method._controlled_calculation():
         energy = float(method.kernel())
         gradient_driver = method.nuc_grad_method(
             backend=backend,

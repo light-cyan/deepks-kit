@@ -3,7 +3,7 @@
 import numpy as np
 from pyscf.hessian import uhf as uhf_hessian
 from .capabilities import DeePHFCapabilityError
-from .pyscf_uhf_reference import (
+from .unrestricted_reference import (
     UHFResponseError,
     _cycle_limit,
     _direct_effective_potential,
@@ -385,11 +385,11 @@ class _UHFLinearResponseCore:
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> tuple[np.ndarray, int, int, int, float, float, float, float]:
-        from .audits.uhf_operator import _response_operator_matrix_and_diagnostics as audit
+        from .audits.unrestricted_response import _response_operator_matrix_and_diagnostics as audit
         return audit(self, coefficient, energy, occupied, virtual)
 
     def validate_response_operator_exact(
         self,
     ) -> tuple[int, int, int, float, float, float, float]:
-        from .audits.uhf_operator import validate_response_operator_exact as audit
+        from .audits.unrestricted_response import validate_response_operator_exact as audit
         return audit(self)

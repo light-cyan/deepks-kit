@@ -462,5 +462,5 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         )
 
     def audit_response_equations(self, response: RKSResponse) -> None:
-        from .audits.rks_response import audit_response_equations as audit
+        from .audits.rks_response_audit import audit_response_equations as audit
         return audit(self, response)

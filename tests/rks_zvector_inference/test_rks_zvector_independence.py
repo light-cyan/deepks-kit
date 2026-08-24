@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import numpy as np
 
 import deepks.deephf.adjoint as adjoint_module
-import deepks.deephf.pyscf_rks as rks_adapter_module
 import deepks.deephf.pyscf_rks_adjoint as rks_adjoint_module
 from deepks.deephf.adjoint import solve_scalar_adjoint
 
@@ -59,7 +58,7 @@ def test_rks_zvector_never_enters_direct_or_coordinate_density_paths(
     monkeypatch,
 ):
     from deepks.deephf.pyscf_rks import RKSResponseAdapter
-    from deepks.deephf.rks_gradient import RKSDeePHFGradients
+    from deepks.deephf.gradient import RKSDeePHFGradients
     from deepks.deephf.rks_method import RKSDeePHF
 
     def forbidden(*_args, **_kwargs):
@@ -98,7 +97,7 @@ def test_one_rks_scalar_correction_performs_exactly_one_adjoint_solve(
     rks_oracle_case,
     monkeypatch,
 ):
-    original_adapter_solve = rks_adapter_module.RKSAdjointAdapter.solve
+    original_adapter_solve = rks_adjoint_module.RKSAdjointAdapter.solve
     original_scalar_solve = rks_adjoint_module.solve_scalar_adjoint
     original_dense_solve = adjoint_module.np.linalg.solve
     adapter_calls = []
@@ -124,7 +123,7 @@ def test_one_rks_scalar_correction_performs_exactly_one_adjoint_solve(
         return original_dense_solve(matrix, right_hand_side)
 
     monkeypatch.setattr(
-        rks_adapter_module.RKSAdjointAdapter,
+        rks_adjoint_module.RKSAdjointAdapter,
         "solve",
         counted_adapter_solve,
     )

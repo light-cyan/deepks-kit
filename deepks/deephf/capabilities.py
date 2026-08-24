@@ -2,14 +2,15 @@
 
 from contextvars import ContextVar
 import functools
-import hashlib
 
 import numpy as np
 import torch
 
-from deepks.model.model import validate_force_model_architecture
-
-from .contracts import update_digest
+from deepks.model.model import (
+    model_execution_state_evidence,
+    model_execution_state_fingerprint,
+    validate_force_model_architecture,
+)
 
 
 class DeePHFCapabilityError(ValueError):
@@ -62,25 +63,6 @@ def science_state_transaction(function):
     return wrapped
 
 
-def _update_model_tensor_fingerprint(digest, tensor: torch.Tensor) -> None:
-    digest.update(str(tensor.layout).encode("utf-8"))
-    digest.update(str(tensor.dtype).encode("utf-8"))
-    digest.update(repr(tuple(tensor.shape)).encode("ascii"))
-    if tensor.device.type == "meta":
-        raise DeePHFCapabilityError(
-            "the force correction model cannot use meta-device state"
-        )
-    try:
-        value = tensor.detach().cpu()
-        if value.layout != torch.strided:
-            value = value.to_dense()
-        update_digest(digest, value)
-    except Exception as error:
-        raise DeePHFCapabilityError(
-            f"the force correction model tensor could not be fingerprinted: {error}"
-        ) from error
-
-
 def _metadata_signature(value):
     if isinstance(value, np.ndarray):
         value = value.tolist()
@@ -117,79 +99,23 @@ def validate_force_model(model):
 
 
 def model_state_fingerprint(model) -> str:
-    """Bind one correction model's graph identity, mode, parameters, and buffers."""
-    digest = hashlib.sha256()
-    if model is None:
-        digest.update(b"deepks.deephf.none-force-correction-model")
-        return digest.hexdigest()
-    if not isinstance(model, torch.nn.Module):
+    """Delegate to the canonical model execution-state fingerprint owner."""
+    try:
+        return model_execution_state_fingerprint(model)
+    except (TypeError, ValueError, RuntimeError) as error:
         raise DeePHFCapabilityError(
-            "the DeePHF correction model must be a torch.nn.Module or None"
-        )
-    metadata = tuple(
-        (
-            name,
-            f"{type(module).__module__}.{type(module).__qualname__}",
-            bool(module.training),
-            id(getattr(type(module), "forward", None)),
-            id(getattr(type(module), "__call__", None)),
-            id(vars(module).get("forward")),
-            id(vars(module).get("_compiled_call_impl")),
-        )
-        for name, module in model.named_modules(remove_duplicate=False)
-    )
-    digest.update(repr(metadata).encode("utf-8"))
-    for name, parameter in model.named_parameters(remove_duplicate=False):
-        digest.update(b"parameter\0")
-        digest.update(name.encode("utf-8"))
-        digest.update(repr(bool(parameter.requires_grad)).encode("ascii"))
-        _update_model_tensor_fingerprint(digest, parameter)
-    for name, buffer in model.named_buffers(remove_duplicate=False):
-        digest.update(b"buffer\0")
-        digest.update(name.encode("utf-8"))
-        _update_model_tensor_fingerprint(digest, buffer)
-    return digest.hexdigest()
+            f"the correction model state could not be fingerprinted: {error}"
+        ) from error
 
 
 def model_state_evidence(model):
-    """Return low-cost mutation evidence for one bound correction model."""
-    if model is None:
-        return None
-    modules = tuple(model.named_modules(remove_duplicate=False))
-    tensors = (
-        *(('parameter', name, tensor) for name, tensor in model.named_parameters(remove_duplicate=False)),
-        *(('buffer', name, tensor) for name, tensor in model.named_buffers(remove_duplicate=False)),
-    )
-    return (
-        id(model),
-        tuple(
-            (
-                name,
-                id(module),
-                id(type(module)),
-                bool(module.training),
-                id(getattr(type(module), "forward", None)),
-                id(getattr(type(module), "__call__", None)),
-                id(vars(module).get("forward")),
-                id(vars(module).get("_compiled_call_impl")),
-            )
-            for name, module in modules
-        ),
-        tuple(
-            (
-                kind,
-                name,
-                id(tensor),
-                tensor._version,
-                str(tensor.layout),
-                str(tensor.dtype),
-                str(tensor.device),
-                tuple(tensor.shape),
-                bool(getattr(tensor, "requires_grad", False)),
-            )
-            for kind, name, tensor in tensors
-        ),
-    )
+    """Delegate to the canonical cheap model execution-state evidence owner."""
+    try:
+        return model_execution_state_evidence(model)
+    except (TypeError, ValueError, RuntimeError) as error:
+        raise DeePHFCapabilityError(
+            f"the correction model state could not be inspected: {error}"
+        ) from error
 
 
 def force_model_fingerprint(model) -> str:

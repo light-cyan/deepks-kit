@@ -19,7 +19,7 @@ from .pyscf_rhf_reference import (
     validate_reference,
 )
 from .pyscf_rhf_response import _RHFLinearResponseCore
-from .pyscf_rhf_scanner import (
+from .scanner import (
     _adjoint_real_control,
     _cycle_limit,
     _validated_float64_array,

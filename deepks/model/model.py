@@ -274,6 +274,94 @@ def _validate_force_state_dict(state_dict, model) -> None:
             )
 
 
+def _execution_value_evidence(value):
+    """Return immutable evidence for small Python execution configuration."""
+    if value is None or isinstance(value, (bool, int, float, str, bytes)):
+        return (type(value), value)
+    if isinstance(value, np.generic):
+        return (type(value), value.item())
+    if isinstance(value, np.ndarray):
+        return (
+            np.ndarray,
+            id(value),
+            value.__array_interface__["data"][0],
+            value.shape,
+            value.strides,
+            value.dtype.str,
+            value.tobytes() if value.nbytes <= 4096 else None,
+        )
+    if isinstance(value, Mapping):
+        items = tuple(
+            (
+                _execution_value_evidence(key),
+                _execution_value_evidence(item),
+            )
+            for key, item in value.items()
+        )
+        return (
+            type(value),
+            id(value),
+            tuple(sorted(items, key=repr)),
+        )
+    if isinstance(value, (tuple, list)):
+        return (
+            type(value),
+            id(value),
+            tuple(_execution_value_evidence(item) for item in value),
+        )
+    if isinstance(value, (set, frozenset)):
+        return (
+            type(value),
+            id(value),
+            tuple(sorted(repr(_execution_value_evidence(item)) for item in value)),
+        )
+    if callable(value):
+        return ("callable", id(value), id(getattr(value, "__code__", None)))
+    return (type(value), id(value), repr(value))
+
+
+def _tensor_execution_evidence(kind, name, tensor):
+    if tensor.device.type == "meta":
+        storage_identity = None
+    else:
+        try:
+            storage_identity = tensor.untyped_storage()._cdata
+        except Exception:
+            storage_identity = None
+    return (
+        kind,
+        name,
+        id(tensor),
+        storage_identity,
+        tensor.storage_offset(),
+        tensor._version,
+        str(tensor.layout),
+        str(tensor.dtype),
+        str(tensor.device),
+        tuple(tensor.shape),
+        tuple(tensor.stride()) if tensor.layout == torch.strided else None,
+        bool(getattr(tensor, "requires_grad", False)),
+    )
+
+
+def _tensor_structure_evidence(kind, name, tensor):
+    evidence = _tensor_execution_evidence(kind, name, tensor)
+    return (*evidence[:5], *evidence[6:])
+
+
+def _update_tensor_fingerprint(digest, tensor: torch.Tensor) -> None:
+    """Hash tensor metadata and values without materializing a full bytes object."""
+    evidence = _tensor_execution_evidence("tensor", "", tensor)
+    digest.update(repr(evidence).encode("utf-8"))
+    if tensor.device.type == "meta":
+        raise ValueError("model execution state cannot contain meta-device tensors")
+    value = tensor.detach().cpu()
+    if value.layout != torch.strided:
+        value = value.to_dense()
+    array = value.contiguous().numpy()
+    digest.update(memoryview(array).cast("B"))
+
+
 def _metadata_signature(value):
     if isinstance(value, np.ndarray):
         value = value.tolist()
@@ -575,21 +663,51 @@ class CorrNet(nn.Module):
         return sum(self.elem_dict[ee] for ee in elems)
 
     def set_normalization(self, shift=None, scale=None):
-        dtype = self.input_scale.dtype
-        if shift is not None:
-            self.input_shift.data[:] = torch.tensor(shift, dtype=dtype)
-        if scale is not None:
-            self.input_scale.data[:] = torch.tensor(scale, dtype=dtype)
+        with torch.no_grad():
+            if shift is not None:
+                self.input_shift.copy_(
+                    torch.as_tensor(
+                        shift,
+                        dtype=self.input_shift.dtype,
+                        device=self.input_shift.device,
+                    ).expand_as(self.input_shift)
+                )
+            if scale is not None:
+                self.input_scale.copy_(
+                    torch.as_tensor(
+                        scale,
+                        dtype=self.input_scale.dtype,
+                        device=self.input_scale.device,
+                    ).expand_as(self.input_scale)
+                )
 
     def set_prefitting(self, weight, bias, trainable=False):
-        dtype = self.linear.weight.dtype
-        self.linear.weight.data[:] = torch.tensor(weight, dtype=dtype).reshape(-1)
-        self.linear.bias.data[:] = torch.tensor(bias, dtype=dtype).reshape(-1)
+        with torch.no_grad():
+            self.linear.weight.copy_(
+                torch.as_tensor(
+                    weight,
+                    dtype=self.linear.weight.dtype,
+                    device=self.linear.weight.device,
+                ).reshape_as(self.linear.weight)
+            )
+            self.linear.bias.copy_(
+                torch.as_tensor(
+                    bias,
+                    dtype=self.linear.bias.dtype,
+                    device=self.linear.bias.device,
+                ).reshape_as(self.linear.bias)
+            )
         self.linear.requires_grad_(trainable)
 
     def set_energy_const(self, const):
-        dtype = self.energy_const.dtype
-        self.energy_const.data = torch.tensor(const, dtype=dtype).reshape([])
+        with torch.no_grad():
+            self.energy_const.copy_(
+                torch.as_tensor(
+                    const,
+                    dtype=self.energy_const.dtype,
+                    device=self.energy_const.device,
+                ).reshape_as(self.energy_const)
+            )
 
     def save_dict(self, **extra_info):
         retained_extra_info = dict(self._checkpoint_extra_info)
@@ -656,6 +774,9 @@ class CorrNet(nn.Module):
             state_dict,
             strict=True if has_force_metadata else strict,
         )
+        if has_force_metadata:
+            validate_force_model_architecture(model, training=True)
+            model_execution_state_fingerprint(model)
         if expected_force_contract is not None:
             _validate_loaded_model_force_contract(model, expected_force_contract)
         model._checkpoint_extra_info = _as_checkpoint_metadata(dict(extra_info))
@@ -685,6 +806,7 @@ class CorrNet(nn.Module):
 
 
 _FORCE_CORRNET_FORWARD = vars(CorrNet)["forward"]
+_FORCE_CORRNET_ELEMENT_CONSTANT = vars(CorrNet)["get_elem_const"]
 _FORCE_DENSENET_FORWARD = vars(DenseNet)["forward"]
 _FORCE_TRACE_FORWARD = vars(TraceEmbedding)["forward"]
 _FORCE_THERMAL_FORWARD = vars(ThermalEmbedding)["forward"]
@@ -741,6 +863,11 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         raise TypeError("force derivatives require an exact deepks.model.model.CorrNet")
     if "forward" in vars(model) or vars(CorrNet).get("forward") is not _FORCE_CORRNET_FORWARD:
         raise ValueError("the force CorrNet forward implementation was replaced")
+    if (
+        "get_elem_const" in vars(model)
+        or vars(CorrNet).get("get_elem_const") is not _FORCE_CORRNET_ELEMENT_CONSTANT
+    ):
+        raise ValueError("the force CorrNet element implementation was replaced")
     if type(model.linear) is not nn.Linear or type(model.densenet) is not DenseNet:
         raise ValueError("the force CorrNet has an unsupported network structure")
     if not _has_trusted_dispatch(nn.Module):
@@ -749,6 +876,8 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         raise ValueError("the force DenseNet forward implementation was replaced")
     if model.densenet.actv_fn not in _FORCE_ACTIVATIONS:
         raise ValueError("the force CorrNet uses an unsupported activation")
+    if type(model.densenet.use_resnet) is not bool:
+        raise ValueError("the force CorrNet residual policy must be boolean")
     if type(model.densenet.layers) is not nn.ModuleList or any(
         type(layer) is not nn.Linear for layer in model.densenet.layers
     ):
@@ -811,13 +940,17 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
             "the force correction model cannot contain module execution hooks; "
             f"active hooks: {', '.join(active_hooks)}"
         )
+    if force_model_structure_evidence(model) is None:
+        raise ValueError("the force CorrNet execution graph could not be inspected")
 
 
 def force_model_structure_evidence(model):
-    """Return cheap identity evidence that invalidates cached graph validation."""
+    """Return canonical cheap evidence for the supported CorrNet execution graph."""
     try:
         layers = (model.linear, *model.densenet.layers)
-        modules = (model, model.densenet, *layers)
+        modules = (model, model.densenet, model.densenet.layers, *layers)
+        if model.densenet.dts is not None:
+            modules += (model.densenet.dts,)
         if model.embedder is not None:
             modules += (model.embedder,)
         dispatch = tuple(
@@ -857,17 +990,38 @@ def force_model_structure_evidence(model):
         )
         return (
             id(model),
+            id(type(model)),
             id(model.densenet),
-            tuple(id(layer) for layer in layers),
+            id(model.linear),
+            id(model.densenet.layers),
+            tuple(
+                (id(layer), layer.in_features, layer.out_features, layer.bias is not None)
+                for layer in layers
+            ),
             id(model.embedder),
             id(model.densenet.actv_fn),
+            id(getattr(model.densenet.actv_fn, "__code__", None)),
+            _execution_value_evidence(model.densenet.use_resnet),
             id(model.densenet.dts),
-            repr(model.input_dim),
-            repr(model._pbas),
-            repr(model.elem_table),
+            _execution_value_evidence(model.input_dim),
+            _execution_value_evidence(model._pbas),
+            _execution_value_evidence(model.shell_sec),
+            _execution_value_evidence(model.elem_table),
+            _execution_value_evidence(model.elem_dict),
+            None
+            if model.embedder is None
+            else (
+                type(model.embedder),
+                _execution_value_evidence(getattr(model.embedder, "shell_sec", None)),
+                _execution_value_evidence(getattr(model.embedder, "embd_sizes", None)),
+                _execution_value_evidence(getattr(model.embedder, "ndesc", None)),
+                _execution_value_evidence(getattr(model.embedder, "momentum", None)),
+                _execution_value_evidence(getattr(model.embedder, "max_memory", None)),
+            ),
             tuple("forward" in vars(module) for module in modules),
             tuple(module.training for module in modules),
             id(vars(CorrNet).get("forward")),
+            id(vars(CorrNet).get("get_elem_const")),
             id(vars(DenseNet).get("forward")),
             id(vars(TraceEmbedding).get("forward")),
             id(vars(ThermalEmbedding).get("forward")),
@@ -876,6 +1030,113 @@ def force_model_structure_evidence(model):
             dispatch,
             hooks,
             global_hooks,
+            tuple(
+                _tensor_structure_evidence(kind, name, tensor)
+                for kind, values in (
+                    ("parameter", model.named_parameters(remove_duplicate=False)),
+                    ("buffer", model.named_buffers(remove_duplicate=False)),
+                )
+                for name, tensor in values
+            ),
+            SCALE_EPS,
         )
     except Exception:
         return None
+
+
+def model_execution_state_evidence(model):
+    """Return canonical low-cost evidence for one model execution state."""
+    if model is None:
+        return None
+    if type(model) is CorrNet:
+        tensors = (
+            *(("parameter", name, tensor) for name, tensor in model.named_parameters(remove_duplicate=False)),
+            *(("buffer", name, tensor) for name, tensor in model.named_buffers(remove_duplicate=False)),
+        )
+        return (
+            force_model_structure_evidence(model),
+            tuple(
+                _tensor_execution_evidence(kind, name, tensor)
+                for kind, name, tensor in tensors
+            ),
+        )
+    modules = tuple(model.named_modules(remove_duplicate=False))
+    tensors = (
+        *(("parameter", name, tensor) for name, tensor in model.named_parameters(remove_duplicate=False)),
+        *(("buffer", name, tensor) for name, tensor in model.named_buffers(remove_duplicate=False)),
+    )
+    hook_evidence = tuple(
+        (
+            name,
+            field_name,
+            id(getattr(module, field_name)),
+            tuple(
+                (key, id(value))
+                for key, value in getattr(module, field_name).items()
+            ),
+        )
+        for name, module in modules
+        for _hook_name, field_name in _FORCE_MODULE_HOOK_FIELDS
+    )
+    global_hook_evidence = tuple(
+        (
+            field_name,
+            id(getattr(torch.nn.modules.module, field_name)),
+            tuple(
+                (key, id(value))
+                for key, value in getattr(
+                    torch.nn.modules.module,
+                    field_name,
+                ).items()
+            ),
+        )
+        for _hook_name, field_name in _FORCE_GLOBAL_HOOK_FIELDS
+    )
+    return (
+        id(model),
+        tuple(
+            (
+                name,
+                id(module),
+                id(type(module)),
+                bool(module.training),
+                id(getattr(type(module), "forward", None)),
+                id(vars(module).get("forward")),
+                id(vars(module).get("_compiled_call_impl")),
+                tuple(
+                    (id(owner), id(definition))
+                    for owner, definition in _static_definitions(type(module))
+                ),
+            )
+            for name, module in modules
+        ),
+        tuple(_tensor_execution_evidence(kind, name, tensor) for kind, name, tensor in tensors),
+        hook_evidence,
+        global_hook_evidence,
+    )
+
+
+def model_execution_state_fingerprint(model) -> str:
+    """Return the canonical complete graph-and-value fingerprint for a model."""
+    digest = hashlib.sha256()
+    if model is None:
+        digest.update(b"deepks.none-model")
+        return digest.hexdigest()
+    if not isinstance(model, nn.Module):
+        raise TypeError("model execution state requires a torch.nn.Module or None")
+    if type(model) is CorrNet:
+        graph_evidence = force_model_structure_evidence(model)
+        if graph_evidence is None:
+            raise ValueError("CorrNet execution graph could not be inspected")
+    else:
+        graph_evidence = model_execution_state_evidence(model)
+    digest.update(repr(graph_evidence).encode("utf-8"))
+    for kind, values in (
+        ("parameter", model.named_parameters(remove_duplicate=False)),
+        ("buffer", model.named_buffers(remove_duplicate=False)),
+    ):
+        for name, tensor in values:
+            digest.update(kind.encode("ascii") + b"\0")
+            digest.update(name.encode("utf-8") + b"\0")
+            _update_tensor_fingerprint(digest, tensor)
+    return digest.hexdigest()

@@ -15,7 +15,12 @@ from .capabilities import (
     validate_model,
     validate_model_output,
 )
-from .gradient import RHFDeePHFGradients
+from .gradient import (
+    RHFDeePHFGradients,
+    RKSDeePHFGradients,
+    UHFDeePHFGradients,
+    UKSDeePHFGradients,
+)
 from .force_data import (
     RHFForceDataError,
     RHFForceFrame,
@@ -39,9 +44,7 @@ from .pyscf_rhf import (
     validate_reference,
 )
 from .scanner import RHFDeePHFGradientScanner, RHFDeePHFScannerError
-from .uhf_gradient import UHFDeePHFGradients
-from .uhf_zvector import UHFDeePHFZVectorGradients
-from .uhf_method import UHFDeePHF
+from .unrestricted_method import UHFDeePHF, UKSDeePHF
 from .pyscf_uhf import (
     UHFAdjoint,
     UHFAdjointAdapter,
@@ -53,7 +56,6 @@ from .pyscf_uhf import (
     UHFResponseError,
     validate_uhf_reference,
 )
-from .rks_gradient import RKSDeePHFGradients
 from .rks_method import RKSDeePHF
 from .pyscf_rks import (
     RKSAdjoint,
@@ -68,10 +70,6 @@ from .pyscf_rks import (
     RKSResponseError,
     validate_rks_reference,
 )
-from .rks_zvector import RKSDeePHFZVectorGradients
-from .uks_gradient import UKSDeePHFGradients
-from .uks_method import UKSDeePHF
-from .uks_zvector import UKSDeePHFZVectorGradients
 from .pyscf_uks import (
     UKSAdjoint,
     UKSAdjointAdapter,
@@ -83,7 +81,12 @@ from .pyscf_uks import (
     UKSResponseError,
     validate_uks_reference,
 )
-from .zvector import RHFDeePHFZVectorGradients
+from .zvector import (
+    RHFDeePHFZVectorGradients,
+    RKSDeePHFZVectorGradients,
+    UHFDeePHFZVectorGradients,
+    UKSDeePHFZVectorGradients,
+)
 from .workflow import build_reference, evaluate_molecule, make_deephf
 
 __all__ = [

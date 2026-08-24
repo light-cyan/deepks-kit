@@ -3,7 +3,9 @@ from dataclasses import fields
 import numpy as np
 import pytest
 
-import deepks.deephf.pyscf_uhf as pyscf_uhf
+from pyscf.scf import ucphf
+
+from deepks.deephf.pyscf_uhf_response_core import _UHFLinearResponseCore
 from deepks.deephf.capabilities import DeePHFCapabilityError
 from deepks.deephf.pyscf_uhf import (
     UHFResponseAdapter,
@@ -357,7 +359,7 @@ def test_production_response_does_not_use_dense_debug_audit(
         raise AssertionError("the UHF response matrix was materialized")
 
     monkeypatch.setattr(
-        pyscf_uhf._UHFLinearResponseCore,
+        _UHFLinearResponseCore,
         "_response_operator_matrix_and_diagnostics",
         forbidden_dense_audit,
     )
@@ -395,7 +397,7 @@ def test_corrupted_ucphf_solution_fails_without_fallback(
     response_reference,
     monkeypatch,
 ):
-    original_solve = pyscf_uhf.ucphf.solve
+    original_solve = ucphf.solve
     first_alpha_virtual = int(
         np.flatnonzero(np.asarray(response_reference.mo_occ[0]) == 0.0)[0]
     )
@@ -409,7 +411,7 @@ def test_corrupted_ucphf_solution_fails_without_fallback(
         ] += 1.0e-4
         return (alpha, beta), orbital_energy_response
 
-    monkeypatch.setattr(pyscf_uhf.ucphf, "solve", corrupted_solve)
+    monkeypatch.setattr(ucphf, "solve", corrupted_solve)
     adapter = UHFResponseAdapter(
         response_reference,
         max_refinement_cycles=0,
@@ -423,7 +425,7 @@ def test_independent_residual_drives_ucphf_refinement(
     response_reference,
     monkeypatch,
 ):
-    original_solve = pyscf_uhf.ucphf.solve
+    original_solve = ucphf.solve
     solve_calls = 0
     first_alpha_virtual = int(
         np.flatnonzero(np.asarray(response_reference.mo_occ[0]) == 0.0)[0]
@@ -442,7 +444,7 @@ def test_independent_residual_drives_ucphf_refinement(
             response = (alpha, beta)
         return response, orbital_energy_response
 
-    monkeypatch.setattr(pyscf_uhf.ucphf, "solve", inaccurate_first_solve)
+    monkeypatch.setattr(ucphf, "solve", inaccurate_first_solve)
     response = UHFResponseAdapter(
         response_reference,
         residual_tolerance=1.0e-10,

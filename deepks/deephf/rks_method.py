@@ -47,24 +47,6 @@ class RKSDeePHF(DeePHF):
             use_transaction=use_transaction,
         )
 
-    def __init__(
-        self,
-        reference,
-        model,
-        projector_basis=None,
-        device="cpu",
-        response_options=None,
-        adjoint_options=None,
-    ):
-        super().__init__(
-            reference,
-            model,
-            projector_basis=projector_basis,
-            device=device,
-            response_options=response_options,
-            adjoint_options=adjoint_options,
-        )
-
     def _validate_response(self, response: RKSResponse) -> RKSResponse:
         """Return a response produced by this exact RKS method."""
         self._assert_science_state("RKS response consumption")
@@ -141,7 +123,7 @@ class RKSDeePHF(DeePHF):
                 _DIRECT_RESPONSE_OPTIONS,
                 backend,
             )
-            from .rks_gradient import RKSDeePHFGradients
+            from .gradient import RKSDeePHFGradients
 
             return RKSDeePHFGradients(
                 self,
@@ -154,7 +136,7 @@ class RKSDeePHF(DeePHF):
             _RKS_ZVECTOR_OPTIONS,
             backend,
         )
-        from .rks_zvector import RKSDeePHFZVectorGradients
+        from .zvector import RKSDeePHFZVectorGradients
 
         return RKSDeePHFZVectorGradients(
             self,

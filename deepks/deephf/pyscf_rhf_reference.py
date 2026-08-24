@@ -40,7 +40,7 @@ class RHFScannerReferenceError(RuntimeError):
 
 
 def validate_reference(reference):
-    from .audits.rhf_reference import validate_reference as audit
+    from .audits.restricted_reference import validate_reference as audit
     return audit(reference)
 
 

@@ -28,8 +28,8 @@ def density_from_mo_response(
 class RestrictedResponseAlgebra:
     """Share exact RHF/RKS density and induced-potential contractions."""
 
+    @staticmethod
     def _density_from_mo_response(
-        self,
         mo_response: np.ndarray,
         coefficient: np.ndarray,
         occupation: np.ndarray,

@@ -3,7 +3,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-import deepks.deephf.pyscf_uhf as pyscf_uhf
+from pyscf.scf import ucphf
 import deepks.deephf.pyscf_uhf_adjoint as uhf_adjoint_module
 from deepks.deephf import (
     UHFAdjoint,
@@ -104,7 +104,7 @@ def test_zvector_uses_one_adjoint_solve_and_no_direct_response_path(
         raise AssertionError("the UHF Z-vector path entered a direct response API")
 
     monkeypatch.setattr(uhf_adjoint_module, "solve_scalar_adjoint", counted)
-    monkeypatch.setattr(pyscf_uhf.ucphf, "solve", forbidden)
+    monkeypatch.setattr(ucphf, "solve", forbidden)
     monkeypatch.setattr(UHFResponseAdapter, "solve", forbidden)
     monkeypatch.setattr(UHFDeePHF, "response", forbidden)
     monkeypatch.setattr(UHFDeePHF, "first_order_density", forbidden)

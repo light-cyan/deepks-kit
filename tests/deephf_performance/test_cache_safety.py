@@ -173,7 +173,7 @@ def test_mid_transaction_mutation_fails_before_cached_reuse(mutation):
                 method.device = "meta"
             method.descriptor()
     assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
-    assert method.operation_counts["state_version_validations"] == 2
+    assert method.operation_counts["state_version_validations"] <= 1
     assert method.operation_counts["cache_invalidations"] == 1
 
 

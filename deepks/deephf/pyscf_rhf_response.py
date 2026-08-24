@@ -16,7 +16,7 @@ from .pyscf_rhf_reference import (
     validate_pyscf_version,
     validate_reference,
 )
-from .pyscf_rhf_scanner import (
+from .scanner import (
     _cycle_limit,
     _validated_float64_array,
     response_integrity_fingerprint,
@@ -246,11 +246,11 @@ class _RHFLinearResponseCore(RestrictedResponseAlgebra):
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> tuple[np.ndarray, int, float, float, float, float]:
-        from .audits.rhf_operator import _response_operator_matrix_and_diagnostics as audit
+        from .audits.rhf_response_audit import _response_operator_matrix_and_diagnostics as audit
         return audit(self, coefficient, energy, occupation, occupied, virtual)
 
     def validate_response_operator_exact(self) -> tuple[int, float, float, float, float]:
-        from .audits.rhf_operator import validate_response_operator_exact as audit
+        from .audits.rhf_response_audit import validate_response_operator_exact as audit
         return audit(self)
 
     def _apply_occupied_virtual_operator(
@@ -336,7 +336,7 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         return residual[..., virtual, :]
 
     def audit_response_equations(self, response: RHFResponse) -> None:
-        from .audits.rhf_response import audit_response_equations as audit
+        from .audits.rhf_response_audit import audit_response_equations as audit
         return audit(self, response)
 
     def _solve_orbitals(

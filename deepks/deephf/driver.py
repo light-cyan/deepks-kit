@@ -194,6 +194,12 @@ class GradientDriver:
         """Evaluate nuclear forces as minus the energy gradient."""
         return -self.kernel(atmlst=atmlst)
 
+    def as_scanner(self, **scanner_options):
+        """Build the strict fresh-reference RHF gradient scanner."""
+        from .scanner import RHFDeePHFGradientScanner
+
+        return RHFDeePHFGradientScanner(self, **scanner_options)
+
 
 __all__ = [
     "GradientDriver",

@@ -8,7 +8,8 @@ from deepks.deephf.adjoint import (
     scalar_operator_fingerprint,
     solve_scalar_adjoint,
 )
-from deepks.deephf.pyscf_rhf import RHFResponseAdapter, _RHFLinearResponseCore
+from deepks.deephf.pyscf_rhf import RHFResponseAdapter
+from deepks.deephf.pyscf_rhf_response import _RHFLinearResponseCore
 from deepks.model.model import CorrNet
 
 

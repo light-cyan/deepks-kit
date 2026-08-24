@@ -15,7 +15,7 @@ from .pyscf_dft_provenance import (
     _validated_grid_response_blocks,
 )
 from .pyscf_rks_reference import validate_rks_reference, rks_reference_fingerprint
-from .restricted_response import RestrictedResponseAlgebra, density_from_mo_response
+from .restricted_response import RestrictedResponseAlgebra
 
 class _RKSLinearResponseProblem:
     """Bind one action-only RKS operator to the reference-neutral protocol."""
@@ -92,20 +92,6 @@ class _RKSLinearResponseProblem:
 
 class _RKSLinearResponseCore(RestrictedResponseAlgebra):
     """Provide shared pure-LDA RKS operator and nuclear perturbation primitives."""
-
-    @staticmethod
-    def _density_from_mo_response(
-        mo_response,
-        coefficient,
-        occupation,
-        occupied,
-    ):
-        return density_from_mo_response(
-            mo_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
 
     def __init__(
         self,
@@ -603,13 +589,13 @@ class _RKSLinearResponseCore(RestrictedResponseAlgebra):
         occupied: np.ndarray,
         virtual: np.ndarray,
     ) -> tuple[np.ndarray, int, float, float, float, float, float]:
-        from .audits.rks_operator import _response_operator_matrix_and_diagnostics as audit
+        from .audits.rks_response_audit import _response_operator_matrix_and_diagnostics as audit
         return audit(self, coefficient, energy, occupation, occupied, virtual)
 
     def validate_response_operator_exact(
         self,
     ) -> tuple[int, float, float, float, float, float]:
-        from .audits.rks_operator import validate_response_operator_exact as audit
+        from .audits.rks_response_audit import validate_response_operator_exact as audit
         return audit(self)
 
     def linear_response_problem(self) -> ScalarAdjointProblem:

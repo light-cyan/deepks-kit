@@ -5,7 +5,7 @@ import pytest
 import torch
 from pyscf import ao2mo, gto, scf
 
-import deepks.deephf.pyscf_rhf as pyscf_rhf
+from deepks.deephf import pyscf_rhf_reference
 from deepks.deephf import (
     DeePHF,
     DeePHFCapabilityError,
@@ -177,7 +177,7 @@ def test_response_rejects_an_unsupported_pyscf_series(
     rhf_oracle_case,
     monkeypatch,
 ):
-    monkeypatch.setattr(pyscf_rhf.pyscf, "__version__", "2.15.0")
+    monkeypatch.setattr(pyscf_rhf_reference.pyscf, "__version__", "2.15.0")
 
     with pytest.raises(
         DeePHFCapabilityError,

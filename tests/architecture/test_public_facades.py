@@ -1,3 +1,5 @@
+import importlib
+
 from deepks.deephf.pyscf_rhf import (
     RHFAdjointAdapter,
     RHFResponseAdapter,
@@ -59,3 +61,24 @@ def test_facades_do_not_own_solver_implementations():
         )
     }
     assert all(not name.endswith(("pyscf_rhf", "pyscf_uhf", "pyscf_rks", "pyscf_uks")) for name in modules)
+
+
+def test_facade_star_imports_match_the_deliberate_public_surface():
+    allowed_dunders = {
+        "__all__",
+        "__builtins__",
+        "__cached__",
+        "__doc__",
+        "__file__",
+        "__loader__",
+        "__name__",
+        "__package__",
+        "__spec__",
+    }
+    for family in ("rhf", "uhf", "rks", "uks"):
+        module = importlib.import_module(f"deepks.deephf.pyscf_{family}")
+        namespace = {}
+        exec(f"from deepks.deephf.pyscf_{family} import *", namespace)
+        assert set(namespace) - {"__builtins__"} == set(module.__all__)
+        assert set(vars(module)) - allowed_dunders == set(module.__all__)
+        assert all(not name.startswith("_") for name in module.__all__)

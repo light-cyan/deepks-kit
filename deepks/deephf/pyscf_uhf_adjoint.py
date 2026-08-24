@@ -7,7 +7,7 @@ import pyscf
 from .capabilities import DeePHFCapabilityError
 from .contracts import array_fingerprint
 from .adjoint import AdjointError, solve_scalar_adjoint
-from .pyscf_uhf_reference import (
+from .unrestricted_reference import (
     UHFAdjoint,
     UHFAdjointDiagnostics,
     UHFAdjointError,
@@ -605,5 +605,5 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         adjoint: UHFAdjoint,
         expected_objective_ao_potential: np.ndarray,
     ) -> None:
-        from .audits.uhf_adjoint import audit_adjoint as audit
+        from .audits.unrestricted_adjoint import audit_adjoint as audit
         return audit(self, adjoint, expected_objective_ao_potential)

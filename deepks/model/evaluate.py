@@ -55,14 +55,6 @@ def _validate_model_state(model, descriptor_values: torch.Tensor) -> None:
             )
 
 
-def model_state_evidence(model) -> tuple:
-    """Return metadata-only evidence for parameter and buffer mutation."""
-    return tuple(
-        (id(value), value._version, value.dtype, value.device)
-        for value in (*model.parameters(), *model.buffers())
-    )
-
-
 def _predict_correction(
     model,
     descriptor: torch.Tensor,
