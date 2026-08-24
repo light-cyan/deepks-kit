@@ -14,14 +14,7 @@ from ..pyscf_uhf_reference import (
 )
 
 
-def validate_uhf_reference(reference):
-    """Validate the native real-orbital integer-occupation UHF contract."""
-    if type(reference) is not scf_uhf.UHF:
-        raise DeePHFCapabilityError(
-            "UHF DeePHF requires an undecorated native pyscf.scf.uhf.UHF reference"
-        )
-    if reference_is_transaction_validated(reference):
-        return reference
+def _validate_reference_contract(reference):
     if not reference.converged:
         raise DeePHFCapabilityError("the UHF reference must be converged")
     molecule = reference.mol
@@ -99,6 +92,10 @@ def validate_uhf_reference(reference):
             "the UHF molecule has unsupported instance hooks: "
             + ", ".join(molecule_hooks)
         )
+    return molecule
+
+
+def _validated_orbital_state(reference, molecule):
     if reference.mo_coeff is None or reference.mo_energy is None:
         raise DeePHFCapabilityError("the UHF reference orbital state is incomplete")
     if reference.mo_occ is None:
@@ -170,6 +167,11 @@ def validate_uhf_reference(reference):
             )
     if not np.isfinite(reference.e_tot):
         raise DeePHFCapabilityError("the UHF reference energy must be finite")
+    return coefficient, energy, expected_electrons
+
+
+def _validate_ao_state(reference, molecule, state):
+    coefficient, energy, expected_electrons = state
     try:
         overlap = np.asarray(reference.get_ovlp())
         hcore = np.asarray(reference.get_hcore())
@@ -306,6 +308,19 @@ def validate_uhf_reference(reference):
     coordinates = np.asarray(molecule.atom_coords(unit="Bohr"))
     if coordinates.dtype != np.dtype(np.float64) or not np.isfinite(coordinates).all():
         raise DeePHFCapabilityError("the molecular geometry must be finite float64")
+
+
+def validate_uhf_reference(reference):
+    """Validate the native real-orbital integer-occupation UHF contract."""
+    if type(reference) is not scf_uhf.UHF:
+        raise DeePHFCapabilityError(
+            "UHF DeePHF requires an undecorated native pyscf.scf.uhf.UHF reference"
+        )
+    if reference_is_transaction_validated(reference):
+        return reference
+    molecule = _validate_reference_contract(reference)
+    state = _validated_orbital_state(reference, molecule)
+    _validate_ao_state(reference, molecule, state)
     return reference
 
 

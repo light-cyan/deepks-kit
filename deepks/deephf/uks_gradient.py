@@ -41,7 +41,7 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
         dq_explicit_spin = self.base.dq_dR_explicit_spin(
             atom_indices=atom_indices
         )
-        dq_dP = self.base.dq_dP()
+        dq_dP = self.base._dq_dP()
         spin_density_response, metric_density, ov_density = density_partitions
         dq_response_spin = np.stack(
             [np.einsum("apij,bxij->bxap", dq_dP, density) for density in spin_density_response]
@@ -111,7 +111,6 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
             result_mode="gradient",
             objective=objective,
         )
-        self.base._validate_science_state("UKS native gradient evaluation")
         self.base._validate_science_state("UKS native gradient evaluation")
         total = reference + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():

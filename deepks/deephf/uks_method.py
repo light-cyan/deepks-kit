@@ -40,8 +40,11 @@ class UKSDeePHF(UHFDeePHF):
         return validate_uks_reference(reference)
 
     @staticmethod
-    def _reference_state_fingerprint(reference) -> str:
-        return uks_reference_fingerprint(reference)
+    def _reference_state_fingerprint(reference, *, use_transaction=True) -> str:
+        return uks_reference_fingerprint(
+            reference,
+            use_transaction=use_transaction,
+        )
 
     def __init__(
         self,

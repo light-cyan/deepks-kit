@@ -45,12 +45,18 @@ def run_public_sequence(method, backend="direct"):
         descriptor = method.descriptor()
     assert np.isfinite(gradient).all()
     assert np.isfinite(descriptor).all()
-    return method.operation_counts
+    counts = method.operation_counts
+    # Construction performs one additional full binding fingerprint outside this scope.
+    assert counts["science_state_fingerprints"] == 2
+    assert counts["state_version_validations"] == 3
+    assert counts["cache_state_fingerprints"] == 3
+    assert counts["cache_hits"] > 0
+    assert counts.get("cache_invalidations", 0) == 0
+    return counts
 
 
 def test_nonzero_public_sequence_reuses_energy_descriptor_and_derivatives():
     counts = run_public_sequence(make_method())
-    assert counts["science_state_fingerprints"] == 2
     assert counts["ao_density_constructions"] == 1
     assert counts["descriptor_evaluations"] == 1
     assert counts["model_forwards"] == 1

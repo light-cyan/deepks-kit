@@ -19,7 +19,7 @@ from ..pyscf_rks_reference import (
 )
 
 
-def _audit_rks_reference(reference):
+def _validate_reference_contract(reference):
     """Audit the exact native, converged, finite-grid pure-LDA RKS tier."""
     validate_pyscf_version()
     if type(reference) is not dft.rks.RKS:
@@ -126,6 +126,10 @@ def _audit_rks_reference(reference):
             "the RKS molecule has unsupported instance hooks: "
             + ", ".join(molecule_hooks)
         )
+    return molecule
+
+
+def _validated_orbital_state(reference, molecule):
     functional_provenance = _functional_provenance(reference)
     grid_provenance = _build_grid_provenance(reference)
     _GRID_PROVENANCE_CACHE[reference] = (None, grid_provenance)
@@ -168,6 +172,11 @@ def _audit_rks_reference(reference):
         raise DeePHFCapabilityError("the RKS occupied and virtual root spaces overlap")
     if not np.isfinite(reference.e_tot):
         raise DeePHFCapabilityError("the RKS reference energy must be finite")
+    return functional_provenance, grid_provenance, coefficient, energy
+
+
+def _validate_ao_state(reference, molecule, state):
+    functional_provenance, grid_provenance, coefficient, energy = state
     try:
         overlap = np.asarray(reference.get_ovlp())
         hcore = np.asarray(reference.get_hcore())
@@ -299,6 +308,13 @@ def _audit_rks_reference(reference):
         raise DeePHFCapabilityError("the normalized RKS functional changed during validation")
     if grid_provenance.point_count != reference.grids.weights.size:
         raise DeePHFCapabilityError("the RKS grid changed during validation")
+
+
+def _audit_rks_reference(reference):
+    """Audit the exact native, converged, finite-grid pure-LDA RKS tier."""
+    molecule = _validate_reference_contract(reference)
+    state = _validated_orbital_state(reference, molecule)
+    _validate_ao_state(reference, molecule, state)
     return reference
 
 

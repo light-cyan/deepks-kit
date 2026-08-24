@@ -232,7 +232,7 @@ class RHFDeePHFGradients(GradientDriver):
         dq_dR_explicit = self.base.dq_dR_explicit(
             atom_indices=atom_indices,
         )
-        dq_dP = self.base.dq_dP()
+        dq_dP = self.base._dq_dP()
         objective_ao_potential = self.base._correction_ao_potential(
             sensitivity,
             dq_dP,

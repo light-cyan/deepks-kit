@@ -230,9 +230,13 @@ def rks_molecule_science_fingerprint(molecule) -> str:
     return digest.hexdigest()
 
 
-def rks_reference_fingerprint(reference) -> str:
+def rks_reference_fingerprint(reference, *, use_transaction=True) -> str:
     """Return a scratch-independent fingerprint of the scientific RKS state."""
-    trusted = transaction_reference_fingerprint(reference)
+    trusted = (
+        transaction_reference_fingerprint(reference)
+        if use_transaction
+        else None
+    )
     if trusted is not None:
         return trusted
     return _dft_reference_validation_fingerprint(reference)

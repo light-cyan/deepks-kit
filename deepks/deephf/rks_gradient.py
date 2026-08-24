@@ -40,7 +40,7 @@ class RKSDeePHFGradients(GradientDriver):
         )
         self.base._validate_science_state("RKS native gradient evaluation")
         dq_explicit = self.base.dq_dR_explicit(atom_indices=atom_indices)
-        dq_dP = self.base.dq_dP()
+        dq_dP = self.base._dq_dP()
         density, density_metric, density_occupied_virtual = density_partitions
         dq_response = np.einsum(
             "apij,bxij->bxap",
@@ -123,7 +123,6 @@ class RKSDeePHFGradients(GradientDriver):
             result_mode="gradient",
             objective=objective,
         )
-        self.base._validate_science_state("RKS native gradient evaluation")
         self.base._validate_science_state("RKS native gradient evaluation")
         total = reference_gradient + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():

@@ -16,8 +16,10 @@ from .capabilities import (
     DeePHFCapabilityError,
     begin_reference_validation_transaction,
     end_reference_validation_transaction,
+    model_state_evidence,
     model_state_fingerprint,
     science_state_transaction,
+    validate_force_model,
     validate_model,
 )
 from .contracts import immutable_array as _immutable_array
@@ -57,6 +59,8 @@ _ZVECTOR_OPTIONS = frozenset(
         "krylov_restart",
     }
 )
+
+
 def _validated_backend_options(base_options, override_options, allowed, backend):
     options = {**base_options, **override_options}
     unknown = sorted(set(options) - allowed)
@@ -68,7 +72,12 @@ def _validated_backend_options(base_options, override_options, allowed, backend)
 
 
 class DeePHF:
-    """Evaluate a perturbative correction without modifying the RHF reference."""
+    """Evaluate a perturbative correction without modifying the RHF reference.
+
+    Construction validates reference, descriptor, and static model state without
+    evaluating the model. Model output and force differentiation are validated
+    lazily by the first calculation that consumes them.
+    """
 
     _adjoint_adapter_type = RHFAdjointAdapter
     _response_adapter_type = RHFResponseAdapter
@@ -79,8 +88,11 @@ class DeePHF:
         return validate_reference(reference)
 
     @staticmethod
-    def _reference_state_fingerprint(reference) -> str:
-        return reference_fingerprint(reference)
+    def _reference_state_fingerprint(reference, *, use_transaction=True) -> str:
+        return reference_fingerprint(
+            reference,
+            use_transaction=use_transaction,
+        )
 
     def _descriptor_rank_bound(self) -> int:
         return int(np.count_nonzero(self.reference.mo_occ > 0))
@@ -112,14 +124,23 @@ class DeePHF:
             self.reference.mol,
             projector_basis,
         )
+        validate_model(
+            self.model,
+            self._descriptor.projector_basis,
+            self._descriptor.n_features,
+        )
         self._bound_reference = self.reference
         self._bound_molecule = self.reference.mol
         self._bound_descriptor = self._descriptor
         self._bound_projector_molecule = self._descriptor.projector_mol
+        self._bound_model = self.model
+        self._bound_device = self.device
         self._active_operation_counts = None
         self._last_operation_counts = {}
         self._calculation_depth = 0
+        self._public_boundary_depth = 0
         self._evaluation_context = None
+        self._transaction_publishers = None
         self._bound_science_state_fingerprint = (
             self._current_science_state_fingerprint()
         )
@@ -132,11 +153,6 @@ class DeePHF:
             raise TypeError("adjoint_options must be a mapping")
         self.adjoint_options = dict(adjoint_options)
         self._trusted_response_integrities = {}
-        validate_model(
-            self.model,
-            self._descriptor.projector_basis,
-            self._descriptor.n_features,
-        )
         self.e_base = None
         self.e_corr = None
         self.e_tot = None
@@ -178,13 +194,99 @@ class DeePHF:
             self._active_operation_counts["science_state_fingerprints"] += 1
         digest = hashlib.sha256()
         self._latest_reference_state_fingerprint = (
-            self._reference_state_fingerprint(self.reference)
+            self._reference_state_fingerprint(
+                self.reference,
+            )
+        )
+        descriptor_fingerprint = self._descriptor_science_fingerprint()
+        self._latest_cache_state_fingerprint = self._combined_cache_fingerprint(
+            self._latest_reference_state_fingerprint,
+            descriptor_fingerprint,
         )
         digest.update(self._latest_reference_state_fingerprint.encode("ascii"))
-        digest.update(self._descriptor_science_fingerprint().encode("ascii"))
+        digest.update(descriptor_fingerprint.encode("ascii"))
         digest.update(model_state_fingerprint(self.model).encode("ascii"))
         digest.update(str(self.device).encode("utf-8"))
         return digest.hexdigest()
+
+    @staticmethod
+    def _combined_cache_fingerprint(reference_fingerprint, descriptor_fingerprint):
+        digest = hashlib.sha256()
+        digest.update(reference_fingerprint.encode("ascii"))
+        digest.update(descriptor_fingerprint.encode("ascii"))
+        return digest.hexdigest()
+
+    def _current_cache_state_fingerprint(self) -> str:
+        if self._active_operation_counts is not None:
+            self._active_operation_counts["cache_state_fingerprints"] += 1
+        reference_fingerprint = self._reference_state_fingerprint(
+            self.reference,
+            use_transaction=False,
+        )
+        return self._combined_cache_fingerprint(
+            reference_fingerprint,
+            self._descriptor_science_fingerprint(),
+        )
+
+    @staticmethod
+    def _array_state_evidence(value):
+        if isinstance(value, (tuple, list)):
+            return tuple(DeePHF._array_state_evidence(item) for item in value)
+        array = np.asarray(value)
+        return (
+            id(value),
+            array.__array_interface__["data"][0],
+            array.shape,
+            array.strides,
+            array.dtype.str,
+        )
+
+    def _state_version_evidence(self):
+        reference = self.reference
+        molecule = reference.mol
+        descriptor = self._descriptor
+        return (
+            id(reference),
+            id(molecule),
+            id(descriptor),
+            id(descriptor.projector_mol),
+            id(self.model),
+            str(self.device),
+            bool(reference.converged),
+            float(reference.e_tot),
+            self._array_state_evidence(reference.mo_coeff),
+            self._array_state_evidence(reference.mo_energy),
+            self._array_state_evidence(reference.mo_occ),
+            self._array_state_evidence(molecule._atm),
+            self._array_state_evidence(molecule._bas),
+            self._array_state_evidence(molecule._env),
+            tuple(
+                (id(value), value._version, str(value.dtype), str(value.device))
+                for value in descriptor.overlap_shells
+            ),
+            model_state_evidence(self.model),
+        )
+
+    def _invalidate_cached_state(self, boundary: str) -> None:
+        self._context().count("cache_invalidations")
+        raise DeePHFCapabilityError(
+            f"the DeePHF scientific state changed during {boundary}"
+        )
+
+    def _validate_cached_state(self, boundary: str) -> None:
+        context = self._context()
+        context.count("state_version_validations")
+        try:
+            evidence = self._state_version_evidence()
+        except Exception as error:
+            raise DeePHFCapabilityError(
+                f"the DeePHF state version could not be checked during {boundary}: {error}"
+            ) from error
+        if evidence != context.state_evidence:
+            self._invalidate_cached_state(boundary)
+        fingerprint = self._current_cache_state_fingerprint()
+        if fingerprint != context.cache_state_token:
+            self._invalidate_cached_state(boundary)
 
     def _assert_science_state(self, boundary: str) -> str:
         identities_match = (
@@ -193,6 +295,8 @@ class DeePHF:
             and self._descriptor is self._bound_descriptor
             and self._descriptor.mol is self._bound_molecule
             and self._descriptor.projector_mol is self._bound_projector_molecule
+            and self.model is self._bound_model
+            and self.device == self._bound_device
         )
         if not identities_match:
             raise DeePHFCapabilityError(
@@ -214,6 +318,8 @@ class DeePHF:
                 f"the DeePHF scientific state could not be checked during {boundary}: {error}"
             ) from error
         if fingerprint != self._bound_science_state_fingerprint:
+            if type(self.model) is CorrNet:
+                validate_force_model(self.model)
             raise DeePHFCapabilityError(
                 f"the DeePHF scientific state changed during {boundary}"
             )
@@ -232,14 +338,19 @@ class DeePHF:
                 self._latest_reference_state_fingerprint,
             )
         self._science_transaction_depth += 1
+        failed = False
         try:
             yield self._science_transaction_fingerprint
+        except BaseException:
+            failed = True
+            raise
         finally:
             self._science_transaction_depth -= 1
             if outermost:
                 end_reference_validation_transaction(reference_token)
                 self._science_transaction_fingerprint = None
-                self._assert_science_state("calculation exit")
+                if not failed:
+                    self._assert_science_state("calculation exit")
 
     def _validate_science_state(self, boundary: str) -> str:
         self._assert_science_state(boundary)
@@ -248,12 +359,30 @@ class DeePHF:
         self._validate_reference_object(self.reference)
         return self._assert_science_state(boundary)
 
+    def _register_result_publisher(self, publisher) -> None:
+        if publisher is not None and self._transaction_publishers is not None:
+            self._transaction_publishers[id(publisher)] = publisher
+
+    def _reset_transaction_publishers(self) -> None:
+        for publisher in tuple((self._transaction_publishers or {}).values()):
+            reset = getattr(publisher, "_reset_results", None)
+            if reset is not None:
+                reset()
+
     @contextmanager
-    def _calculation_context(self):
+    def _calculation_context(
+        self,
+        *,
+        validate_cached_state=False,
+        publisher=None,
+    ):
         outermost = self._calculation_depth == 0
         if outermost:
             self._active_operation_counts = Counter()
+            self._transaction_publishers = {}
+        self._register_result_publisher(publisher)
         self._calculation_depth += 1
+        public_boundary = validate_cached_state and self._public_boundary_depth == 0
         try:
             with self._science_state_transaction() as state_token:
                 if outermost:
@@ -262,18 +391,31 @@ class DeePHF:
                         state_token,
                         counters=self._active_operation_counts,
                     )
-                yield self._evaluation_context
+                if public_boundary and not outermost:
+                    self._validate_cached_state("public calculation boundary")
+                if validate_cached_state:
+                    self._public_boundary_depth += 1
+                try:
+                    yield self._evaluation_context
+                finally:
+                    if validate_cached_state:
+                        self._public_boundary_depth -= 1
+        except BaseException:
+            if outermost:
+                self._reset_transaction_publishers()
+            raise
         finally:
             self._calculation_depth -= 1
             if outermost:
                 self._last_operation_counts = dict(self._active_operation_counts)
                 self._active_operation_counts = None
                 self._evaluation_context = None
+                self._transaction_publishers = None
 
     @contextmanager
     def calculation(self):
         """Share one validated evaluation context across a public workflow."""
-        with self._calculation_context():
+        with self._calculation_context(publisher=self):
             yield self
 
     @property
@@ -305,10 +447,7 @@ class DeePHF:
 
     @science_state_transaction
     def ao_density(self):
-        self._assert_science_state("AO density evaluation")
-        density = self._context().density
-        self._assert_science_state("AO density evaluation")
-        return density
+        return _immutable_array(self._context().density)
 
     @science_state_transaction
     def projected_density(self, flatten=False):
@@ -316,11 +455,16 @@ class DeePHF:
 
     @science_state_transaction
     def descriptor(self):
-        return self._context().descriptor_values.detach().cpu().numpy()
+        return _immutable_array(
+            self._context().descriptor_values.detach().cpu().numpy()
+        )
 
     @science_state_transaction
     def dq_dP(self):
         return self._context().workspace.dq_dP()
+
+    def _dq_dP(self):
+        return self._context().workspace.cached_dq_dP
 
     @science_state_transaction
     def dq_dR_explicit(self, atom_indices=None):
@@ -338,30 +482,21 @@ class DeePHF:
         )
 
     def _descriptor_values_tensor(self) -> torch.Tensor:
-        self._assert_science_state("descriptor evaluation")
-        values = self._context().descriptor_values
-        self._assert_science_state("descriptor evaluation")
-        return values
-
-    def _validated_model_output(self) -> torch.Tensor:
-        self._assert_science_state("model evaluation")
-        output = self._context().model_output
-        self._assert_science_state("model evaluation")
-        return output
+        return self._context().descriptor_values
 
     @science_state_transaction
     def correction_sensitivity(self) -> np.ndarray:
         """Return one autograd derivative of the scalar correction with respect to q."""
-        return self._correction_sensitivity(self._descriptor_values_tensor())
+        return _immutable_array(
+            self._correction_sensitivity(self._descriptor_values_tensor())
+        )
 
     def _correction_sensitivity(self, values: torch.Tensor) -> np.ndarray:
-        self._assert_science_state("model sensitivity evaluation")
         if values is not self._context().descriptor_values:
             raise DeePHFCapabilityError(
                 "the correction sensitivity must use the active descriptor values"
             )
         sensitivity = self._context().sensitivity
-        self._assert_science_state("model sensitivity evaluation")
         return sensitivity
 
     @science_state_transaction
@@ -394,7 +529,7 @@ class DeePHF:
         potential = np.einsum(
             "ap,apij->ij",
             sensitivity,
-            self._context().workspace.dq_dP() if dq_dP is None else dq_dP,
+            self._dq_dP() if dq_dP is None else dq_dP,
         )
         if potential.shape != (self.mol.nao, self.mol.nao):
             raise DeePHFCapabilityError(
@@ -414,7 +549,9 @@ class DeePHF:
     @science_state_transaction
     def correction_ao_potential(self) -> np.ndarray:
         """Return the complete model derivative d(e_corr)/dP in the AO basis."""
-        return self._correction_ao_potential(self.correction_sensitivity())
+        return _immutable_array(
+            self._correction_ao_potential(self._context().sensitivity)
+        )
 
     @science_state_transaction
     def correction_energy(self):
@@ -588,7 +725,7 @@ class DeePHF:
         )
         return np.einsum(
             "apij,bxij->bxap",
-            self.dq_dP(),
+            self._dq_dP(),
             density_response,
         )
 

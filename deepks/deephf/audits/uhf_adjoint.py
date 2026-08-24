@@ -16,11 +16,7 @@ from ..pyscf_uhf_adjoint import (
 )
 
 
-def audit_adjoint(
-    self,
-    adjoint: UHFAdjoint,
-    expected_objective_ao_potential: np.ndarray,
-) -> None:
+def _validated_adjoint_contract(self, adjoint):
     """Independently audit one consumed UHF adjoint without another solve."""
     self._validate_reference(self.reference)
     if type(adjoint) is not UHFAdjoint:
@@ -121,6 +117,10 @@ def audit_adjoint(
             raise UHFAdjointError(
                 f"the supplied UHF adjoint {name} control is inconsistent"
             )
+    return diagnostics
+
+
+def _validated_adjoint_state(self, adjoint, expected_objective_ao_potential):
     coefficient, energy, occupation, occupied, virtual, minimum_gaps = (
         self._state()
     )
@@ -199,6 +199,19 @@ def audit_adjoint(
         raise UHFAdjointError(
             "the supplied UHF adjoint response operator is inconsistent"
         )
+    return (
+        coefficient, energy, occupation, occupied, virtual, minimum_gaps,
+        alpha_dimension, beta_dimension, dimension, atom_indices,
+        expected_objective, objective_mo, objective_gradients,
+    )
+
+
+def _audit_adjoint_result(self, adjoint, diagnostics, state):
+    (
+        coefficient, energy, occupation, occupied, virtual, minimum_gaps,
+        alpha_dimension, beta_dimension, dimension, atom_indices,
+        expected_objective, objective_mo, objective_gradients,
+    ) = state
     zvector = (adjoint.alpha_zvector, adjoint.beta_zvector)
     zflat = np.concatenate(tuple(value.reshape(-1) for value in zvector))
     objective_flat = np.concatenate(
@@ -314,6 +327,19 @@ def audit_adjoint(
             "the supplied UHF adjoint invariant exceeds its tolerance"
         )
     self._validate_reference(self.reference)
+
+
+def audit_adjoint(
+    self,
+    adjoint: UHFAdjoint,
+    expected_objective_ao_potential: np.ndarray,
+) -> None:
+    """Independently audit one consumed UHF adjoint without another solve."""
+    diagnostics = _validated_adjoint_contract(self, adjoint)
+    state = _validated_adjoint_state(
+        self, adjoint, expected_objective_ao_potential
+    )
+    _audit_adjoint_result(self, adjoint, diagnostics, state)
 
 
 __all__ = ['audit_adjoint']

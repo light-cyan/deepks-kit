@@ -12,11 +12,15 @@ The current supported calculation surface remains RHF, UHF, RKS, and UKS referen
 
 ## Current Acceptance State
 
-The calculation refactor provides one `EvaluationContext` per public workflow, shared descriptor and model evaluation, a shared descriptor derivative workspace, atomic publication inside individual energy calls, compact zero-sensitivity bypasses, canonical array and fingerprint utilities, small public PySCF facades, isolated dense audit modules, independent direct and scalar-adjoint solvers, and deterministic operation counters.
+The calculation layer provides one `EvaluationContext` per public workflow, exclusive ownership of cached numerical arrays, owned immutable public results, a shared descriptor derivative workspace, compact zero-sensitivity bypasses, small public PySCF facades, isolated dense audit modules, and independent direct and scalar-adjoint solvers.
 
-The locked Python 3.11 suite currently contains 812 passing tests. The architecture and deterministic performance objective contains 20 passing tests. The RHF public workflow performs one AO-density construction, one descriptor evaluation, one model forward, and the backend-specific response work required by the selected compact or detailed path.
+Every public calculation boundary validates low-cost state-version evidence and conservatively fingerprints state without reliable mutation versions before cached reuse. An outer calculation tracks every method and gradient publisher and clears their complete published result state when its body or exit validation fails. Workflow dictionaries and force-data frames cross the transaction boundary only after successful exit validation.
 
-Acceptance remains incomplete because public numerical accessors can expose writable aliases of calculation-scoped caches, active transactions trust their entry fingerprint until exit, an exit-time state failure can leave published energy fields populated, the function-size check does not descend into audit modules, several audit functions remain above the required hard limit, and small exact code duplicates remain.
+Model construction performs structural and state validation without a speculative forward. Actual output rank, cardinality, dtype, realness, finiteness, and force sensitivity are validated lazily at the first relevant calculation. The same failure boundaries apply to RHF, UHF, RKS, and UKS methods.
+
+Operation reports cover one calculation transaction. Method construction performs one complete binding fingerprint outside that report; an unchanged energy-gradient-descriptor workflow reports two transaction fingerprints, three conservative cache-state fingerprints, three state-version validations, one descriptor evaluation, one model forward, explicit cache hits, and no cache invalidation.
+
+Architecture checks recursively inspect every Python module under `deepks/deephf/`, report module-relative paths, and enforce the hard function-size limit across that complete tree. Response, adjoint, and reference audit entry points orchestrate responsibility-specific validation, reconstruction, partition, invariant, and diagnostic helpers.
 
 ## Required Changes
 

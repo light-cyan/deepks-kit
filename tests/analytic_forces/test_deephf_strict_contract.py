@@ -403,7 +403,7 @@ def test_float32_model_is_rejected():
         )
 
 
-def test_multi_output_model_is_rejected():
+def test_multi_output_model_is_rejected_during_first_calculation():
     class MultiOutputModel(torch.nn.Module):
         input_dim = 1
 
@@ -422,6 +422,42 @@ def test_multi_output_model_is_rejected():
         match="must produce exactly one scalar energy",
     ):
         method.kernel()
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    ("output_kind", "message"),
+    (
+        ("rank", "output must have rank zero or one"),
+        ("dtype", "output must use torch.float64"),
+        ("complex", "output must be real"),
+    ),
+)
+def test_invalid_model_output_contract_fails_during_first_calculation(
+    output_kind,
+    message,
+):
+    class InvalidOutputModel(torch.nn.Module):
+        input_dim = 1
+
+        def forward(self, values):
+            output = values.sum()
+            if output_kind == "rank":
+                return output.reshape(1, 1)
+            if output_kind == "dtype":
+                return output.float()
+            return output.to(torch.complex128)
+
+    method = DeePHF(
+        _small_reference(),
+        InvalidOutputModel(),
+        projector_basis=SMALL_PROJECTOR_BASIS,
+    )
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
+
+    with pytest.raises(DeePHFCapabilityError, match=message):
+        method.kernel()
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
 
 
 def test_model_projector_metadata_mismatch_is_rejected():
@@ -455,7 +491,7 @@ def test_nonfinite_model_parameter_is_rejected(nonfinite):
         )
 
 
-def test_nonfinite_model_output_is_rejected():
+def test_nonfinite_model_output_is_rejected_during_first_calculation():
     class NonfiniteOutputModel(torch.nn.Module):
         input_dim = 1
 
@@ -473,6 +509,7 @@ def test_nonfinite_model_output_is_rejected():
         match="correction model output must be finite",
     ):
         method.kernel()
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
 
 
 def test_failed_energy_recalculation_clears_all_published_energy_fields():
@@ -511,9 +548,13 @@ def test_force_gradient_rejects_detached_descriptor_dependence():
         DetachedModel(),
         projector_basis=SMALL_PROJECTOR_BASIS,
     )
+    driver = method.nuc_grad_method(retain_details=False)
 
     with pytest.raises(
         DeePHFCapabilityError,
         match="force derivatives require an exact .*CorrNet",
     ):
-        method.gradient()
+        driver.kernel()
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
+    assert driver.de is None
+    assert driver.descriptor_diagnostics is None

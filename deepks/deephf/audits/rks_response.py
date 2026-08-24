@@ -18,7 +18,7 @@ from ..pyscf_rks_reference import rks_response_integrity_fingerprint
 from ..pyscf_rks_reference import validate_rks_reference
 
 
-def audit_response_equations(self, response: RKSResponse) -> None:
+def _validated_response_state(self, response):
     """Independently rebuild every supplied equation without another solve."""
     validate_rks_reference(self.reference)
     if type(response) is not RKSResponse:
@@ -126,6 +126,22 @@ def audit_response_equations(self, response: RKSResponse) -> None:
             raise RKSResponseError(
                 f"the supplied RKS response {name} is not independently reproducible"
             )
+    return (
+        functional_provenance, grid_provenance, coefficient, energy,
+        occupation, occupied, virtual, minimum_gap, atom_indices,
+        expected_overlap_derivative, expected_hamiltonian_derivative,
+        expected_hamiltonian_fixed_grid, expected_xc_grid_coordinate,
+        expected_xc_grid_weight,
+    )
+
+
+def _audit_response_partitions(self, response, state):
+    (
+        _functional, _grid, coefficient, energy, occupation, occupied,
+        virtual, _minimum_gap, _atom_indices, expected_overlap_derivative,
+        expected_hamiltonian_derivative, _fixed_grid, _grid_coordinate,
+        _grid_weight,
+    ) = state
     mo_partition_residual = float(
         np.max(
             np.abs(
@@ -229,6 +245,17 @@ def audit_response_equations(self, response: RKSResponse) -> None:
         raise RKSResponseError(
             "the supplied RKS orbital residual is not independently reproducible"
         )
+    return physical_residual, overlap_mo
+
+
+def _measure_response_invariants(self, response, state, response_views):
+    (
+        _functional, _grid, _coefficient, _energy, _occupation, occupied,
+        virtual, minimum_gap, atom_indices, expected_overlap_derivative,
+        expected_hamiltonian_derivative, expected_hamiltonian_fixed_grid,
+        expected_xc_grid_coordinate, expected_xc_grid_weight,
+    ) = state
+    physical_residual, overlap_mo = response_views
     response_dimension = int(np.count_nonzero(occupied)) * int(
         np.count_nonzero(virtual)
     )
@@ -344,6 +371,11 @@ def audit_response_equations(self, response: RKSResponse) -> None:
         "residual_rms": float(np.sqrt(np.mean(np.square(physical_residual)))),
         "quadrature_electron_count": quadrature_electron_count,
     }
+    return measured
+
+
+def _audit_response_diagnostics(self, response, state, measured):
+    functional_provenance, grid_provenance, *_rest = state
     diagnostics = response.diagnostics
     if diagnostics.operator_is_self_adjoint is not True:
         raise RKSResponseError("the supplied RKS response operator contract is invalid")
@@ -423,6 +455,16 @@ def audit_response_equations(self, response: RKSResponse) -> None:
         raise RKSResponseError(
             "the supplied RKS response invariant exceeds tolerance"
         )
+
+
+def audit_response_equations(self, response: RKSResponse) -> None:
+    """Independently rebuild every supplied equation without another solve."""
+    state = _validated_response_state(self, response)
+    response_views = _audit_response_partitions(self, response, state)
+    measured = _measure_response_invariants(
+        self, response, state, response_views
+    )
+    _audit_response_diagnostics(self, response, state, measured)
 
 
 __all__ = ['audit_response_equations']

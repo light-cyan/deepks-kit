@@ -48,7 +48,10 @@ def science_state_transaction(function):
     def wrapped(owner, *args, **kwargs):
         method = getattr(owner, "_bound_base", getattr(owner, "base", owner))
         try:
-            with method._calculation_context():
+            with method._calculation_context(
+                validate_cached_state=True,
+                publisher=owner,
+            ):
                 return function(owner, *args, **kwargs)
         except Exception:
             reset = getattr(owner, "_reset_results", None)
@@ -128,6 +131,10 @@ def model_state_fingerprint(model) -> str:
             name,
             f"{type(module).__module__}.{type(module).__qualname__}",
             bool(module.training),
+            id(getattr(type(module), "forward", None)),
+            id(getattr(type(module), "__call__", None)),
+            id(vars(module).get("forward")),
+            id(vars(module).get("_compiled_call_impl")),
         )
         for name, module in model.named_modules(remove_duplicate=False)
     )
@@ -142,6 +149,47 @@ def model_state_fingerprint(model) -> str:
         digest.update(name.encode("utf-8"))
         _update_model_tensor_fingerprint(digest, buffer)
     return digest.hexdigest()
+
+
+def model_state_evidence(model):
+    """Return low-cost mutation evidence for one bound correction model."""
+    if model is None:
+        return None
+    modules = tuple(model.named_modules(remove_duplicate=False))
+    tensors = (
+        *(('parameter', name, tensor) for name, tensor in model.named_parameters(remove_duplicate=False)),
+        *(('buffer', name, tensor) for name, tensor in model.named_buffers(remove_duplicate=False)),
+    )
+    return (
+        id(model),
+        tuple(
+            (
+                name,
+                id(module),
+                id(type(module)),
+                bool(module.training),
+                id(getattr(type(module), "forward", None)),
+                id(getattr(type(module), "__call__", None)),
+                id(vars(module).get("forward")),
+                id(vars(module).get("_compiled_call_impl")),
+            )
+            for name, module in modules
+        ),
+        tuple(
+            (
+                kind,
+                name,
+                id(tensor),
+                tensor._version,
+                str(tensor.layout),
+                str(tensor.dtype),
+                str(tensor.device),
+                tuple(tensor.shape),
+                bool(getattr(tensor, "requires_grad", False)),
+            )
+            for kind, name, tensor in tensors
+        ),
+    )
 
 
 def force_model_fingerprint(model) -> str:
@@ -212,6 +260,10 @@ def validate_model_output(model, descriptor_values: torch.Tensor) -> torch.Tenso
         raise DeePHFCapabilityError(
             "the correction model output must use torch.float64"
         )
+    if output.ndim > 1:
+        raise DeePHFCapabilityError(
+            "the correction model output must have rank zero or one"
+        )
     if output.numel() != 1:
         raise DeePHFCapabilityError(
             "the correction model must produce exactly one scalar energy; "
@@ -219,4 +271,4 @@ def validate_model_output(model, descriptor_values: torch.Tensor) -> torch.Tenso
         )
     if not torch.isfinite(output).all():
         raise DeePHFCapabilityError("the correction model output must be finite")
-    return output
+    return output.reshape(())

@@ -42,7 +42,7 @@ class UHFDeePHFGradients(GradientDriver):
         dq_explicit_spin = self.base.dq_dR_explicit_spin(
             atom_indices=atom_indices
         )
-        dq_dP = self.base.dq_dP()
+        dq_dP = self.base._dq_dP()
         spin_density_response, metric_density, occupied_virtual_density = density_partitions
         dq_response_spin = np.stack(
             [np.einsum("apij,bxij->bxap", dq_dP, density) for density in spin_density_response]
@@ -138,7 +138,6 @@ class UHFDeePHFGradients(GradientDriver):
             result_mode="gradient",
             objective=objective,
         )
-        self.base._validate_science_state("UHF native gradient evaluation")
         self.base._validate_science_state("UHF native gradient evaluation")
         total = reference_gradient + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():

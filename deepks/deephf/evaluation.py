@@ -20,6 +20,8 @@ class EvaluationContext:
     def __init__(self, method, state_token: str, counters=None):
         self.method = method
         self.state_token = state_token
+        self.cache_state_token = method._latest_cache_state_fingerprint
+        self.state_evidence = method._state_version_evidence()
         self.counters = Counter() if counters is None else counters
         self._density = None
         self._spin_density = None
@@ -35,17 +37,26 @@ class EvaluationContext:
     @property
     def density(self) -> np.ndarray:
         if self._density is None:
-            raw_density = np.asarray(self.method.reference.make_rdm1())
+            raw_density = np.array(
+                self.method.reference.make_rdm1(),
+                dtype=np.float64,
+                copy=True,
+                order="C",
+            )
             if raw_density.ndim == 3:
                 self._spin_density = raw_density
             self._density = spin_summed_ao_density(raw_density)
             self.count("ao_density_constructions")
+        else:
+            self.count("cache_hits")
         return self._density
 
     @property
     def spin_density(self) -> np.ndarray:
         if self._spin_density is None:
             _density = self.density
+        else:
+            self.count("cache_hits")
         if self._spin_density is None:
             raise DeePHFCapabilityError(
                 "the bound reference does not provide spin-resolved AO density"
@@ -59,6 +70,8 @@ class EvaluationContext:
                 self.density,
                 operation_hook=self.count,
             )
+        else:
+            self.count("cache_hits")
         return self._workspace
 
     @property
@@ -67,6 +80,8 @@ class EvaluationContext:
             self.count("descriptor_evaluations")
             values = self.workspace.descriptor_values.detach()
             self._model_values = values.requires_grad_(self.method.model is not None)
+        else:
+            self.count("cache_hits")
         return self._model_values
 
     @property
@@ -81,6 +96,8 @@ class EvaluationContext:
                         self.method.model,
                         self.descriptor_values,
                     )
+        else:
+            self.count("cache_hits")
         return self._model_output
 
     @property
@@ -127,7 +144,14 @@ class EvaluationContext:
                 raise DeePHFCapabilityError(
                     "the correction model descriptor sensitivity must be finite"
                 )
-            self._sensitivity = sensitivity.detach().cpu().numpy()
+            self._sensitivity = np.array(
+                sensitivity.detach().cpu().numpy(),
+                dtype=np.float64,
+                copy=True,
+                order="C",
+            )
+        else:
+            self.count("cache_hits")
         return self._sensitivity
 
     def force_inputs(self, **tolerances):
@@ -143,11 +167,9 @@ class EvaluationContext:
                 **tolerances,
             )
             self._diagnostics[key] = diagnostics
+        else:
+            self.count("cache_hits")
         return diagnostics, self.sensitivity
-
-    @property
-    def sensitivity_is_zero(self) -> bool:
-        return not np.any(self.sensitivity)
 
 
 __all__ = ["EvaluationContext"]

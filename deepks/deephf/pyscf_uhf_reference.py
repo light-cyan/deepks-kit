@@ -377,9 +377,13 @@ def uhf_molecule_science_fingerprint(molecule) -> str:
     return digest.hexdigest()
 
 
-def uhf_reference_fingerprint(reference) -> str:
+def uhf_reference_fingerprint(reference, *, use_transaction=True) -> str:
     """Return a scratch-independent fingerprint of the scientific UHF state."""
-    trusted = transaction_reference_fingerprint(reference)
+    trusted = (
+        transaction_reference_fingerprint(reference)
+        if use_transaction
+        else None
+    )
     if trusted is not None:
         return trusted
     digest = hashlib.sha256()
@@ -391,7 +395,6 @@ def uhf_reference_fingerprint(reference) -> str:
         np.asarray(reference.mo_coeff),
         np.asarray(reference.mo_energy),
         np.asarray(reference.mo_occ),
-        np.asarray(reference.make_rdm1()),
     )
     for value in values:
         _update_fingerprint_value(digest, value)

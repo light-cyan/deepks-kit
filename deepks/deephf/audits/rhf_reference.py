@@ -10,17 +10,7 @@ from ..capabilities import reference_is_transaction_validated
 from pyscf.scf import hf as scf_hf
 
 
-def validate_reference(reference):
-    """Validate the molecular real-orbital integer-occupation RHF contract."""
-    if type(reference) is not scf_hf.RHF:
-        raise DeePHFCapabilityError(
-            "DeePHF requires an undecorated native pyscf.scf.hf.RHF reference"
-        )
-    if reference_is_transaction_validated(reference):
-        return reference
-    if not reference.converged:
-        raise DeePHFCapabilityError("the RHF reference must be converged")
-    mol = reference.mol
+def _validate_molecule(mol):
     if type(mol) is not gto_mole.Mole:
         raise DeePHFCapabilityError(
             "the RHF reference must use a native molecular pyscf.gto.Mole"
@@ -60,6 +50,9 @@ def validate_reference(reference):
         raise DeePHFCapabilityError(
             f"the initial DeePHF contract requires real atoms; ghost indices: {ghost_indices}"
         )
+
+
+def _validate_runtime_extensions(reference, mol):
     decorated_attributes = {
         "density fitting": "with_df",
         "solvent": "with_solvent",
@@ -96,6 +89,9 @@ def validate_reference(reference):
             "the RHF molecule has unsupported instance hooks: "
             + ", ".join(molecule_hooks)
         )
+
+
+def _validated_orbital_state(reference, mol):
     if reference.mo_coeff is None or reference.mo_energy is None:
         raise DeePHFCapabilityError("the RHF reference orbital state is incomplete")
     if reference.mo_occ is None:
@@ -145,6 +141,10 @@ def validate_reference(reference):
         )
     if not np.isfinite(reference.e_tot):
         raise DeePHFCapabilityError("the RHF reference energy must be finite")
+    return mo_coeff, mo_energy
+
+
+def _evaluated_ao_state(reference, mol):
     try:
         overlap = np.asarray(reference.get_ovlp())
         hcore = np.asarray(reference.get_hcore())
@@ -162,50 +162,19 @@ def validate_reference(reference):
         raise DeePHFCapabilityError(
             f"the RHF reference matrices could not be evaluated: {error}"
         ) from error
-    if any(
-        np.iscomplexobj(value)
-        for value in (
-            overlap,
-            hcore,
-            density,
-            effective_potential,
-            direct_effective_potential,
-        )
-    ):
+    return overlap, hcore, density, effective_potential, direct_effective_potential
+
+
+def _validate_ao_state(reference, mol, mo_coeff, mo_energy, ao_state):
+    overlap, hcore, density, effective_potential, direct_effective_potential = ao_state
+    if any(np.iscomplexobj(value) for value in ao_state):
         raise DeePHFCapabilityError("the RHF AO matrices must be real")
-    if any(
-        value.dtype != np.dtype(np.float64)
-        for value in (
-            overlap,
-            hcore,
-            density,
-            effective_potential,
-            direct_effective_potential,
-        )
-    ):
+    if any(value.dtype != np.dtype(np.float64) for value in ao_state):
         raise DeePHFCapabilityError("the RHF AO matrices must use numpy.float64")
-    if not all(
-        np.isfinite(value).all()
-        for value in (
-            overlap,
-            hcore,
-            density,
-            effective_potential,
-            direct_effective_potential,
-        )
-    ):
+    if not all(np.isfinite(value).all() for value in ao_state):
         raise DeePHFCapabilityError("the RHF AO matrices must be finite")
     expected_ao_shape = (mol.nao, mol.nao)
-    if any(
-        value.shape != expected_ao_shape
-        for value in (
-            overlap,
-            hcore,
-            density,
-            effective_potential,
-            direct_effective_potential,
-        )
-    ):
+    if any(value.shape != expected_ao_shape for value in ao_state):
         raise DeePHFCapabilityError("the RHF AO matrix shape is invalid")
     interaction_error = np.max(
         np.abs(effective_potential - direct_effective_potential),
@@ -264,6 +233,24 @@ def validate_reference(reference):
         )
     if not np.isfinite(mol.atom_coords(unit="Bohr")).all():
         raise DeePHFCapabilityError("the molecular geometry must be finite")
+
+
+def validate_reference(reference):
+    """Validate the molecular real-orbital integer-occupation RHF contract."""
+    if type(reference) is not scf_hf.RHF:
+        raise DeePHFCapabilityError(
+            "DeePHF requires an undecorated native pyscf.scf.hf.RHF reference"
+        )
+    if reference_is_transaction_validated(reference):
+        return reference
+    if not reference.converged:
+        raise DeePHFCapabilityError("the RHF reference must be converged")
+    mol = reference.mol
+    _validate_molecule(mol)
+    _validate_runtime_extensions(reference, mol)
+    mo_coeff, mo_energy = _validated_orbital_state(reference, mol)
+    ao_state = _evaluated_ao_state(reference, mol)
+    _validate_ao_state(reference, mol, mo_coeff, mo_energy, ao_state)
     return reference
 
 

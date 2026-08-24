@@ -6,6 +6,7 @@ from .capabilities import (
     DeePHFCapabilityError,
     science_state_transaction,
 )
+from .contracts import immutable_array as _immutable_array
 from .method import (
     DeePHF,
     _DIRECT_RESPONSE_OPTIONS,
@@ -46,8 +47,11 @@ class UHFDeePHF(DeePHF):
         return validate_uhf_reference(reference)
 
     @staticmethod
-    def _reference_state_fingerprint(reference) -> str:
-        return uhf_reference_fingerprint(reference)
+    def _reference_state_fingerprint(reference, *, use_transaction=True) -> str:
+        return uhf_reference_fingerprint(
+            reference,
+            use_transaction=use_transaction,
+        )
 
     def _descriptor_rank_bound(self) -> int:
         occupied_count = int(np.count_nonzero(self.reference.mo_occ > 0))
@@ -89,8 +93,7 @@ class UHFDeePHF(DeePHF):
             raise DeePHFCapabilityError(
                 "the UHF spin-resolved AO density must be finite"
             )
-        self._assert_science_state("spin-resolved AO density evaluation")
-        return density
+        return _immutable_array(density)
 
     @science_state_transaction
     def dq_dR_explicit_spin(self, atom_indices=None) -> np.ndarray:
@@ -98,7 +101,7 @@ class UHFDeePHF(DeePHF):
         from .driver import validate_atom_indices
 
         atom_indices = validate_atom_indices(self.mol, atom_indices)
-        spin_density = self.spin_ao_density()
+        spin_density = self._context().spin_density
         components = np.stack(
             [
                 self._context().workspace.dq_dR_explicit(
@@ -166,7 +169,7 @@ class UHFDeePHF(DeePHF):
         )
         result = np.einsum(
             "apij,sbxij->sbxap",
-            self.dq_dP(),
+            self._dq_dP(),
             spin_density_response,
         )
         if not np.isfinite(result).all():

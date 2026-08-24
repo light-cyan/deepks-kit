@@ -5,6 +5,8 @@ from collections.abc import Callable
 import numpy as np
 import torch
 
+from deepks.array_utils import immutable_array
+
 
 class DescriptorDerivativeWorkspace:
     """Own descriptor primitives that are reusable within one calculation."""
@@ -41,10 +43,13 @@ class DescriptorDerivativeWorkspace:
                 )
                 for overlap in self.descriptor.overlap_shells
             )
+        else:
+            self._count("cache_hits")
         return self._projected_blocks
 
     def _diagonalize(self) -> None:
         if self._eigenvalues is not None:
+            self._count("cache_hits")
             return
         eigenpairs = tuple(torch.linalg.eigh(block) for block in self.projected_blocks)
         self._eigenvalues = tuple(values for values, _vectors in eigenpairs)
@@ -68,22 +73,31 @@ class DescriptorDerivativeWorkspace:
                 torch.einsum("apv,aqv->avpq", vectors, vectors)
                 for vectors in self._eigenvectors
             )
+        else:
+            self._count("cache_hits")
         return self._eigenvalue_jacobians
 
     @property
     def derivative_overlap_shells(self) -> tuple[torch.Tensor, ...]:
         if self.descriptor._derivative_overlap_shells is None:
             self._count("derivative_overlap_integral_evaluations")
+        else:
+            self._count("cache_hits")
         return self.descriptor.derivative_overlap_shells()
 
     def projected_density(self, *, flatten=False):
         if flatten:
-            return torch.cat(
+            values = torch.cat(
                 [block.flatten(-2) for block in self.projected_blocks], dim=-1
             ).detach().cpu().numpy()
-        return [block.detach().cpu().numpy() for block in self.projected_blocks]
+            return immutable_array(values, dtype=np.float64)
+        return [
+            immutable_array(block.detach().cpu().numpy(), dtype=np.float64)
+            for block in self.projected_blocks
+        ]
 
-    def dq_dP(self) -> np.ndarray:
+    @property
+    def cached_dq_dP(self) -> np.ndarray:
         if self._dq_dP is None:
             ao_jacobians = [
                 torch.einsum("rap,avpq,saq->avrs", overlap, jacobian, overlap)
@@ -94,7 +108,12 @@ class DescriptorDerivativeWorkspace:
                 )
             ]
             self._dq_dP = torch.cat(ao_jacobians, dim=1).detach().cpu().numpy()
+        else:
+            self._count("cache_hits")
         return self._dq_dP
+
+    def dq_dP(self) -> np.ndarray:
+        return immutable_array(self.cached_dq_dP, dtype=np.float64)
 
     def _coordinate_jacobians(self, motion_density, raw_atom_indices):
         from .derivatives import dD_dR_explicit
@@ -122,7 +141,7 @@ class DescriptorDerivativeWorkspace:
             ],
             dim=-1,
         )
-        return result.detach().cpu().numpy()
+        return immutable_array(result.detach().cpu().numpy(), dtype=np.float64)
 
     def correction_derivatives(self, sensitivity, *, motion_density=None, raw_atom_indices=None):
         sensitivity = torch.tensor(
@@ -163,8 +182,8 @@ class DescriptorDerivativeWorkspace:
             )
         gradient = torch.stack(gradient_parts, dim=0).sum(dim=0)
         return (
-            gradient.detach().cpu().numpy(),
-            potential.detach().cpu().numpy(),
+            immutable_array(gradient.detach().cpu().numpy(), dtype=np.float64),
+            immutable_array(potential.detach().cpu().numpy(), dtype=np.float64),
         )
 
 

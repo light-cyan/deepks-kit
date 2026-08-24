@@ -211,8 +211,8 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
     fresh_gradient = fresh_method.nuc_grad_method().run()
     fresh_prediction = predict_correction(
         loaded,
-        torch.from_numpy(fresh_method.descriptor()).unsqueeze(0),
-        dq_dR_relaxed=torch.from_numpy(
+        torch.tensor(fresh_method.descriptor()).unsqueeze(0),
+        dq_dR_relaxed=torch.tensor(
             fresh_gradient.dq_dR_relaxed,
         ).unsqueeze(0),
         require_force=True,

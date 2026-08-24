@@ -41,8 +41,11 @@ class RKSDeePHF(DeePHF):
         return validate_rks_reference(reference)
 
     @staticmethod
-    def _reference_state_fingerprint(reference) -> str:
-        return rks_reference_fingerprint(reference)
+    def _reference_state_fingerprint(reference, *, use_transaction=True) -> str:
+        return rks_reference_fingerprint(
+            reference,
+            use_transaction=use_transaction,
+        )
 
     def __init__(
         self,
@@ -99,7 +102,7 @@ class RKSDeePHF(DeePHF):
         )
         result = np.einsum(
             "apij,bxij->bxap",
-            self.dq_dP(),
+            self._dq_dP(),
             density_response,
         )
         if not np.isfinite(result).all():

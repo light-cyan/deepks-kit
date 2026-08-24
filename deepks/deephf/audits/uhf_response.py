@@ -13,7 +13,7 @@ import pyscf
 from ..pyscf_uhf_reference import uhf_response_integrity_fingerprint
 
 
-def _validate_supplied_structure(
+def _validate_response_arrays(
     self,
     response: UHFResponse,
     occupied: np.ndarray,
@@ -83,6 +83,11 @@ def _validate_supplied_structure(
             raise UHFResponseError(
                 f"the supplied UHF response {name.replace('_', ' ')} is invalid"
             )
+    return atom_indices, alpha_nocc, beta_nocc, alpha_nvir, beta_nvir
+
+
+def _validate_response_diagnostics(self, response, state):
+    atom_indices, alpha_nocc, beta_nocc, alpha_nvir, beta_nvir = state
     diagnostics = response.diagnostics
     if type(diagnostics.pyscf_version) is not str:
         raise UHFResponseError(
@@ -240,7 +245,17 @@ def _validate_supplied_structure(
         )
 
 
-def audit_response_equations(self, response: UHFResponse) -> None:
+def _validate_supplied_structure(
+    self,
+    response: UHFResponse,
+    occupied: np.ndarray,
+    virtual: np.ndarray,
+) -> None:
+    state = _validate_response_arrays(self, response, occupied, virtual)
+    _validate_response_diagnostics(self, response, state)
+
+
+def _prepare_response_audit(self, response):
     """Rebuild coupled equations and invariants for a supplied response."""
     self._validate_reference(self.reference)
     if type(response) is not UHFResponse:
@@ -287,6 +302,19 @@ def audit_response_equations(self, response: UHFResponse) -> None:
             raise UHFResponseError(
                 f"the supplied UHF response {name} does not match the reference"
             )
+    return (
+        coefficient, energy, occupation, occupied, virtual, minimum_gaps,
+        alpha_dimension, beta_dimension, overlap, overlap_derivative,
+        hamiltonian_derivative,
+    )
+
+
+def _audit_spin_response_partitions(self, response, state):
+    (
+        coefficient, _energy, _occupation, occupied, virtual, _minimum_gaps,
+        _alpha_dimension, _beta_dimension, overlap, overlap_derivative,
+        _hamiltonian_derivative,
+    ) = state
     responses = (response.alpha_mo_response, response.beta_mo_response)
     response_parts = (
         (
@@ -447,6 +475,16 @@ def audit_response_equations(self, response: UHFResponse) -> None:
             raise UHFResponseError(
                 f"the supplied UHF response {name} is inconsistent"
             )
+    return responses, density_responses, metric_residuals, invariant_values, expected_total
+
+
+def _rebuild_response_residuals(self, response, state, response_views):
+    (
+        coefficient, energy, _occupation, occupied, virtual, _minimum_gaps,
+        _alpha_dimension, _beta_dimension, _overlap, overlap_derivative,
+        hamiltonian_derivative,
+    ) = state
+    responses, _density_responses, _metric_residuals, _invariants, _total = response_views
     hamiltonian_mo = tuple(
         np.einsum(
             "mp,...mn,ni->...pi",
@@ -488,6 +526,19 @@ def audit_response_equations(self, response: UHFResponse) -> None:
             raise UHFResponseError(
                 f"the supplied UHF {spin_name} residual is not reproducible"
             )
+    return residuals
+
+
+def _audit_response_diagnostics(self, response, state, response_views, residuals):
+    (
+        _coefficient, _energy, _occupation, _occupied, _virtual, minimum_gaps,
+        alpha_dimension, beta_dimension, _overlap, _overlap_derivative,
+        _hamiltonian_derivative,
+    ) = state
+    (
+        _responses, density_responses, metric_residuals,
+        invariant_values, expected_total,
+    ) = response_views
     alpha_maximum = float(np.max(np.abs(residuals[0]), initial=0.0))
     beta_maximum = float(np.max(np.abs(residuals[1]), initial=0.0))
     squared_sum = sum(float(np.sum(np.square(value))) for value in residuals)
@@ -559,6 +610,18 @@ def audit_response_equations(self, response: UHFResponse) -> None:
         raise UHFResponseError(
             "the supplied UHF response invariant exceeds its tolerance"
         )
+
+
+def audit_response_equations(self, response: UHFResponse) -> None:
+    """Rebuild coupled equations and invariants for a supplied response."""
+    state = _prepare_response_audit(self, response)
+    response_views = _audit_spin_response_partitions(self, response, state)
+    residuals = _rebuild_response_residuals(
+        self, response, state, response_views
+    )
+    _audit_response_diagnostics(
+        self, response, state, response_views, residuals
+    )
 
 
 __all__ = ['_validate_supplied_structure', 'audit_response_equations']

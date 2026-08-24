@@ -21,11 +21,7 @@ from ..adjoint import scalar_operator_fingerprint
 from ..pyscf_rks_reference import validate_rks_reference
 
 
-def _audit_adjoint(
-    self,
-    adjoint: RKSAdjoint,
-    expected_objective_ao_potential: np.ndarray,
-) -> None:
+def _validated_adjoint_contract(self, adjoint):
     validate_rks_reference(self.reference)
     if type(adjoint) is not RKSAdjoint:
         raise RKSAdjointError("the supplied RKS adjoint has an invalid type")
@@ -164,6 +160,10 @@ def _audit_adjoint(
             raise RKSAdjointError(
                 f"the supplied RKS adjoint diagnostic {name} is invalid"
             )
+    return diagnostics, current_fingerprint
+
+
+def _validated_adjoint_state(self, adjoint, expected_objective_ao_potential):
     (
         coefficient,
         energy,
@@ -228,6 +228,22 @@ def _audit_adjoint(
         raise RKSAdjointError(
             "the supplied RKS adjoint response operator is inconsistent"
         )
+    return (
+        coefficient, energy, occupation, occupied, virtual, minimum_gap,
+        nocc, nvir, dimension, atom_indices, nao,
+        expected_objective_ao_potential, expected_objective_gradient,
+    )
+
+
+def _audit_adjoint_result(
+    self, adjoint, diagnostics, current_fingerprint, state
+):
+    (
+        coefficient, energy, occupation, occupied, virtual, minimum_gap,
+        nocc, nvir, dimension, atom_indices, nao,
+        expected_objective_ao_potential, expected_objective_gradient,
+    ) = state
+    response_dimension = dimension
     objective_vector = expected_objective_gradient.reshape(dimension)
     zvector = adjoint.zvector
     residual = (
@@ -379,6 +395,20 @@ def _audit_adjoint(
         raise RKSAdjointError(
             "the RKS reference changed during the scalar-adjoint audit"
         )
+
+
+def _audit_adjoint(
+    self,
+    adjoint: RKSAdjoint,
+    expected_objective_ao_potential: np.ndarray,
+) -> None:
+    diagnostics, current_fingerprint = _validated_adjoint_contract(self, adjoint)
+    state = _validated_adjoint_state(
+        self, adjoint, expected_objective_ao_potential
+    )
+    _audit_adjoint_result(
+        self, adjoint, diagnostics, current_fingerprint, state
+    )
 
 
 __all__ = ['_audit_adjoint']

@@ -224,6 +224,34 @@ def test_multiframe_failure_does_not_create_a_partial_dataset(
     assert not output.exists()
 
 
+def test_exit_state_failure_does_not_create_a_force_dataset(
+    tmp_path,
+    force_generation_case,
+    monkeypatch,
+):
+    case = force_generation_case
+    reference = copy.copy(case.reference)
+    output = tmp_path / "exit-failure-data"
+    original_descriptor = DeePHF.descriptor
+
+    def descriptor_then_mutate_reference(method):
+        descriptor = original_descriptor(method)
+        method.reference.e_tot += 0.01
+        return descriptor
+
+    monkeypatch.setattr(DeePHF, "descriptor", descriptor_then_mutate_reference)
+
+    with pytest.raises(DeePHFCapabilityError, match="scientific state changed"):
+        write_rhf_force_dataset(
+            output,
+            reference,
+            projector_basis=ORACLE_PROJECTOR_BASIS,
+            e_target=case.target_energy,
+            f_target=case.target_force,
+        )
+    assert not output.exists()
+
+
 def test_response_failure_does_not_fall_back_or_create_dataset(
     tmp_path,
     force_generation_case,

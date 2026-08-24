@@ -18,7 +18,7 @@ from ..pyscf_uks_reference import (
 )
 
 
-def _audit_uks_reference(reference):
+def _validated_uks_state(reference):
     """Audit the exact native finite-grid pure-LDA UKS tier."""
     validate_pyscf_version()
     if type(reference) is not dft.uks.UKS:
@@ -124,6 +124,11 @@ def _audit_uks_reference(reference):
             raise DeePHFCapabilityError(f"the UKS {spin_name} root spaces overlap")
     if not np.isfinite(reference.e_tot):
         raise DeePHFCapabilityError("the UKS reference energy must be finite")
+    return molecule, coefficient, energy, expected_electrons
+
+
+def _validate_ao_state(reference, state):
+    molecule, coefficient, energy, expected_electrons = state
     try:
         overlap = np.asarray(reference.get_ovlp())
         hcore = np.asarray(reference.get_hcore())
@@ -199,6 +204,12 @@ def _audit_uks_reference(reference):
     coordinates = np.asarray(gto_mole.Mole.atom_coords(molecule, unit="Bohr"))
     if coordinates.dtype != np.dtype(np.float64) or not np.isfinite(coordinates).all():
         raise DeePHFCapabilityError("the UKS molecular geometry must be finite float64")
+
+
+def _audit_uks_reference(reference):
+    """Audit the exact native finite-grid pure-LDA UKS tier."""
+    state = _validated_uks_state(reference)
+    _validate_ao_state(reference, state)
     return reference
 
 

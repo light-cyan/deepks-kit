@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from pyscf import dft, gto, scf
 
-from deepks.deephf import DeePHF, RKSDeePHF, UHFDeePHF, UKSDeePHF, build_reference, evaluate_molecule, make_deephf
+from deepks.deephf import DeePHF, DeePHFCapabilityError, RKSDeePHF, UHFDeePHF, UKSDeePHF, build_reference, evaluate_molecule, make_deephf
 from deepks.deephf.workflow import main
 
 
@@ -39,6 +39,26 @@ def test_public_workflow_persists_canonical_outputs(tmp_path):
     output_directory, collected = outputs[0]
     for name, value in collected.items():
         np.testing.assert_array_equal(np.load(f"{output_directory}/{name}.npy"), value)
+
+
+def test_public_workflow_returns_no_result_after_exit_state_failure(monkeypatch):
+    original_descriptor = DeePHF.descriptor
+
+    def descriptor_then_mutate_reference(method):
+        descriptor = original_descriptor(method)
+        method.reference.e_tot += 0.01
+        return descriptor
+
+    monkeypatch.setattr(DeePHF, "descriptor", descriptor_then_mutate_reference)
+
+    with pytest.raises(DeePHFCapabilityError, match="scientific state changed"):
+        evaluate_molecule(
+            make_h2(),
+            None,
+            family="rhf",
+            backend="direct",
+            projector_basis=[[0, [0.8, 1.0]]],
+        )
 
 
 @pytest.mark.parametrize(

@@ -340,9 +340,13 @@ def audit_uks_reference(reference):
     return result
 
 
-def uks_reference_fingerprint(reference) -> str:
+def uks_reference_fingerprint(reference, *, use_transaction=True) -> str:
     """Fingerprint one accepted UKS molecular, orbital, functional, and grid state."""
-    trusted = transaction_reference_fingerprint(reference)
+    trusted = (
+        transaction_reference_fingerprint(reference)
+        if use_transaction
+        else None
+    )
     if trusted is not None:
         return trusted
     return _dft_reference_validation_fingerprint(reference)

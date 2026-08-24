@@ -18,7 +18,7 @@ from ..pyscf_rhf_adjoint import (
 )
 
 
-def audit_adjoint(
+def _validated_adjoint_state(
     self,
     adjoint: RHFAdjoint,
     expected_objective_ao_potential: np.ndarray,
@@ -195,6 +195,21 @@ def audit_adjoint(
         raise RHFAdjointError(
             "the supplied RHF adjoint response operator is inconsistent"
         )
+    return (
+        diagnostics, coefficient, energy, occupation, occupied, virtual,
+        minimum_gap, nocc, nvir, dimension, atom_indices,
+        expected_objective_ao_potential, objective_mo,
+        expected_objective_gradient,
+    )
+
+
+def _reconstruct_adjoint(self, adjoint, state):
+    (
+        _diagnostics, coefficient, energy, occupation, occupied, virtual,
+        _minimum_gap, nocc, nvir, dimension, _atom_indices,
+        _expected_objective_ao_potential, objective_mo,
+        expected_objective_gradient,
+    ) = state
     zvector = adjoint.zvector
     objective_vector = expected_objective_gradient.reshape(dimension)
     residual = (
@@ -236,6 +251,24 @@ def audit_adjoint(
         expected_adjoint_potential,
         "AO potential",
     )
+    return (
+        zvector, residual, expected_adjoint_density,
+        expected_adjoint_potential,
+    )
+
+
+def _audit_adjoint_result(self, adjoint, state, reconstruction):
+    (
+        diagnostics, coefficient, energy, occupation, occupied, virtual,
+        minimum_gap, _nocc, _nvir, response_dimension, atom_indices,
+        expected_objective_ao_potential, objective_mo,
+        expected_objective_gradient,
+    ) = state
+    (
+        zvector, residual, expected_adjoint_density,
+        expected_adjoint_potential,
+    ) = reconstruction
+    occupied_coefficients = coefficient[:, occupied]
     overlap_derivative = self._overlap_derivative(atom_indices)
     hamiltonian_derivative = self._hamiltonian_derivative(
         coefficient,
@@ -389,6 +422,19 @@ def audit_adjoint(
             "the supplied RHF adjoint exceeds an accepted control"
         )
     validate_reference(self.reference)
+
+
+def audit_adjoint(
+    self,
+    adjoint: RHFAdjoint,
+    expected_objective_ao_potential: np.ndarray,
+) -> None:
+    """Independently audit one consumed RHF adjoint without another solve."""
+    state = _validated_adjoint_state(
+        self, adjoint, expected_objective_ao_potential
+    )
+    reconstruction = _reconstruct_adjoint(self, adjoint, state)
+    _audit_adjoint_result(self, adjoint, state, reconstruction)
 
 
 __all__ = ['audit_adjoint']

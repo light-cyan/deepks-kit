@@ -309,9 +309,13 @@ def molecule_science_fingerprint(molecule) -> str:
     return digest.hexdigest()
 
 
-def reference_fingerprint(reference) -> str:
+def reference_fingerprint(reference, *, use_transaction=True) -> str:
     """Return a scratch-independent fingerprint of the scientific RHF state."""
-    trusted = transaction_reference_fingerprint(reference)
+    trusted = (
+        transaction_reference_fingerprint(reference)
+        if use_transaction
+        else None
+    )
     if trusted is not None:
         return trusted
     digest = hashlib.sha256()
@@ -323,7 +327,6 @@ def reference_fingerprint(reference) -> str:
         reference.mo_coeff,
         reference.mo_energy,
         reference.mo_occ,
-        reference.make_rdm1(),
     )
     for value in values:
         _update_fingerprint_value(digest, value)

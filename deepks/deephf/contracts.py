@@ -10,12 +10,7 @@ from typing import Any
 import numpy as np
 import torch
 
-
-def immutable_array(value: np.ndarray, *, dtype=None) -> np.ndarray:
-    """Return one owned contiguous immutable array without a transient bytes copy."""
-    array = np.array(value, dtype=dtype, copy=True, order="C", subok=False)
-    array.setflags(write=False)
-    return array
+from deepks.array_utils import immutable_array
 
 
 def update_digest(digest, value: Any) -> None:

@@ -8,7 +8,7 @@ import pyscf
 from ..pyscf_rhf_reference import validate_reference
 
 
-def audit_response_equations(self, response: RHFResponse) -> None:
+def _rebuild_response_equations(self, response: RHFResponse):
     """Rebuild derivative inputs, equations, and invariants for a supplied response."""
     validate_reference(self.reference)
     if response.diagnostics.operator_is_self_adjoint is not True:
@@ -84,6 +84,17 @@ def audit_response_equations(self, response: RHFResponse) -> None:
         raise RHFResponseError(
             "the supplied RHF response orbital residual is not independently reproducible"
         )
+    return (
+        minimum_gap, response_dimension, occupied, residual,
+        expected_overlap_derivative, overlap_mo,
+    )
+
+
+def _audit_response_invariants(self, response, state):
+    (
+        minimum_gap, response_dimension, occupied, residual,
+        expected_overlap_derivative, overlap_mo,
+    ) = state
     overlap = np.asarray(self.reference.get_ovlp())
     density_ground = np.asarray(self.reference.make_rdm1())
     density_response = response.density_response
@@ -168,6 +179,12 @@ def audit_response_equations(self, response: RHFResponse) -> None:
         raise RHFResponseError(
             "the supplied RHF response invariant exceeds its tolerance"
         )
+
+
+def audit_response_equations(self, response: RHFResponse) -> None:
+    """Rebuild derivative inputs, equations, and invariants for a supplied response."""
+    state = _rebuild_response_equations(self, response)
+    _audit_response_invariants(self, response, state)
 
 
 __all__ = ['audit_response_equations']

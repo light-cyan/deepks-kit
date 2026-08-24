@@ -21,8 +21,10 @@ from .pyscf_rhf_scanner import (
     _validated_float64_array,
     response_integrity_fingerprint,
 )
+from .restricted_response import RestrictedResponseAlgebra
 
-class _RHFLinearResponseCore:
+
+class _RHFLinearResponseCore(RestrictedResponseAlgebra):
     """Shared PySCF 2.14 molecular RHF linear-response operations."""
 
     def __init__(
@@ -206,27 +208,6 @@ class _RHFLinearResponseCore:
             "Hamiltonian derivative",
         )
 
-    def _density_from_mo_response(
-        self,
-        mo_response: np.ndarray,
-        coefficient: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-    ) -> np.ndarray:
-        occupied_coefficients = coefficient[:, occupied]
-        coefficient_response = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            mo_response,
-        )
-        density_response = np.einsum(
-            "...pi,qi,i->...pq",
-            coefficient_response,
-            occupied_coefficients,
-            occupation[occupied],
-        )
-        return density_response + density_response.swapaxes(-1, -2)
-
     def _induced_potential(self, density_response: np.ndarray) -> np.ndarray:
         flat_density = np.asarray(density_response).reshape(
             -1,
@@ -271,27 +252,6 @@ class _RHFLinearResponseCore:
     def validate_response_operator_exact(self) -> tuple[int, float, float, float, float]:
         from .audits.rhf_operator import validate_response_operator_exact as audit
         return audit(self)
-
-    def _induced_mo_potential(
-        self,
-        mo_response: np.ndarray,
-        coefficient: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-    ) -> np.ndarray:
-        density_response = self._density_from_mo_response(
-            mo_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
-        induced = self._induced_potential(density_response)
-        return np.einsum(
-            "mp,...mn,ni->...pi",
-            coefficient,
-            induced,
-            coefficient[:, occupied],
-        )
 
     def _apply_occupied_virtual_operator(
         self,

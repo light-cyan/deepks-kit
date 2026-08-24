@@ -15,6 +15,7 @@ from .pyscf_dft_provenance import (
     _validated_grid_response_blocks,
 )
 from .pyscf_rks_reference import validate_rks_reference, rks_reference_fingerprint
+from .restricted_response import RestrictedResponseAlgebra, density_from_mo_response
 
 class _RKSLinearResponseProblem:
     """Bind one action-only RKS operator to the reference-neutral protocol."""
@@ -89,8 +90,22 @@ class _RKSLinearResponseProblem:
         return np.asarray(vector).reshape(self.dimension) / gaps.reshape(-1)
 
 
-class _RKSLinearResponseCore:
+class _RKSLinearResponseCore(RestrictedResponseAlgebra):
     """Provide shared pure-LDA RKS operator and nuclear perturbation primitives."""
+
+    @staticmethod
+    def _density_from_mo_response(
+        mo_response,
+        coefficient,
+        occupation,
+        occupied,
+    ):
+        return density_from_mo_response(
+            mo_response,
+            coefficient,
+            occupation,
+            occupied,
+        )
 
     def __init__(
         self,
@@ -218,27 +233,6 @@ class _RKSLinearResponseCore:
                 :, ao_start:ao_stop
             ].transpose(0, 2, 1)
         return result
-
-    @staticmethod
-    def _density_from_mo_response(
-        mo_response: np.ndarray,
-        coefficient: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-    ) -> np.ndarray:
-        occupied_coefficients = coefficient[:, occupied]
-        coefficient_response = np.einsum(
-            "mp,...pi->...mi",
-            coefficient,
-            mo_response,
-        )
-        one_sided = np.einsum(
-            "...pi,qi,i->...pq",
-            coefficient_response,
-            occupied_coefficients,
-            occupation[occupied],
-        )
-        return one_sided + one_sided.swapaxes(-1, -2)
 
     def _xc_nuclear_derivative_components(
         self,
@@ -553,27 +547,6 @@ class _RKSLinearResponseCore:
             self.molecule.nao,
         )
 
-    def _induced_mo_potential(
-        self,
-        mo_response: np.ndarray,
-        coefficient: np.ndarray,
-        occupation: np.ndarray,
-        occupied: np.ndarray,
-    ) -> np.ndarray:
-        density_response = self._density_from_mo_response(
-            mo_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
-        induced = self._induced_potential(density_response)
-        return np.einsum(
-            "mp,...mn,ni->...pi",
-            coefficient,
-            induced,
-            coefficient[:, occupied],
-        )
-
     def _pyscf_induced_mo_potential(
         self,
         mo_response: np.ndarray,
@@ -587,12 +560,10 @@ class _RKSLinearResponseCore:
             occupation,
             occupied,
         )
-        induced = self._pyscf_induced_potential(density_response)
-        return np.einsum(
-            "mp,...mn,ni->...pi",
+        return self._mo_potential(
+            self._pyscf_induced_potential(density_response),
             coefficient,
-            induced,
-            coefficient[:, occupied],
+            occupied,
         )
 
     def _apply_occupied_virtual_operator(
