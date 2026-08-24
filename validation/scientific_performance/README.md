@@ -4,7 +4,7 @@
 
 This plan defines long-running, high-stringency validation tasks for the current molecular DeePHF implementation. It evaluates scientific accuracy, execution time, peak memory, scaling behavior, repeated-work elimination, compact result paths, direct response, matrix-free Z-vector response, DFT validation transactions, atom subsets, coordinate blocking, scanners, force-data production, and force-aware model workflows.
 
-The design was prepared against revision `59e0a71` after reviewing `docs/CurrentProjectAudit.md` through `docs/CurrentProjectAudit5.md`, the current response and adjoint implementations, the current compact direct and Z-vector drivers, the response-scalability tests, and the archived Issue #93 validation artifacts.
+The design was prepared against revision `59e0a71` after reviewing `docs/legacy/project-audits/CurrentProjectAudit.md` through `docs/legacy/project-audits/CurrentProjectAudit5.md`, the current response and adjoint implementations, the current compact direct and Z-vector drivers, the response-scalability tests, and the archived Issue #93 validation artifacts.
 
 The archived validation under `validation/archive/issue_93_release/` remains a fixed record of the earlier dense-adjoint implementation and its release results. New runs must write only under this directory or an explicitly selected external output directory.
 
