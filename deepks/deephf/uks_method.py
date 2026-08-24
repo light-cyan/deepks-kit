@@ -1,20 +1,18 @@
 """Perturbative DeePHF energy method for a strict finite-grid UKS reference."""
 
-import numpy as np
 
 from .method import (
     _DIRECT_RESPONSE_OPTIONS,
     _validated_backend_options,
 )
-from .pyscf_uks import (
-    UKSAdjointAdapter,
+from .pyscf_uks_reference import (
     UKSResponse,
-    UKSResponseAdapter,
     UKSResponseDiagnostics,
     UKSResponseError,
     uks_reference_fingerprint,
     validate_uks_reference,
 )
+from .pyscf_uks_response import UKSAdjointAdapter, UKSResponseAdapter
 from .uhf_method import UHFDeePHF
 
 

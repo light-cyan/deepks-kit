@@ -4,6 +4,7 @@ import numpy as np
 
 import deepks.deephf.adjoint as adjoint_module
 import deepks.deephf.pyscf_rks as rks_adapter_module
+import deepks.deephf.pyscf_rks_adjoint as rks_adjoint_module
 from deepks.deephf.adjoint import solve_scalar_adjoint
 
 
@@ -75,7 +76,7 @@ def test_rks_zvector_never_enters_direct_or_coordinate_density_paths(
     ):
         monkeypatch.setattr(RKSDeePHF, name, forbidden)
     monkeypatch.setattr(RKSDeePHFGradients, "kernel", forbidden)
-    monkeypatch.setattr(RKSDeePHFGradients, "_kernel", forbidden)
+    monkeypatch.setattr(RKSDeePHFGradients, "_detail_kernel", forbidden)
 
     driver = rks_oracle_case.method.nuc_grad_method(
         backend="zvector"
@@ -98,7 +99,7 @@ def test_one_rks_scalar_correction_performs_exactly_one_adjoint_solve(
     monkeypatch,
 ):
     original_adapter_solve = rks_adapter_module.RKSAdjointAdapter.solve
-    original_scalar_solve = rks_adapter_module.solve_scalar_adjoint
+    original_scalar_solve = rks_adjoint_module.solve_scalar_adjoint
     original_dense_solve = adjoint_module.np.linalg.solve
     adapter_calls = []
     scalar_calls = []
@@ -128,7 +129,7 @@ def test_one_rks_scalar_correction_performs_exactly_one_adjoint_solve(
         counted_adapter_solve,
     )
     monkeypatch.setattr(
-        rks_adapter_module,
+        rks_adjoint_module,
         "solve_scalar_adjoint",
         counted_scalar_solve,
     )

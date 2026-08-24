@@ -237,30 +237,15 @@ def test_direct_gradient_evaluates_the_force_model_once(
 
 def test_public_relaxed_derivative_builds_force_inputs_once(
     rhf_oracle_case,
-    monkeypatch,
 ):
     method = rhf_oracle_case.method
-    original_force_inputs = method._force_inputs
-    original_explicit = method._descriptor.dq_dR_explicit
-    force_input_calls = 0
-    explicit_calls = 0
-
-    def counted_force_inputs(**options):
-        nonlocal force_input_calls
-        force_input_calls += 1
-        return original_force_inputs(**options)
-
-    def counted_explicit(*args, **options):
-        nonlocal explicit_calls
-        explicit_calls += 1
-        return original_explicit(*args, **options)
-
-    monkeypatch.setattr(method, "_force_inputs", counted_force_inputs)
-    monkeypatch.setattr(method._descriptor, "dq_dR_explicit", counted_explicit)
-
     assert np.isfinite(method.dq_dR_relaxed()).all()
-    assert force_input_calls == 1
-    assert explicit_calls == 1
+    counts = method.operation_counts
+    assert counts["descriptor_evaluations"] == 1
+    assert counts["projected_density_constructions"] == 1
+    assert counts["shell_eigenvalue_jacobian_constructions"] == 1
+    assert counts.get("derivative_overlap_integral_evaluations", 0) <= 1
+    assert counts["direct_response_solves"] == 1
 
 
 def test_response_and_gradient_do_not_mutate_native_reference(rhf_oracle_case):

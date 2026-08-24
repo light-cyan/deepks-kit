@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import deepks.deephf.pyscf_uhf as pyscf_uhf
+import deepks.deephf.pyscf_uhf_adjoint as uhf_adjoint_module
 from deepks.deephf import (
     UHFAdjoint,
     UHFAdjointAdapter,
@@ -91,7 +92,7 @@ def test_zvector_uses_one_adjoint_solve_and_no_direct_response_path(
     method = uhf_oracle_case.method
     solve_calls = 0
     problems = []
-    original = pyscf_uhf.solve_scalar_adjoint
+    original = uhf_adjoint_module.solve_scalar_adjoint
 
     def counted(*args, **kwargs):
         nonlocal solve_calls
@@ -102,7 +103,7 @@ def test_zvector_uses_one_adjoint_solve_and_no_direct_response_path(
     def forbidden(*args, **kwargs):
         raise AssertionError("the UHF Z-vector path entered a direct response API")
 
-    monkeypatch.setattr(pyscf_uhf, "solve_scalar_adjoint", counted)
+    monkeypatch.setattr(uhf_adjoint_module, "solve_scalar_adjoint", counted)
     monkeypatch.setattr(pyscf_uhf.ucphf, "solve", forbidden)
     monkeypatch.setattr(UHFResponseAdapter, "solve", forbidden)
     monkeypatch.setattr(UHFDeePHF, "response", forbidden)
@@ -110,7 +111,7 @@ def test_zvector_uses_one_adjoint_solve_and_no_direct_response_path(
     monkeypatch.setattr(UHFDeePHF, "first_order_spin_density", forbidden)
     monkeypatch.setattr(UHFDeePHF, "dq_dR_response", forbidden)
     monkeypatch.setattr(UHFDeePHF, "dq_dR_relaxed", forbidden)
-    monkeypatch.setattr(UHFDeePHFGradients, "_kernel", forbidden)
+    monkeypatch.setattr(UHFDeePHFGradients, "_detail_kernel", forbidden)
 
     driver = method.nuc_grad_method(backend="zvector")
     gradient = driver.kernel()

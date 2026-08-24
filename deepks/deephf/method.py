@@ -1,5 +1,6 @@
 """Perturbative DeePHF energy method composed around a native reference."""
 
+from collections import Counter
 from collections.abc import Mapping
 import hashlib
 from contextlib import contextmanager
@@ -8,33 +9,31 @@ import weakref
 import numpy as np
 import torch
 
-from deepks.descriptor import (
-    AtomicDensityDescriptor,
-    spin_summed_ao_density,
-    validate_differentiability,
-)
+from deepks.descriptor import AtomicDensityDescriptor
 from deepks.model.model import CorrNet
 
 from .capabilities import (
     DeePHFCapabilityError,
     begin_reference_validation_transaction,
     end_reference_validation_transaction,
+    model_state_fingerprint,
     science_state_transaction,
-    validate_force_model,
     validate_model,
-    validate_model_output,
 )
-from .gradient import _validate_atom_indices
-from .pyscf_rhf import (
+from .contracts import immutable_array as _immutable_array
+from .contracts import update_digest as _update_science_digest
+from .evaluation import EvaluationContext
+from .driver import validate_atom_indices as _validate_atom_indices
+from .pyscf_rhf_adjoint import RHFAdjointAdapter
+from .pyscf_rhf_reference import (
     RHFAdjoint,
-    RHFAdjointAdapter,
     RHFResponse,
-    RHFResponseAdapter,
     RHFResponseError,
     molecule_science_fingerprint,
     reference_fingerprint,
     validate_reference,
 )
+from .pyscf_rhf_response import RHFResponseAdapter
 
 
 _DIRECT_RESPONSE_OPTIONS = frozenset(
@@ -66,42 +65,6 @@ def _validated_backend_options(base_options, override_options, allowed, backend)
             f"unsupported {backend} backend options: {', '.join(unknown)}"
         )
     return options
-
-
-def _immutable_array(value: np.ndarray) -> np.ndarray:
-    array = np.ascontiguousarray(value)
-    return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
-
-
-def _update_science_digest(digest, value) -> None:
-    if isinstance(value, torch.Tensor):
-        value = value.detach().cpu().numpy()
-    if isinstance(value, np.ndarray):
-        array = np.ascontiguousarray(value)
-        digest.update(array.dtype.str.encode("ascii"))
-        digest.update(repr(array.shape).encode("ascii"))
-        digest.update(array.tobytes())
-        return
-    if isinstance(value, np.generic):
-        _update_science_digest(digest, value.item())
-        return
-    if isinstance(value, Mapping):
-        for key in sorted(value, key=lambda item: (type(item).__name__, repr(item))):
-            _update_science_digest(digest, key)
-            _update_science_digest(digest, value[key])
-        return
-    if isinstance(value, (tuple, list)):
-        for item in value:
-            _update_science_digest(digest, item)
-        return
-    if value is None or isinstance(value, (bool, int, float, str)):
-        digest.update(type(value).__name__.encode("ascii"))
-        digest.update(repr(value).encode("utf-8"))
-        return
-    raise DeePHFCapabilityError(
-        "cannot fingerprint DeePHF descriptor state of type "
-        f"{type(value).__name__}"
-    )
 
 
 class DeePHF:
@@ -153,6 +116,10 @@ class DeePHF:
         self._bound_molecule = self.reference.mol
         self._bound_descriptor = self._descriptor
         self._bound_projector_molecule = self._descriptor.projector_mol
+        self._active_operation_counts = None
+        self._last_operation_counts = {}
+        self._calculation_depth = 0
+        self._evaluation_context = None
         self._bound_science_state_fingerprint = (
             self._current_science_state_fingerprint()
         )
@@ -170,7 +137,6 @@ class DeePHF:
             self._descriptor.projector_basis,
             self._descriptor.n_features,
         )
-        self._validated_model_output()
         self.e_base = None
         self.e_corr = None
         self.e_tot = None
@@ -208,12 +174,16 @@ class DeePHF:
         return digest.hexdigest()
 
     def _current_science_state_fingerprint(self) -> str:
+        if self._active_operation_counts is not None:
+            self._active_operation_counts["science_state_fingerprints"] += 1
         digest = hashlib.sha256()
         self._latest_reference_state_fingerprint = (
             self._reference_state_fingerprint(self.reference)
         )
         digest.update(self._latest_reference_state_fingerprint.encode("ascii"))
         digest.update(self._descriptor_science_fingerprint().encode("ascii"))
+        digest.update(model_state_fingerprint(self.model).encode("ascii"))
+        digest.update(str(self.device).encode("utf-8"))
         return digest.hexdigest()
 
     def _assert_science_state(self, boundary: str) -> str:
@@ -231,6 +201,11 @@ class DeePHF:
         if self._science_transaction_depth:
             return self._science_transaction_fingerprint
         try:
+            validate_model(
+                self.model,
+                self._descriptor.projector_basis,
+                self._descriptor.n_features,
+            )
             fingerprint = self._current_science_state_fingerprint()
         except Exception as error:
             if isinstance(error, DeePHFCapabilityError):
@@ -273,6 +248,49 @@ class DeePHF:
         self._validate_reference_object(self.reference)
         return self._assert_science_state(boundary)
 
+    @contextmanager
+    def _calculation_context(self):
+        outermost = self._calculation_depth == 0
+        if outermost:
+            self._active_operation_counts = Counter()
+        self._calculation_depth += 1
+        try:
+            with self._science_state_transaction() as state_token:
+                if outermost:
+                    self._evaluation_context = EvaluationContext(
+                        self,
+                        state_token,
+                        counters=self._active_operation_counts,
+                    )
+                yield self._evaluation_context
+        finally:
+            self._calculation_depth -= 1
+            if outermost:
+                self._last_operation_counts = dict(self._active_operation_counts)
+                self._active_operation_counts = None
+                self._evaluation_context = None
+
+    @contextmanager
+    def calculation(self):
+        """Share one validated evaluation context across a public workflow."""
+        with self._calculation_context():
+            yield self
+
+    @property
+    def operation_counts(self):
+        """Return operation counts from the latest completed calculation."""
+        return dict(self._last_operation_counts)
+
+    def _context(self) -> EvaluationContext:
+        if self._evaluation_context is None:
+            raise RuntimeError("DeePHF evaluation requires a calculation context")
+        return self._evaluation_context
+
+    def _reset_results(self):
+        self.e_base = None
+        self.e_corr = None
+        self.e_tot = None
+
     @property
     def mol(self):
         return self.reference.mol
@@ -285,62 +303,49 @@ class DeePHF:
     def n_descriptor_features(self):
         return self._descriptor.n_features
 
+    @science_state_transaction
     def ao_density(self):
         self._assert_science_state("AO density evaluation")
-        density = spin_summed_ao_density(self.reference.make_rdm1())
+        density = self._context().density
         self._assert_science_state("AO density evaluation")
         return density
 
+    @science_state_transaction
     def projected_density(self, flatten=False):
-        return self._descriptor.projected_density(
-            self.ao_density(),
-            flatten=flatten,
-        )
+        return self._context().workspace.projected_density(flatten=flatten)
 
+    @science_state_transaction
     def descriptor(self):
-        return self._descriptor.descriptor(self.ao_density())
+        return self._context().descriptor_values.detach().cpu().numpy()
 
+    @science_state_transaction
     def dq_dP(self):
-        with torch.enable_grad():
-            return self._descriptor.dq_dP(self.ao_density())
+        return self._context().workspace.dq_dP()
 
+    @science_state_transaction
     def dq_dR_explicit(self, atom_indices=None):
         atom_indices = _validate_atom_indices(self.mol, atom_indices)
-        with torch.enable_grad():
-            return self._descriptor.dq_dR_explicit(
-                self.ao_density(),
-                raw_atom_indices=atom_indices,
-            )
+        return self._context().workspace.dq_dR_explicit(
+            raw_atom_indices=atom_indices,
+        )
 
     def _correction_derivatives(self, sensitivity, atom_indices=None):
         """Contract explicit motion and the AO potential from one adjoint."""
         atom_indices = _validate_atom_indices(self.mol, atom_indices)
-        density = self.ao_density()
-        with torch.enable_grad():
-            return self._descriptor.correction_derivatives(
-                density,
-                density,
-                sensitivity,
-                raw_atom_indices=atom_indices,
-            )
+        return self._context().workspace.correction_derivatives(
+            sensitivity,
+            raw_atom_indices=atom_indices,
+        )
 
     def _descriptor_values_tensor(self) -> torch.Tensor:
         self._assert_science_state("descriptor evaluation")
-        values = self._descriptor.torch_descriptor(self.ao_density())
+        values = self._context().descriptor_values
         self._assert_science_state("descriptor evaluation")
         return values
 
     def _validated_model_output(self) -> torch.Tensor:
         self._assert_science_state("model evaluation")
-        validate_model(
-            self.model,
-            self._descriptor.projector_basis,
-            self._descriptor.n_features,
-        )
-        output = validate_model_output(
-            self.model,
-            self._descriptor_values_tensor(),
-        )
+        output = self._context().model_output
         self._assert_science_state("model evaluation")
         return output
 
@@ -351,44 +356,15 @@ class DeePHF:
 
     def _correction_sensitivity(self, values: torch.Tensor) -> np.ndarray:
         self._assert_science_state("model sensitivity evaluation")
-        validate_force_model(self.model)
-        validate_model(
-            self.model,
-            self._descriptor.projector_basis,
-            self._descriptor.n_features,
-        )
-        if self.model is None:
-            sensitivity = torch.zeros_like(values)
-        else:
-            evaluation_values = values.detach().requires_grad_(True)
-            with torch.enable_grad():
-                energy = validate_model_output(self.model, evaluation_values)
-                if energy.requires_grad:
-                    (sensitivity,) = torch.autograd.grad(
-                        energy,
-                        evaluation_values,
-                        torch.ones_like(energy),
-                        allow_unused=True,
-                    )
-                else:
-                    sensitivity = None
-            if sensitivity is None:
-                sensitivity = torch.zeros_like(evaluation_values)
-            if sensitivity.shape != evaluation_values.shape:
-                raise DeePHFCapabilityError(
-                    "the correction model descriptor sensitivity shape is invalid"
-                )
-            if sensitivity.dtype != torch.float64 or sensitivity.is_complex():
-                raise DeePHFCapabilityError(
-                    "the correction model descriptor sensitivity must use real torch.float64"
-                )
-        if not torch.isfinite(sensitivity).all():
+        if values is not self._context().descriptor_values:
             raise DeePHFCapabilityError(
-                "the correction model descriptor sensitivity must be finite"
+                "the correction sensitivity must use the active descriptor values"
             )
+        sensitivity = self._context().sensitivity
         self._assert_science_state("model sensitivity evaluation")
-        return sensitivity.detach().cpu().numpy()
+        return sensitivity
 
+    @science_state_transaction
     def _correction_ao_potential(
         self,
         sensitivity: np.ndarray,
@@ -418,7 +394,7 @@ class DeePHF:
         potential = np.einsum(
             "ap,apij->ij",
             sensitivity,
-            self.dq_dP() if dq_dP is None else dq_dP,
+            self._context().workspace.dq_dP() if dq_dP is None else dq_dP,
         )
         if potential.shape != (self.mol.nao, self.mol.nao):
             raise DeePHFCapabilityError(
@@ -435,24 +411,14 @@ class DeePHF:
         self._assert_science_state("correction AO potential construction")
         return potential
 
+    @science_state_transaction
     def correction_ao_potential(self) -> np.ndarray:
         """Return the complete model derivative d(e_corr)/dP in the AO basis."""
         return self._correction_ao_potential(self.correction_sensitivity())
 
     @science_state_transaction
     def correction_energy(self):
-        if self.model is None:
-            return 0.0
-        tensor_energy = self._validated_model_output()
-        energy = (
-            float(tensor_energy.detach().cpu().item())
-            + self._validated_element_constant()
-        )
-        if not np.isfinite(energy):
-            raise DeePHFCapabilityError(
-                "the complete correction energy must be finite"
-            )
-        return energy
+        return self._context().correction_energy
 
     def _validated_element_constant(self) -> float:
         if self.model is None:
@@ -496,11 +462,7 @@ class DeePHF:
     def _force_inputs(self, **tolerances):
         values = self._descriptor_values_tensor()
         sensitivity = self._correction_sensitivity(values)
-        diagnostics = self._validate_force_compatibility_with_sensitivity(
-            sensitivity,
-            descriptor_values=values,
-            **tolerances,
-        )
+        diagnostics, _cached_sensitivity = self._context().force_inputs(**tolerances)
         return diagnostics, sensitivity
 
     def _validate_force_compatibility_with_sensitivity(
@@ -514,14 +476,7 @@ class DeePHF:
             if descriptor_values is None
             else descriptor_values
         )
-        n_occupied = self._descriptor_rank_bound()
-        diagnostics = validate_differentiability(
-            values.detach().cpu().numpy(),
-            self._descriptor.shell_sizes,
-            n_occupied,
-            sensitivity,
-            **tolerances,
-        )
+        diagnostics, _cached_sensitivity = self._context().force_inputs(**tolerances)
         return diagnostics
 
     @science_state_transaction
@@ -539,6 +494,10 @@ class DeePHF:
         )
         options.pop("coordinate_block_size", None)
         adapter = self._response_adapter_type(self.reference, **options)
+        adapter._operation_hook = self._context().count
+        self._context().count("direct_response_solves")
+        if result_mode == "partitions":
+            self._context().count("full_density_partition_materializations")
         if result_mode == "gradient":
             return adapter._solve_for_gradient(objective, atom_indices=atom_indices)
         if result_mode == "partitions":
@@ -555,11 +514,19 @@ class DeePHF:
         """Solve one audited correction-specific RHF scalar adjoint."""
         return self._zvector_inputs(adjoint_options)[2]
 
-    def _zvector_inputs(self, adjoint_options, atom_indices=None, compact=False):
+    def _zvector_inputs(
+        self,
+        adjoint_options,
+        atom_indices=None,
+        compact=False,
+        force_inputs=None,
+    ):
         """Build one sensitivity and one scalar adjoint."""
         self._assert_science_state("Z-vector input evaluation")
         self._validate_reference_object(self.reference)
-        descriptor_diagnostics, sensitivity = self._force_inputs()
+        descriptor_diagnostics, sensitivity = (
+            self._force_inputs() if force_inputs is None else force_inputs
+        )
         sensitivity = _immutable_array(sensitivity)
         options = _validated_backend_options(
             self.adjoint_options,
@@ -568,6 +535,8 @@ class DeePHF:
             "zvector",
         )
         adapter = self._adjoint_adapter_type(self.reference, **options)
+        adapter._operation_hook = self._context().count
+        self._context().count("adjoint_solves")
         if compact:
             explicit, objective_ao_potential = self._correction_derivatives(
                 sensitivity, atom_indices
@@ -690,12 +659,19 @@ class DeePHF:
         """Evaluate nuclear forces as the negative analytic gradient."""
         return -self.gradient(backend=backend, **backend_options)
 
+    @science_state_transaction
     def kernel(self):
         """Evaluate E_base + E_corr while leaving the reference unchanged."""
+        self._reset_results()
         self._validate_reference_object(self.reference)
-        self.e_base = float(self.reference.e_tot)
-        self.e_corr = self.correction_energy()
-        self.e_tot = self.e_base + self.e_corr
-        if not np.isfinite(self.e_tot):
+        base_energy = float(self.reference.e_tot)
+        correction_energy = self.correction_energy()
+        total_energy = base_energy + correction_energy
+        if not np.isfinite(total_energy):
             raise DeePHFCapabilityError("the total DeePHF energy must be finite")
-        return self.e_tot
+        self.e_base, self.e_corr, self.e_tot = (
+            base_energy,
+            correction_energy,
+            total_energy,
+        )
+        return total_energy

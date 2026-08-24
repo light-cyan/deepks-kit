@@ -2,47 +2,30 @@
 
 import numpy as np
 
-from .pyscf_uks import (
-    UKSResponseError,
-    native_uks_gradient,
-)
-from .gradient import _validate_retain_details
+from .pyscf_uks_reference import UKSResponseError
+from .pyscf_uks_response import native_uks_gradient
 from .uhf_gradient import UHFDeePHFGradients
 
 
 class UKSDeePHFGradients(UHFDeePHFGradients):
     """Contract the complete coupled UKS response with one correction model."""
 
+    _binding_error_type = UKSResponseError
+    _binding_error_message = "the UKS direct gradient driver binding is invalid"
+    _construction_error_message = (
+        "the UKS direct gradient driver requires an exact UKSDeePHF method"
+    )
+
+    @classmethod
+    def _expected_method_type(cls):
+        from .uks_method import UKSDeePHF
+
+        return UKSDeePHF
+
     def __init__(self, method, response_options=None, retain_details=True):
-        from .uks_method import UKSDeePHF
+        super().__init__(method, response_options, retain_details)
 
-        if type(method) is not UKSDeePHF:
-            raise TypeError("the UKS direct gradient driver requires an exact UKSDeePHF method")
-        self._base = method
-        self._bound_base = method
-        self._mol = method.mol
-        self._bound_mol = method.mol
-        self._backend = "direct"
-        self.retain_details = _validate_retain_details(retain_details)
-        self.response_options = dict(response_options or {})
-        self._reset_results()
-
-    def _validate_driver_binding(self) -> None:
-        from .uks_method import UKSDeePHF
-
-        if (
-            type(self._base) is not UKSDeePHF
-            or self._base is not self._bound_base
-            or self._mol is not self._bound_mol
-            or self._mol is not self._base.mol
-            or self._backend != "direct"
-        ):
-            raise UKSResponseError("the UKS direct gradient driver binding is invalid")
-
-    def _reset_results(self) -> None:
-        super()._reset_results()
-
-    def _kernel(self, atom_indices) -> dict:
+    def _detail_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
         response, density_partitions = self.base._solve_response(
             self.response_options,
@@ -107,6 +90,20 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
 
     def _compact_kernel(self, atom_indices) -> dict:
         diagnostics, sensitivity = self.base._force_inputs()
+        reference = native_uks_gradient(self.base.reference, atom_indices)
+        if not np.any(sensitivity):
+            if (
+                reference.shape != (len(atom_indices), 3)
+                or reference.dtype != np.dtype(np.float64)
+                or np.iscomplexobj(reference)
+                or not np.isfinite(reference).all()
+            ):
+                raise UKSResponseError("the compact UKS native gradient is invalid")
+            return {
+                "descriptor_diagnostics": diagnostics,
+                "response_diagnostics": None,
+                "de": reference,
+            }
         explicit, objective = self.base._correction_derivatives(sensitivity, atom_indices)
         response_diagnostics, response = self.base._solve_response(
             self.response_options,
@@ -115,7 +112,6 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
             objective=objective,
         )
         self.base._validate_science_state("UKS native gradient evaluation")
-        reference = native_uks_gradient(self.base.reference, atom_indices)
         self.base._validate_science_state("UKS native gradient evaluation")
         total = reference + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():

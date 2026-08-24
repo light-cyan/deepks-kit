@@ -7,7 +7,9 @@ import hashlib
 import numpy as np
 import torch
 
-from deepks.model.model import CorrNet, validate_force_model_architecture
+from deepks.model.model import validate_force_model_architecture
+
+from .contracts import update_digest
 
 
 class DeePHFCapabilityError(ValueError):
@@ -46,7 +48,7 @@ def science_state_transaction(function):
     def wrapped(owner, *args, **kwargs):
         method = getattr(owner, "_bound_base", getattr(owner, "base", owner))
         try:
-            with method._science_state_transaction():
+            with method._calculation_context():
                 return function(owner, *args, **kwargs)
         except Exception:
             reset = getattr(owner, "_reset_results", None)
@@ -69,9 +71,7 @@ def _update_model_tensor_fingerprint(digest, tensor: torch.Tensor) -> None:
         value = tensor.detach().cpu()
         if value.layout != torch.strided:
             value = value.to_dense()
-        flat_value = torch.empty(value.numel(), dtype=value.dtype, device="cpu")
-        flat_value.copy_(value.reshape(-1))
-        digest.update(flat_value.view(torch.uint8).numpy().tobytes())
+        update_digest(digest, value)
     except Exception as error:
         raise DeePHFCapabilityError(
             f"the force correction model tensor could not be fingerprinted: {error}"
@@ -113,22 +113,23 @@ def validate_force_model(model):
     return model
 
 
-def force_model_fingerprint(model) -> str:
-    """Bind the fixed CorrNet graph metadata, parameters, and buffers."""
-    validate_force_model(model)
+def model_state_fingerprint(model) -> str:
+    """Bind one correction model's graph identity, mode, parameters, and buffers."""
     digest = hashlib.sha256()
     if model is None:
         digest.update(b"deepks.deephf.none-force-correction-model")
         return digest.hexdigest()
-    metadata = (
-        model.input_dim,
-        _metadata_signature(model._pbas),
-        _metadata_signature(model.elem_table),
-        _metadata_signature(model.shell_sec),
-        type(model.embedder).__qualname__ if model.embedder is not None else None,
-        model.densenet.actv_fn.__name__,
-        model.densenet.use_resnet,
-        model.densenet.dts is not None,
+    if not isinstance(model, torch.nn.Module):
+        raise DeePHFCapabilityError(
+            "the DeePHF correction model must be a torch.nn.Module or None"
+        )
+    metadata = tuple(
+        (
+            name,
+            f"{type(module).__module__}.{type(module).__qualname__}",
+            bool(module.training),
+        )
+        for name, module in model.named_modules(remove_duplicate=False)
     )
     digest.update(repr(metadata).encode("utf-8"))
     for name, parameter in model.named_parameters(remove_duplicate=False):
@@ -141,6 +142,12 @@ def force_model_fingerprint(model) -> str:
         digest.update(name.encode("utf-8"))
         _update_model_tensor_fingerprint(digest, buffer)
     return digest.hexdigest()
+
+
+def force_model_fingerprint(model) -> str:
+    """Bind the fixed supported force-model graph, parameters, and buffers."""
+    validate_force_model(model)
+    return model_state_fingerprint(model)
 
 
 def validate_model(model, projector_basis, descriptor_features: int):

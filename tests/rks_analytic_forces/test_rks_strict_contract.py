@@ -7,6 +7,7 @@ from pyscf import dft, gto, scf
 from pyscf.dft import gen_grid, libxc, radi
 
 import deepks.deephf.pyscf_rks as pyscf_rks
+import deepks.deephf.pyscf_dft_provenance as dft_provenance
 import deepks.deephf.rks_gradient as rks_gradient
 from deepks.deephf import (
     DeePHFCapabilityError,
@@ -1166,7 +1167,7 @@ def test_grid_weight_derivative_fault_is_rejected_before_any_response_solve(
         perturbed_grid_response,
     )
     monkeypatch.setattr(
-        pyscf_rks,
+        dft_provenance,
         "_SUPPORTED_GRIDS_RESPONSE",
         perturbed_grid_response,
     )
@@ -1223,7 +1224,7 @@ def test_grid_host_block_repartition_is_rejected_before_response_solve(
         repartitioned_grid_response,
     )
     monkeypatch.setattr(
-        pyscf_rks,
+        dft_provenance,
         "_SUPPORTED_GRIDS_RESPONSE",
         repartitioned_grid_response,
     )
@@ -1279,7 +1280,7 @@ def test_cross_molecule_strict_rks_smoke_and_block_weight_fault(
         changed_block_weight,
     )
     monkeypatch.setattr(
-        pyscf_rks,
+        dft_provenance,
         "_SUPPORTED_GRIDS_RESPONSE",
         changed_block_weight,
     )

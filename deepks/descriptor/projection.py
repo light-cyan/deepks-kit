@@ -1,6 +1,5 @@
 """PySCF projection integrals and the shared atomic descriptor interface."""
 
-from collections.abc import Sequence
 from copy import deepcopy
 
 import numpy as np
@@ -91,7 +90,12 @@ class AtomicDensityDescriptor:
         self.projector_mol = build_projector_molecule(mol, self.projector_basis)
         overlap = torch.from_numpy(self.projection_overlap()).double()
         self.overlap_shells = tuple(torch.split(overlap, self.shell_sizes, -1))
+        self._derivative_overlap_shells = None
         return self
+
+    @staticmethod
+    def as_ao_density_tensor(ao_density) -> torch.Tensor:
+        return _as_ao_density_tensor(ao_density)
 
     def cross_integral(self, integral: str) -> np.ndarray:
         return gto.intor_cross(integral, self.mol, self.projector_mol)
@@ -105,6 +109,8 @@ class AtomicDensityDescriptor:
         )
 
     def derivative_overlap_shells(self) -> tuple[torch.Tensor, ...]:
+        if self._derivative_overlap_shells is not None:
+            return self._derivative_overlap_shells
         derivative_overlap = torch.from_numpy(
             self.cross_integral("int1e_ipovlp")
         ).double()
@@ -114,7 +120,20 @@ class AtomicDensityDescriptor:
             self.projector_mol.natm,
             -1,
         )
-        return tuple(torch.split(derivative_overlap, self.shell_sizes, -1))
+        self._derivative_overlap_shells = tuple(
+            torch.split(derivative_overlap, self.shell_sizes, -1)
+        )
+        return self._derivative_overlap_shells
+
+    def derivative_workspace(self, ao_density, *, operation_hook=None):
+        """Build one calculation-scoped owner of reusable derivative primitives."""
+        from .workspace import DescriptorDerivativeWorkspace
+
+        return DescriptorDerivativeWorkspace(
+            self,
+            ao_density,
+            operation_hook=operation_hook,
+        )
 
     def torch_projected_density(self, ao_density) -> list[torch.Tensor]:
         return projected_density(

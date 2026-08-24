@@ -1,12 +1,18 @@
 """Reference-neutral scalar adjoint equations and audited linear solves."""
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, replace
 import hashlib
 import operator
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, gmres
+
+from .contracts import (
+    array_fingerprint as _array_fingerprint,
+    dataclass_fingerprint,
+    immutable_array as _immutable_array,
+)
 
 
 class AdjointError(RuntimeError):
@@ -53,11 +59,6 @@ class AdjointResult:
     solution: np.ndarray
     residual: np.ndarray
     diagnostics: AdjointDiagnostics
-
-
-def _immutable_array(value: np.ndarray) -> np.ndarray:
-    array = np.ascontiguousarray(value)
-    return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
 
 
 def _validated_dimension(value) -> int:
@@ -136,31 +137,12 @@ def _validated_matrix(value, dimension: int) -> np.ndarray:
     return matrix
 
 
-def _array_fingerprint(value: np.ndarray) -> str:
-    digest = hashlib.sha256()
-    array = np.ascontiguousarray(value)
-    digest.update(array.dtype.str.encode("ascii"))
-    digest.update(repr(array.shape).encode("ascii"))
-    digest.update(array.tobytes())
-    return digest.hexdigest()
-
-
 def adjoint_integrity_fingerprint(result: AdjointResult) -> str:
     """Return a digest covering every adjoint field except its own digest."""
-    digest = hashlib.sha256()
-    for field in fields(result):
-        if field.name == "integrity_fingerprint":
-            continue
-        value = getattr(result, field.name)
-        digest.update(field.name.encode("utf-8"))
-        if isinstance(value, np.ndarray):
-            array = np.ascontiguousarray(value)
-            digest.update(array.dtype.str.encode("ascii"))
-            digest.update(repr(array.shape).encode("ascii"))
-            digest.update(array.tobytes())
-        else:
-            digest.update(repr(value).encode("utf-8"))
-    return digest.hexdigest()
+    return dataclass_fingerprint(
+        result,
+        excluded=frozenset({"integrity_fingerprint"}),
+    )
 
 
 def _residual_statistics(residual: np.ndarray) -> tuple[float, float]:
@@ -304,6 +286,182 @@ def scalar_operator_fingerprint(
     raise ValueError("adjoint solver must be 'dense' or 'gmres'")
 
 
+@dataclass(frozen=True)
+class _LinearSolve:
+    operator_fingerprint: str
+    solution: np.ndarray
+    solver_name: str
+    iteration_count: int
+    matrix: np.ndarray | None = None
+
+
+def _solve_dense_adjoint(problem, objective_gradient, dimension) -> _LinearSolve:
+    dense_operator = getattr(problem, "dense_operator", None)
+    if not callable(dense_operator):
+        raise AdjointError(
+            "the dense adjoint solver requires a dense_operator action"
+        )
+    matrix = _immutable_array(_validated_matrix(dense_operator(), dimension))
+    try:
+        solution = np.linalg.solve(matrix.T, objective_gradient)
+    except np.linalg.LinAlgError as error:
+        raise AdjointError(f"dense transpose adjoint solve failed: {error}") from error
+    except Exception as error:
+        raise AdjointError(
+            f"dense transpose adjoint solver raised an error: {error}"
+        ) from error
+    return _LinearSolve(
+        operator_fingerprint=_array_fingerprint(matrix),
+        solution=solution,
+        solver_name="numpy.linalg.solve(A.T, b)",
+        iteration_count=1,
+        matrix=matrix,
+    )
+
+
+def _linear_operator(action, dimension, name):
+    def checked_action(vector):
+        return _problem_action(
+            action,
+            np.asarray(vector, dtype=np.float64),
+            dimension,
+            name,
+        )
+
+    return LinearOperator(
+        (dimension, dimension),
+        matvec=checked_action,
+        dtype=np.float64,
+    )
+
+
+def _solve_matrix_free_adjoint(
+    problem,
+    objective_gradient,
+    dimension,
+    residual_tolerance,
+    max_cycle,
+    restart,
+) -> _LinearSolve:
+    operator_fingerprint = _matrix_free_operator_fingerprint(problem, dimension)
+    linear_operator = _linear_operator(
+        problem.apply_transpose,
+        dimension,
+        "matrix-free transpose adjoint action",
+    )
+    precondition = getattr(problem, "precondition", None)
+    preconditioner = (
+        _linear_operator(precondition, dimension, "adjoint preconditioner action")
+        if callable(precondition)
+        else None
+    )
+    iteration_count = 0
+
+    def count_iteration(_residual):
+        nonlocal iteration_count
+        iteration_count += 1
+
+    try:
+        solution, convergence_info = gmres(
+            linear_operator,
+            objective_gradient,
+            rtol=0.0,
+            atol=min(residual_tolerance, 1.0e-12),
+            restart=min(restart, dimension),
+            maxiter=max_cycle,
+            M=preconditioner,
+            callback=count_iteration,
+            callback_type="pr_norm",
+        )
+    except Exception as error:
+        raise AdjointError(
+            f"matrix-free GMRES adjoint solver raised an error: {error}"
+        ) from error
+    if convergence_info > 0:
+        raise AdjointError(
+            "matrix-free GMRES adjoint solve did not converge within "
+            f"{max_cycle} restart cycles"
+        )
+    if convergence_info < 0:
+        raise AdjointError("matrix-free GMRES adjoint solve broke down")
+    return _LinearSolve(
+        operator_fingerprint=operator_fingerprint,
+        solution=solution,
+        solver_name="scipy.sparse.linalg.gmres(A.T, b)",
+        iteration_count=iteration_count,
+    )
+
+
+def _independent_residual(problem, solved, objective_gradient, dimension, solver):
+    if _validated_dimension(problem.dimension) != dimension:
+        raise AdjointError(
+            "adjoint problem dimension changed during independent residual checks"
+        )
+    self_adjoint = getattr(problem, "is_self_adjoint", None) is True
+    if solver == "dense":
+        final_matrix = _validated_matrix(problem.dense_operator(), dimension)
+        if not np.array_equal(final_matrix, solved.matrix):
+            raise AdjointError(
+                "adjoint response operator changed during independent residual checks"
+            )
+        residual_matrix = final_matrix if self_adjoint else final_matrix.T
+        return residual_matrix @ solved.solution - objective_gradient, self_adjoint
+    residual_action = problem.apply if self_adjoint else problem.apply_transpose
+    residual_image = _isolated_problem_action(
+        residual_action,
+        solved.solution,
+        dimension,
+        action_name="independent adjoint residual action",
+        result_name="independent adjoint residual action",
+    )
+    if _matrix_free_operator_fingerprint(problem, dimension) != solved.operator_fingerprint:
+        raise AdjointError(
+            "adjoint response operator changed during independent residual checks"
+        )
+    return residual_image - objective_gradient, self_adjoint
+
+
+def _publish_adjoint_result(
+    solved,
+    objective_gradient,
+    residual,
+    dimension,
+    residual_tolerance,
+):
+    maximum_residual, residual_rms = _residual_statistics(residual)
+    if maximum_residual > residual_tolerance:
+        raise AdjointError(
+            "adjoint solver residual exceeds tolerance: "
+            f"{maximum_residual:.3e} > {residual_tolerance:.3e}"
+        )
+    objective_gradient_norm = float(np.linalg.norm(objective_gradient))
+    solution_norm = float(np.linalg.norm(solved.solution))
+    if not np.isfinite(
+        (objective_gradient_norm, solution_norm, maximum_residual, residual_rms)
+    ).all():
+        raise AdjointError("adjoint diagnostics must be finite")
+    diagnostics = AdjointDiagnostics(
+        solver=solved.solver_name,
+        dimension=dimension,
+        solve_count=1,
+        residual_tolerance=residual_tolerance,
+        objective_gradient_norm=objective_gradient_norm,
+        solution_norm=solution_norm,
+        maximum_residual=maximum_residual,
+        residual_rms=residual_rms,
+        iteration_count=solved.iteration_count,
+    )
+    result = AdjointResult(
+        operator_fingerprint=solved.operator_fingerprint,
+        integrity_fingerprint="",
+        objective_gradient=objective_gradient,
+        solution=solved.solution,
+        residual=residual,
+        diagnostics=diagnostics,
+    )
+    return replace(result, integrity_fingerprint=adjoint_integrity_fingerprint(result))
+
+
 def solve_scalar_adjoint(
     problem: ScalarAdjointProblem,
     objective_gradient: np.ndarray,
@@ -334,134 +492,31 @@ def solve_scalar_adjoint(
             "adjoint objective gradient",
         )
     )
-    matrix = None
-    iteration_count = 1
-    if solver == "dense":
-        dense_operator = getattr(problem, "dense_operator", None)
-        if not callable(dense_operator):
-            raise AdjointError(
-                "the dense adjoint solver requires a dense_operator action"
-            )
-        matrix = _immutable_array(
-            _validated_matrix(dense_operator(), dimension)
-        )
-        operator_fingerprint = _array_fingerprint(matrix)
-        try:
-            solution = np.linalg.solve(matrix.T, objective_gradient)
-        except np.linalg.LinAlgError as error:
-            raise AdjointError(
-                f"dense transpose adjoint solve failed: {error}"
-            ) from error
-        except Exception as error:
-            raise AdjointError(
-                f"dense transpose adjoint solver raised an error: {error}"
-            ) from error
-        solver_name = "numpy.linalg.solve(A.T, b)"
-    else:
-        operator_fingerprint = _matrix_free_operator_fingerprint(
+    solved = (
+        _solve_dense_adjoint(problem, objective_gradient, dimension)
+        if solver == "dense"
+        else _solve_matrix_free_adjoint(
             problem,
+            objective_gradient,
             dimension,
+            residual_tolerance,
+            max_cycle,
+            restart,
         )
-
-        def transpose_action(vector):
-            return _problem_action(
-                problem.apply_transpose,
-                np.asarray(vector, dtype=np.float64),
-                dimension,
-                "matrix-free transpose adjoint action",
-            )
-
-        linear_operator = LinearOperator(
-            (dimension, dimension),
-            matvec=transpose_action,
-            dtype=np.float64,
-        )
-        precondition = getattr(problem, "precondition", None)
-        preconditioner = None
-        if callable(precondition):
-            def precondition_action(vector):
-                return _problem_action(
-                    precondition,
-                    np.asarray(vector, dtype=np.float64),
-                    dimension,
-                    "adjoint preconditioner action",
-                )
-
-            preconditioner = LinearOperator(
-                (dimension, dimension),
-                matvec=precondition_action,
-                dtype=np.float64,
-            )
-        iteration_count = 0
-
-        def count_iteration(_residual):
-            nonlocal iteration_count
-            iteration_count += 1
-
-        try:
-            krylov_tolerance = min(residual_tolerance, 1.0e-12)
-            solution, convergence_info = gmres(
-                linear_operator,
-                objective_gradient,
-                rtol=0.0,
-                atol=krylov_tolerance,
-                restart=min(restart, dimension),
-                maxiter=max_cycle,
-                M=preconditioner,
-                callback=count_iteration,
-                callback_type="pr_norm",
-            )
-        except Exception as error:
-            raise AdjointError(
-                f"matrix-free GMRES adjoint solver raised an error: {error}"
-            ) from error
-        if convergence_info != 0:
-            if convergence_info > 0:
-                raise AdjointError(
-                    "matrix-free GMRES adjoint solve did not converge within "
-                    f"{max_cycle} restart cycles"
-                )
-            raise AdjointError("matrix-free GMRES adjoint solve broke down")
-        solver_name = "scipy.sparse.linalg.gmres(A.T, b)"
-    solution = _immutable_array(
-        _validated_vector(solution, dimension, "adjoint solution")
     )
-    final_dimension = _validated_dimension(problem.dimension)
-    if final_dimension != dimension:
-        raise AdjointError(
-            "adjoint problem dimension changed during independent residual checks"
-        )
-    self_adjoint = getattr(problem, "is_self_adjoint", None) is True
-    if solver == "dense":
-        final_matrix = _validated_matrix(dense_operator(), dimension)
-        if not np.array_equal(final_matrix, matrix):
-            raise AdjointError(
-                "adjoint response operator changed during independent residual checks"
-            )
-        residual_matrix = final_matrix if self_adjoint else final_matrix.T
-        residual_value = residual_matrix @ solution - objective_gradient
-    else:
-        residual_action = (
-            problem.apply
-            if self_adjoint
-            else problem.apply_transpose
-        )
-        residual_image = _isolated_problem_action(
-            residual_action,
-            solution,
-            dimension,
-            action_name="independent adjoint residual action",
-            result_name="independent adjoint residual action",
-        )
-        final_fingerprint = _matrix_free_operator_fingerprint(
-            problem,
-            dimension,
-        )
-        if final_fingerprint != operator_fingerprint:
-            raise AdjointError(
-                "adjoint response operator changed during independent residual checks"
-            )
-        residual_value = residual_image - objective_gradient
+    solved = replace(
+        solved,
+        solution=_immutable_array(
+            _validated_vector(solved.solution, dimension, "adjoint solution")
+        ),
+    )
+    residual_value, self_adjoint = _independent_residual(
+        problem,
+        solved,
+        objective_gradient,
+        dimension,
+        solver,
+    )
     residual = _immutable_array(
         _validated_vector(
             residual_value,
@@ -469,52 +524,20 @@ def solve_scalar_adjoint(
             "independent adjoint residual",
         )
     )
-    maximum_residual, residual_rms = _residual_statistics(residual)
-    if maximum_residual > residual_tolerance:
-        raise AdjointError(
-            "adjoint solver residual exceeds tolerance: "
-            f"{maximum_residual:.3e} > {residual_tolerance:.3e}"
-        )
     if require_physical_residual and not self_adjoint:
         physical = _isolated_problem_action(
             problem.apply,
-            solution,
+            solved.solution,
             dimension,
             action_name="physical adjoint audit action",
             result_name="physical adjoint audit action",
         ) - objective_gradient
         if _residual_statistics(physical)[0] > residual_tolerance:
             raise AdjointError("physical adjoint residual exceeds tolerance")
-    objective_gradient_norm = float(np.linalg.norm(objective_gradient))
-    solution_norm = float(np.linalg.norm(solution))
-    diagnostic_values = (
-        objective_gradient_norm,
-        solution_norm,
-        maximum_residual,
-        residual_rms,
-    )
-    if not np.isfinite(diagnostic_values).all():
-        raise AdjointError("adjoint diagnostics must be finite")
-    diagnostics = AdjointDiagnostics(
-        solver=solver_name,
-        dimension=dimension,
-        solve_count=1,
-        residual_tolerance=residual_tolerance,
-        objective_gradient_norm=objective_gradient_norm,
-        solution_norm=solution_norm,
-        maximum_residual=maximum_residual,
-        residual_rms=residual_rms,
-        iteration_count=iteration_count,
-    )
-    result = AdjointResult(
-        operator_fingerprint=operator_fingerprint,
-        integrity_fingerprint="",
-        objective_gradient=objective_gradient,
-        solution=solution,
-        residual=residual,
-        diagnostics=diagnostics,
-    )
-    return replace(
-        result,
-        integrity_fingerprint=adjoint_integrity_fingerprint(result),
+    return _publish_adjoint_result(
+        solved,
+        objective_gradient,
+        residual,
+        dimension,
+        residual_tolerance,
     )

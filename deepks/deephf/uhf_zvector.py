@@ -1,85 +1,29 @@
 """Strict coupled scalar-adjoint nuclear gradients for UHF DeePHF."""
 
-from types import MappingProxyType
-
 import numpy as np
 
-from .capabilities import science_state_transaction
-from .gradient import (
-    _reset_driver_results,
-    _validate_atom_indices,
-    _validate_retain_details,
-)
-from .pyscf_uhf import UHFAdjointError, _native_unrestricted_gradient
+from .driver import GradientDriver
+from .pyscf_uhf_reference import UHFAdjointError, _native_unrestricted_gradient
 
 
-class UHFDeePHFZVectorGradients:
+class UHFDeePHFZVectorGradients(GradientDriver):
     """Evaluate one unrestricted correction through a coupled scalar adjoint."""
 
+    _backend_name = "zvector"
+    _binding_error_type = UHFAdjointError
+    _binding_error_message = "the UHF DeePHF Z-vector driver binding is invalid"
+    _construction_error_message = (
+        "the UHF Z-vector gradient driver requires an exact UHFDeePHF method"
+    )
+
+    @classmethod
+    def _expected_method_type(cls):
+        from .uhf_method import UHFDeePHF
+
+        return UHFDeePHF
+
     def __init__(self, method, adjoint_options=None, retain_details=True):
-        from .uhf_method import UHFDeePHF
-
-        if type(method) is not UHFDeePHF:
-            raise TypeError(
-                "the UHF Z-vector gradient driver requires an exact UHFDeePHF method"
-            )
-        self._base = method
-        self._bound_base = method
-        self._mol = method.mol
-        self._bound_mol = method.mol
-        self._backend = "zvector"
-        self.retain_details = _validate_retain_details(retain_details)
-        self._adjoint_options = MappingProxyType(dict(adjoint_options or {}))
-        self._bound_adjoint_options = self._adjoint_options
-        self._reset_results()
-
-    @property
-    def base(self):
-        return self._base
-
-    @property
-    def mol(self):
-        return self._mol
-
-    @property
-    def backend(self) -> str:
-        return self._backend
-
-    @property
-    def adjoint_options(self):
-        return self._adjoint_options
-
-    def _validate_driver_binding(self) -> None:
-        from .uhf_method import UHFDeePHF
-
-        if (
-            type(self._base) is not UHFDeePHF
-            or self._base is not self._bound_base
-            or self._mol is not self._bound_mol
-            or self._mol is not self._base.mol
-            or self._backend != "zvector"
-            or self._adjoint_options is not self._bound_adjoint_options
-            or not isinstance(self._adjoint_options, MappingProxyType)
-        ):
-            raise UHFAdjointError(
-                "the UHF DeePHF Z-vector driver binding is invalid"
-            )
-
-    def _reset_results(self) -> None:
-        _reset_driver_results(self)
-
-    @property
-    def adjoint_diagnostics(self):
-        return (
-            self._response_diagnostics
-            if getattr(self, "adjoint_result", None) is None
-            else self.adjoint_result.diagnostics
-        )
-
-    @property
-    def response_diagnostics(self):
-        """Return scalar-adjoint diagnostics under the common driver name."""
-        return self.adjoint_diagnostics
+        super().__init__(method, adjoint_options, retain_details)
 
     def _validated_native_gradient(self, atom_indices) -> np.ndarray:
         self.base._validate_science_state("UHF Z-vector native gradient evaluation")
@@ -94,7 +38,7 @@ class UHFDeePHFZVectorGradients:
         self.base._validate_science_state("UHF Z-vector native gradient evaluation")
         return gradient
 
-    def _kernel(self, atom_indices) -> dict:
+    def _detail_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
             self.adjoint_options,
             atom_indices=atom_indices,
@@ -177,12 +121,32 @@ class UHFDeePHFZVectorGradients:
         }
 
     def _compact_kernel(self, atom_indices) -> dict:
-        descriptor_diagnostics, explicit, adjoint_diagnostics, response_gradient = self.base._zvector_inputs(
+        force_inputs = self.base._force_inputs()
+        descriptor_diagnostics, sensitivity = force_inputs
+        reference_gradient = self._validated_native_gradient(atom_indices)
+        if not np.any(sensitivity):
+            if (
+                reference_gradient.dtype != np.dtype(np.float64)
+                or np.iscomplexobj(reference_gradient)
+                or not np.isfinite(reference_gradient).all()
+            ):
+                raise UHFAdjointError("the compact UHF native gradient is invalid")
+            return {
+                "descriptor_diagnostics": descriptor_diagnostics,
+                "response_diagnostics": None,
+                "de": reference_gradient,
+            }
+        (
+            _descriptor_diagnostics,
+            explicit,
+            adjoint_diagnostics,
+            response_gradient,
+        ) = self.base._zvector_inputs(
             self.adjoint_options,
             atom_indices=atom_indices,
             compact=True,
+            force_inputs=force_inputs,
         )
-        reference_gradient = self._validated_native_gradient(atom_indices)
         total = reference_gradient + explicit + response_gradient
         if total.shape != reference_gradient.shape or not np.isfinite(total).all():
             raise UHFAdjointError("the compact UHF Z-vector gradient is invalid")
@@ -192,37 +156,6 @@ class UHFDeePHFZVectorGradients:
             "response_diagnostics": adjoint_diagnostics,
             "de": total,
         }
-
-    @science_state_transaction
-    def kernel(self, atmlst=None) -> np.ndarray:
-        """Evaluate d(E_base + E_corr)/dR without constructing dP/dR."""
-        self._reset_results()
-        try:
-            self._validate_driver_binding()
-            atom_indices = _validate_atom_indices(self.mol, atmlst)
-            if not self.retain_details:
-                results = self._compact_kernel(atom_indices)
-                self.descriptor_diagnostics = results["descriptor_diagnostics"]
-                self._response_diagnostics = results["response_diagnostics"]
-                self.de = results["de"]
-                return self.de
-            results = self._kernel(atom_indices)
-            for name, value in results.items():
-                setattr(self, name, value)
-            self.de = self.de_full
-            return self.de
-        except Exception:
-            self._reset_results()
-            raise
-
-    def run(self, atmlst=None):
-        """Evaluate the gradient and return this populated driver."""
-        self.kernel(atmlst=atmlst)
-        return self
-
-    def forces(self, atmlst=None) -> np.ndarray:
-        """Evaluate nuclear forces as minus the energy gradient."""
-        return -self.kernel(atmlst=atmlst)
 
     def as_scanner(self, **scanner_options):
         """Reject unavailable unrestricted scanner construction."""

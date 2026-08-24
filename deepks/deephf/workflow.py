@@ -67,7 +67,17 @@ def build_reference(molecule, family, *, scf_args=None, verbose=0):
         "max_cycle": 100,
     }
     controls.update({} if scf_args is None else dict(scf_args))
-    unknown = sorted(set(controls) - {"conv_tol", "conv_tol_grad", "conv_tol_cpscf", "max_cycle", "diis_space", "level_shift", "direct_scf", "conv_check"})
+    supported_controls = {
+        "conv_tol",
+        "conv_tol_grad",
+        "conv_tol_cpscf",
+        "max_cycle",
+        "diis_space",
+        "level_shift",
+        "direct_scf",
+        "conv_check",
+    }
+    unknown = sorted(set(controls) - supported_controls)
     if unknown:
         raise ValueError("unsupported strict reference controls: " + ", ".join(unknown))
     reference.set(**controls)
@@ -85,7 +95,19 @@ def build_reference(molecule, family, *, scf_args=None, verbose=0):
     return reference
 
 
-def evaluate_molecule(molecule, model, *, family, backend="direct", projector_basis=None, device="cpu", scf_args=None, response_options=None, adjoint_options=None, verbose=0):
+def evaluate_molecule(
+    molecule,
+    model,
+    *,
+    family,
+    backend="direct",
+    projector_basis=None,
+    device="cpu",
+    scf_args=None,
+    response_options=None,
+    adjoint_options=None,
+    verbose=0,
+):
     """Evaluate energy, descriptor, gradient, and force through one public backend."""
     reference = build_reference(molecule, family, scf_args=scf_args, verbose=verbose)
     method = make_deephf(
@@ -96,18 +118,24 @@ def evaluate_molecule(molecule, model, *, family, backend="direct", projector_ba
         response_options=response_options,
         adjoint_options=adjoint_options,
     )
-    energy = float(method.kernel())
-    gradient_driver = method.nuc_grad_method(backend=backend)
-    gradient = np.asarray(gradient_driver.kernel())
-    return {
-        "converged": np.asarray(True),
-        "e_base": np.asarray(reference.e_tot, dtype=np.float64),
-        "e_corr": np.asarray(energy - reference.e_tot, dtype=np.float64),
-        "e_tot": np.asarray(energy, dtype=np.float64),
-        "descriptor": np.asarray(method.descriptor(), dtype=np.float64),
-        "gradient": gradient,
-        "force": -gradient,
-    }
+    with method.calculation():
+        energy = float(method.kernel())
+        gradient_driver = method.nuc_grad_method(
+            backend=backend,
+            retain_details=False,
+        )
+        gradient = np.asarray(gradient_driver.kernel())
+        descriptor = np.asarray(method.descriptor(), dtype=np.float64)
+        result = {
+            "converged": np.asarray(True),
+            "e_base": np.asarray(method.e_base, dtype=np.float64),
+            "e_corr": np.asarray(method.e_corr, dtype=np.float64),
+            "e_tot": np.asarray(energy, dtype=np.float64),
+            "descriptor": descriptor,
+            "gradient": gradient,
+            "force": -gradient,
+        }
+    return result
 
 
 def main(

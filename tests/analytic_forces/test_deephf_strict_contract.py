@@ -411,15 +411,17 @@ def test_multi_output_model_is_rejected():
             total = values.sum()
             return torch.stack((total, total))
 
+    method = DeePHF(
+        _small_reference(),
+        MultiOutputModel(),
+        projector_basis=SMALL_PROJECTOR_BASIS,
+    )
+
     with pytest.raises(
         DeePHFCapabilityError,
         match="must produce exactly one scalar energy",
     ):
-        DeePHF(
-            _small_reference(),
-            MultiOutputModel(),
-            projector_basis=SMALL_PROJECTOR_BASIS,
-        )
+        method.kernel()
 
 
 def test_model_projector_metadata_mismatch_is_rejected():
@@ -460,15 +462,37 @@ def test_nonfinite_model_output_is_rejected():
         def forward(self, values):
             return values.sum() * torch.tensor(float("nan"))
 
+    method = DeePHF(
+        _small_reference(),
+        NonfiniteOutputModel(),
+        projector_basis=SMALL_PROJECTOR_BASIS,
+    )
+
     with pytest.raises(
         DeePHFCapabilityError,
         match="correction model output must be finite",
     ):
-        DeePHF(
-            _small_reference(),
-            NonfiniteOutputModel(),
-            projector_basis=SMALL_PROJECTOR_BASIS,
-        )
+        method.kernel()
+
+
+def test_failed_energy_recalculation_clears_all_published_energy_fields():
+    method = DeePHF(
+        _small_reference(),
+        _small_model(),
+        projector_basis=SMALL_PROJECTOR_BASIS,
+    )
+    assert np.isfinite(method.kernel())
+    assert all(value is not None for value in (method.e_base, method.e_corr, method.e_tot))
+
+    with torch.no_grad():
+        method.model.linear.weight.fill_(float("nan"))
+
+    with pytest.raises(
+        DeePHFCapabilityError,
+        match="parameters and buffers must be finite",
+    ):
+        method.kernel()
+    assert (method.e_base, method.e_corr, method.e_tot) == (None, None, None)
 
 
 def test_force_gradient_rejects_detached_descriptor_dependence():

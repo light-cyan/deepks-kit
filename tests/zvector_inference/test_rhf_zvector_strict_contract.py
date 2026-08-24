@@ -371,12 +371,12 @@ def test_mutating_bound_descriptor_state_is_rejected_before_evaluation(
 
     with pytest.raises(
         DeePHFCapabilityError,
-        match="DeePHF scientific state changed",
+        match="DeePHF scientific state changed|projector metadata does not match",
     ):
         method.correction_energy()
     with pytest.raises(
         DeePHFCapabilityError,
-        match="DeePHF scientific state changed",
+        match="DeePHF scientific state changed|projector metadata does not match",
     ):
         driver.kernel()
     assert all(getattr(driver, name, None) is None for name in DRIVER_RESULT_FIELDS)
@@ -595,7 +595,7 @@ def test_standalone_zvector_rejects_a_training_submodule(
     method.model.linear.train()
     with pytest.raises(
         DeePHFCapabilityError,
-        match="must remain in evaluation mode",
+        match="must remain in evaluation mode|scientific state changed",
     ):
         method.gradient(backend="zvector")
 

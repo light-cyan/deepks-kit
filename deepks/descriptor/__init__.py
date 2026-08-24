@@ -15,11 +15,13 @@ from .validation import (
     DescriptorDifferentiabilityError,
     validate_differentiability,
 )
+from .workspace import DescriptorDerivativeWorkspace
 
 __all__ = [
     "AtomicDensityDescriptor",
     "DescriptorDiagnostics",
     "DescriptorDifferentiabilityError",
+    "DescriptorDerivativeWorkspace",
     "build_projector_molecule",
     "dD_dR_explicit",
     "descriptor",

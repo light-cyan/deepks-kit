@@ -15,9 +15,10 @@ from .capabilities import (
     force_model_fingerprint,
     validate_force_model,
 )
-from .gradient import _validate_atom_indices
+from .contracts import immutable_array
+from .driver import validate_atom_indices
 from .method import DeePHF
-from .pyscf_rhf import RHFScannerReferenceFactory
+from .pyscf_rhf_scanner import RHFScannerReferenceFactory
 
 
 class RHFDeePHFScannerError(RuntimeError):
@@ -92,11 +93,7 @@ def _immutable_float64_array(value, expected_shape) -> np.ndarray:
         )
     if not np.isfinite(array).all():
         raise RHFDeePHFScannerError("the scanner gradient must be finite")
-    contiguous = np.ascontiguousarray(array)
-    return np.frombuffer(
-        contiguous.tobytes(),
-        dtype=contiguous.dtype,
-    ).reshape(contiguous.shape)
+    return immutable_array(array)
 
 
 class RHFDeePHFGradientScanner:
@@ -192,7 +189,7 @@ class RHFDeePHFGradientScanner:
     def __call__(self, mol_or_coordinates, *, atmlst=None):
         """Return fresh-reference DeePHF energy and nuclear gradient."""
         self._clear_public_result()
-        atom_indices = _validate_atom_indices(self._atom_domain, atmlst)
+        atom_indices = validate_atom_indices(self._atom_domain, atmlst)
         _validate_model_inference_preflight(self._model)
         model_fingerprint = _model_state_fingerprint(self._model)
         fresh_reference, candidate_root = self._reference_factory.build(

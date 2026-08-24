@@ -11,15 +11,15 @@ from .method import (
     _DIRECT_RESPONSE_OPTIONS,
     _validated_backend_options,
 )
-from .pyscf_uhf import (
-    UHFAdjointAdapter,
+from .pyscf_uhf_adjoint import UHFAdjointAdapter
+from .pyscf_uhf_reference import (
     UHFResponse,
-    UHFResponseAdapter,
     UHFResponseDiagnostics,
     UHFResponseError,
     uhf_reference_fingerprint,
     validate_uhf_reference,
 )
+from .pyscf_uhf_response import UHFResponseAdapter
 
 
 _UHF_ZVECTOR_OPTIONS = frozenset(
@@ -71,10 +71,11 @@ class UHFDeePHF(DeePHF):
             adjoint_options=adjoint_options,
         )
 
+    @science_state_transaction
     def spin_ao_density(self) -> np.ndarray:
         """Return the native alpha and beta AO densities."""
         self._assert_science_state("spin-resolved AO density evaluation")
-        density = np.asarray(self.reference.make_rdm1())
+        density = self._context().spin_density
         expected_shape = (2, self.mol.nao, self.mol.nao)
         if density.shape != expected_shape:
             raise DeePHFCapabilityError(
@@ -91,18 +92,17 @@ class UHFDeePHF(DeePHF):
         self._assert_science_state("spin-resolved AO density evaluation")
         return density
 
+    @science_state_transaction
     def dq_dR_explicit_spin(self, atom_indices=None) -> np.ndarray:
         """Return additive alpha and beta components of fixed-density dq/dR."""
-        from .gradient import _validate_atom_indices
+        from .driver import validate_atom_indices
 
-        atom_indices = _validate_atom_indices(self.mol, atom_indices)
+        atom_indices = validate_atom_indices(self.mol, atom_indices)
         spin_density = self.spin_ao_density()
-        total_density = spin_density.sum(axis=0)
         components = np.stack(
             [
-                self._descriptor.dq_dR_explicit_component(
-                    total_density,
-                    spin_density[spin_index],
+                self._context().workspace.dq_dR_explicit(
+                    motion_density=spin_density[spin_index],
                     raw_atom_indices=atom_indices,
                 )
                 for spin_index in range(2)

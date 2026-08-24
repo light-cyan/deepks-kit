@@ -2,80 +2,32 @@
 
 import numpy as np
 
-from .capabilities import science_state_transaction
-from .gradient import (
-    _reset_driver_results,
-    _validate_atom_indices,
-    _validate_retain_details,
-)
-from .pyscf_rhf import RHFAdjointError
+from .driver import GradientDriver
+from .pyscf_rhf_reference import RHFAdjointError
 
 
-class RHFDeePHFZVectorGradients:
+class RHFDeePHFZVectorGradients(GradientDriver):
     """Evaluate the correction response through one RHF scalar adjoint."""
 
+    _backend_name = "zvector"
+    _binding_error_type = RHFAdjointError
+    _binding_error_message = "the RHF DeePHF Z-vector driver binding is invalid"
+    _construction_error_message = (
+        "the Z-vector driver requires an exact DeePHF method"
+    )
+
+    @classmethod
+    def _expected_method_type(cls):
+        from .method import DeePHF
+
+        return DeePHF
+
     def __init__(self, method, adjoint_options=None, retain_details=True):
-        from .method import DeePHF
-
-        if type(method) is not DeePHF:
-            raise TypeError("the Z-vector driver requires an exact DeePHF method")
-        self._base = method
-        self._bound_base = method
-        self._mol = method.mol
-        self._bound_mol = method.mol
-        self._backend = "zvector"
-        self.retain_details = _validate_retain_details(retain_details)
-        self.response_options = dict(adjoint_options or {})
-        self._reset_results()
-
-    @property
-    def base(self):
-        return self._base
-
-    @property
-    def mol(self):
-        return self._mol
-
-    @property
-    def backend(self):
-        return self._backend
-
-    def _validate_driver_binding(self) -> None:
-        from .method import DeePHF
-
-        if (
-            type(self._base) is not DeePHF
-            or self._base is not self._bound_base
-            or self._mol is not self._bound_mol
-            or self._mol is not self._base.mol
-            or self._backend != "zvector"
-        ):
-            raise RHFAdjointError(
-                "the RHF DeePHF Z-vector driver binding is invalid"
-            )
-
-    def _reset_results(self):
-        _reset_driver_results(self)
-
-    @property
-    def adjoint_diagnostics(self):
-        return (
-            self._response_diagnostics
-            if getattr(self, "adjoint_result", None) is None
-            else self.adjoint_result.diagnostics
-        )
-
-    @property
-    def response_diagnostics(self):
-        """Return the scalar-adjoint diagnostics under the common driver name."""
-        return self.adjoint_diagnostics
+        super().__init__(method, adjoint_options, retain_details)
 
     def _compact_kernel(self, atom_indices):
-        descriptor_diagnostics, explicit, adjoint_diagnostics, response_gradient = self.base._zvector_inputs(
-            self.response_options,
-            atom_indices=atom_indices,
-            compact=True,
-        )
+        force_inputs = self.base._force_inputs()
+        descriptor_diagnostics, sensitivity = force_inputs
         self.base._assert_science_state("native RHF gradient evaluation")
         reference_gradient = np.asarray(
             self.base.reference.nuc_grad_method().kernel(
@@ -83,26 +35,42 @@ class RHFDeePHFZVectorGradients:
             )
         )
         self.base._validate_science_state("native RHF gradient evaluation")
+        if not np.any(sensitivity):
+            if (
+                reference_gradient.dtype != np.dtype(np.float64)
+                or np.iscomplexobj(reference_gradient)
+                or not np.isfinite(reference_gradient).all()
+            ):
+                raise RHFAdjointError("the compact RHF native gradient is invalid")
+            return {
+                "descriptor_diagnostics": descriptor_diagnostics,
+                "response_diagnostics": None,
+                "de": reference_gradient,
+            }
+        (
+            _descriptor_diagnostics,
+            explicit,
+            adjoint_diagnostics,
+            response_gradient,
+        ) = self.base._zvector_inputs(
+            self.adjoint_options,
+            atom_indices=atom_indices,
+            compact=True,
+            force_inputs=force_inputs,
+        )
         total = reference_gradient + explicit + response_gradient
         if total.shape != reference_gradient.shape or not np.isfinite(total).all():
             raise RHFAdjointError("the compact RHF Z-vector gradient is invalid")
-        return descriptor_diagnostics, adjoint_diagnostics, total
+        return {
+            "descriptor_diagnostics": descriptor_diagnostics,
+            "response_diagnostics": adjoint_diagnostics,
+            "de": total,
+        }
 
-    @science_state_transaction
-    def kernel(self, atmlst=None) -> np.ndarray:
+    def _detail_kernel(self, atom_indices) -> dict:
         """Evaluate d(E_base + E_corr)/dR without a coordinate-wise density response."""
-        self._reset_results()
-        self._validate_driver_binding()
-        atom_indices = _validate_atom_indices(self.mol, atmlst)
-        if not self.retain_details:
-            (
-                self.descriptor_diagnostics,
-                self._response_diagnostics,
-                self.de,
-            ) = self._compact_kernel(atom_indices)
-            return self.de
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
-            self.response_options,
+            self.adjoint_options,
             atom_indices=atom_indices,
         )
         self.base._assert_science_state("native RHF gradient evaluation")
@@ -189,35 +157,20 @@ class RHFDeePHFZVectorGradients:
                 "the RHF scalar-adjoint response partitions are inconsistent"
             )
         self.base._assert_science_state("Z-vector gradient assembly")
-        self.adjoint_result = adjoint
-        self.descriptor_diagnostics = descriptor_diagnostics
-        self.reference_gradient = reference_gradient
-        self.dq_dR_explicit = dq_dR_explicit
-        self.correction_gradient_explicit = correction_gradient_explicit
-        self.correction_gradient_metric = correction_gradient_metric
-        self.correction_gradient_adjoint_nuclear = (
-            correction_gradient_adjoint_nuclear
-        )
-        self.correction_gradient_adjoint_metric = (
-            correction_gradient_adjoint_metric
-        )
-        self.correction_gradient_occupied_virtual = (
-            correction_gradient_occupied_virtual
-        )
-        self.correction_gradient_response = correction_gradient_response
-        self.correction_gradient = correction_gradient
-        self.de_full = de_full
-        self.de = de_full
-        return self.de
-
-    def run(self, atmlst=None):
-        """Evaluate the gradient and return this populated driver."""
-        self.kernel(atmlst=atmlst)
-        return self
-
-    def forces(self, atmlst=None) -> np.ndarray:
-        """Evaluate nuclear forces as minus the energy gradient."""
-        return -self.kernel(atmlst=atmlst)
+        return {
+            "adjoint_result": adjoint,
+            "descriptor_diagnostics": descriptor_diagnostics,
+            "reference_gradient": reference_gradient,
+            "dq_dR_explicit": dq_dR_explicit,
+            "correction_gradient_explicit": correction_gradient_explicit,
+            "correction_gradient_metric": correction_gradient_metric,
+            "correction_gradient_adjoint_nuclear": correction_gradient_adjoint_nuclear,
+            "correction_gradient_adjoint_metric": correction_gradient_adjoint_metric,
+            "correction_gradient_occupied_virtual": correction_gradient_occupied_virtual,
+            "correction_gradient_response": correction_gradient_response,
+            "correction_gradient": correction_gradient,
+            "de_full": de_full,
+        }
 
     def as_scanner(self, **scanner_options):
         """Build a strict fresh-reference RHF DeePHF gradient scanner."""

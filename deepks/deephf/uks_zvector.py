@@ -1,53 +1,31 @@
 """Strict coupled scalar-adjoint nuclear gradients for UKS DeePHF."""
 
-from types import MappingProxyType
-
 import numpy as np
 
-from .pyscf_uks import (
-    UKSAdjointError,
-    native_uks_gradient,
-)
-from .gradient import _validate_retain_details
+from .pyscf_uks_reference import UKSAdjointError
+from .pyscf_uks_response import native_uks_gradient
 from .uhf_zvector import UHFDeePHFZVectorGradients
 
 
 class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
     """Evaluate one finite-grid UKS correction through one coupled adjoint."""
 
+    _binding_error_type = UKSAdjointError
+    _binding_error_message = "the UKS DeePHF Z-vector driver binding is invalid"
+    _construction_error_message = (
+        "the UKS Z-vector gradient driver requires an exact UKSDeePHF method"
+    )
+
+    @classmethod
+    def _expected_method_type(cls):
+        from .uks_method import UKSDeePHF
+
+        return UKSDeePHF
+
     def __init__(self, method, adjoint_options=None, retain_details=True):
-        from .uks_method import UKSDeePHF
+        super().__init__(method, adjoint_options, retain_details)
 
-        if type(method) is not UKSDeePHF:
-            raise TypeError("the UKS Z-vector gradient driver requires an exact UKSDeePHF method")
-        self._base = method
-        self._bound_base = method
-        self._mol = method.mol
-        self._bound_mol = method.mol
-        self._backend = "zvector"
-        self.retain_details = _validate_retain_details(retain_details)
-        self._adjoint_options = MappingProxyType(dict(adjoint_options or {}))
-        self._bound_adjoint_options = self._adjoint_options
-        self._reset_results()
-
-    def _validate_driver_binding(self) -> None:
-        from .uks_method import UKSDeePHF
-
-        if (
-            type(self._base) is not UKSDeePHF
-            or self._base is not self._bound_base
-            or self._mol is not self._bound_mol
-            or self._mol is not self._base.mol
-            or self._backend != "zvector"
-            or self._adjoint_options is not self._bound_adjoint_options
-            or not isinstance(self._adjoint_options, MappingProxyType)
-        ):
-            raise UKSAdjointError("the UKS DeePHF Z-vector driver binding is invalid")
-
-    def _reset_results(self) -> None:
-        super()._reset_results()
-
-    def _kernel(self, atom_indices) -> dict:
+    def _detail_kernel(self, atom_indices) -> dict:
         diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
             self.adjoint_options,
             atom_indices=atom_indices,
@@ -105,7 +83,9 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
             "correction_gradient_metric": metric,
             "correction_gradient_adjoint_nuclear": nuclear,
             "correction_gradient_adjoint_fixed_grid": np.asarray(adjoint.correction_gradient_adjoint_fixed_grid),
-            "correction_gradient_adjoint_grid_coordinate": np.asarray(adjoint.correction_gradient_adjoint_grid_coordinate),
+            "correction_gradient_adjoint_grid_coordinate": np.asarray(
+                adjoint.correction_gradient_adjoint_grid_coordinate
+            ),
             "correction_gradient_adjoint_grid_weight": np.asarray(adjoint.correction_gradient_adjoint_grid_weight),
             "correction_gradient_adjoint_metric": adjoint_metric,
             "correction_gradient_occupied_virtual": ov,
@@ -115,14 +95,34 @@ class UKSDeePHFZVectorGradients(UHFDeePHFZVectorGradients):
         }
 
     def _compact_kernel(self, atom_indices) -> dict:
-        diagnostics, explicit, adjoint_diagnostics, response_gradient = self.base._zvector_inputs(
-            self.adjoint_options,
-            atom_indices=atom_indices,
-            compact=True,
-        )
+        force_inputs = self.base._force_inputs()
+        diagnostics, sensitivity = force_inputs
         self.base._validate_science_state("UKS Z-vector native gradient evaluation")
         reference = native_uks_gradient(self.base.reference, atom_indices)
         self.base._validate_science_state("UKS Z-vector native gradient evaluation")
+        if not np.any(sensitivity):
+            if (
+                reference.dtype != np.dtype(np.float64)
+                or np.iscomplexobj(reference)
+                or not np.isfinite(reference).all()
+            ):
+                raise UKSAdjointError("the compact UKS native gradient is invalid")
+            return {
+                "descriptor_diagnostics": diagnostics,
+                "response_diagnostics": None,
+                "de": reference,
+            }
+        (
+            _descriptor_diagnostics,
+            explicit,
+            adjoint_diagnostics,
+            response_gradient,
+        ) = self.base._zvector_inputs(
+            self.adjoint_options,
+            atom_indices=atom_indices,
+            compact=True,
+            force_inputs=force_inputs,
+        )
         total = reference + explicit + response_gradient
         if total.shape != reference.shape or not np.isfinite(total).all():
             raise UKSAdjointError("the compact UKS Z-vector gradient is invalid")

@@ -24,11 +24,12 @@ import deepks
 from deepks.descriptor import DescriptorDifferentiabilityError
 
 from .method import DeePHF
-from .pyscf_rhf import (
+from .pyscf_rhf_reference import (
     RHFResponseError,
     reference_provenance_snapshot,
     validate_reference,
 )
+from .contracts import immutable_array
 
 
 GENERATOR_NAME = "deepks.deephf.force_data"
@@ -105,13 +106,6 @@ def _scalar_target(value: Any, name: str) -> float:
     if not np.isfinite(scalar):
         raise RHFForceDataError(f"{name} must be finite")
     return scalar
-
-
-def _immutable(array: np.ndarray) -> np.ndarray:
-    contiguous = np.ascontiguousarray(array, dtype=np.float64)
-    return np.frombuffer(contiguous.tobytes(), dtype=np.float64).reshape(
-        contiguous.shape
-    )
 
 
 def _response_provenance(response) -> dict[str, Any]:
@@ -216,7 +210,6 @@ def generate_rhf_force_frame(
         projector_basis=projector_basis,
         response_options=options,
     )
-    method.kernel()
     molecule = method.mol
     target_energy = _scalar_target(e_target, "e_target")
     target_force = _float64_array(
@@ -225,12 +218,15 @@ def generate_rhf_force_frame(
         "f_target",
     )
 
-    gradient = method.nuc_grad_method(
-        backend="direct",
-        retain_details=True,
-        **options,
-    )
-    gradient.kernel()
+    with method.calculation():
+        method.kernel()
+        gradient = method.nuc_grad_method(
+            backend="direct",
+            retain_details=True,
+            **options,
+        )
+        gradient.kernel()
+        descriptor_values = method.descriptor()
     descriptor_diagnostics = gradient.descriptor_diagnostics
     if descriptor_diagnostics.structural_zero_blocks:
         raise DescriptorDifferentiabilityError(
@@ -285,7 +281,7 @@ def generate_rhf_force_frame(
         axis=1,
     )
     descriptor = _float64_array(
-        method.descriptor(),
+        descriptor_values,
         (method.n_descriptor_atoms, method.n_descriptor_features),
         "descriptor",
     )
@@ -320,7 +316,10 @@ def generate_rhf_force_frame(
         "dq_dR_relaxed": explicit.shape,
     }
     arrays = {
-        name: _immutable(_float64_array(value, expected_shapes[name], name))
+        name: immutable_array(
+            _float64_array(value, expected_shapes[name], name),
+            dtype=np.float64,
+        )
         for name, value in arrays.items()
     }
 

@@ -8,14 +8,13 @@ from .method import (
     _DIRECT_RESPONSE_OPTIONS,
     _validated_backend_options,
 )
-from .pyscf_rks import (
-    RKSAdjointAdapter,
-    RKSResponse,
-    RKSResponseAdapter,
-    RKSResponseError,
+from .pyscf_dft_provenance import RKSResponse, RKSResponseError
+from .pyscf_rks_adjoint import RKSAdjointAdapter
+from .pyscf_rks_reference import (
     rks_reference_fingerprint,
     validate_rks_reference,
 )
+from .pyscf_rks_response import RKSResponseAdapter
 
 
 _RKS_ZVECTOR_OPTIONS = frozenset(
