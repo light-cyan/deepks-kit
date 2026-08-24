@@ -53,3 +53,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+
+# Private working files
+/draft.md
+/TODO.md
