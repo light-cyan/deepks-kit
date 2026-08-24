@@ -166,6 +166,6 @@ def test_selected_atoms_limit_coordinate_response_work(
     )
     selected = driver.kernel(atmlst=(3, 1))
 
-    assert solved_atoms == [((3,), "gradient"), ((1,), "gradient")]
+    assert solved_atoms == [((3,), "partitions"), ((1,), "partitions")]
     assert selected.shape == (2, 3)
     assert driver.dq_dR_response.shape[:2] == (2, 3)

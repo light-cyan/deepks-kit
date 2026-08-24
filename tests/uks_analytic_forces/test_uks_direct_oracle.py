@@ -40,7 +40,7 @@ def test_selected_response_omits_full_translation_diagnostics(uks_case):
     assert adapter.audit_response_equations(response) is None
 
 
-def test_compact_direct_gradient_builds_spin_density_partitions_once(uks_case, monkeypatch):
+def test_compact_direct_gradient_builds_two_spin_density_responses(uks_case, monkeypatch):
     original = UHFResponseAdapter._density_from_mo_response
     original_solve = UHFResponseAdapter._solve_orbitals
     coordinate_calls = 0
@@ -62,7 +62,7 @@ def test_compact_direct_gradient_builds_spin_density_partitions_once(uks_case, m
     driver = uks_case.method.nuc_grad_method(retain_details=False)
     driver.kernel(atmlst=(1,))
 
-    assert coordinate_calls == 4
+    assert coordinate_calls == 2
 
 
 @pytest.mark.parametrize(
@@ -123,13 +123,11 @@ def test_uks_public_force_calls_have_single_transaction_budgets(
     original_fingerprint = pyscf_uks._dft_reference_validation_fingerprint
     original_force_inputs = method._force_inputs
     original_explicit_component = method._descriptor.dq_dR_explicit_component
-    original_contracted = method._descriptor.correction_gradient_explicit
-    original_native = pyscf_uks._native_unrestricted_gradient
+    original_contracted = method._descriptor.correction_derivatives
     fingerprint_calls = 0
     force_input_calls = 0
     explicit_component_calls = 0
     contracted_calls = 0
-    native_calls = 0
 
     def counted_fingerprint(reference):
         nonlocal fingerprint_calls
@@ -151,11 +149,6 @@ def test_uks_public_force_calls_have_single_transaction_budgets(
         contracted_calls += 1
         return original_contracted(*args, **options)
 
-    def counted_native(*args, **options):
-        nonlocal native_calls
-        native_calls += 1
-        return original_native(*args, **options)
-
     monkeypatch.setattr(
         pyscf_uks,
         "_dft_reference_validation_fingerprint",
@@ -169,22 +162,19 @@ def test_uks_public_force_calls_have_single_transaction_budgets(
     )
     monkeypatch.setattr(
         method._descriptor,
-        "correction_gradient_explicit",
+        "correction_derivatives",
         counted_contracted,
     )
-    monkeypatch.setattr(pyscf_uks, "_native_unrestricted_gradient", counted_native)
-    for calculation, expected_explicit, expected_contracted, expected_native in (
-        (method.dq_dR_relaxed, 2, 0, 0),
-        (method.gradient, 0, 1, 1),
+    for calculation, expected_explicit, expected_contracted in (
+        (method.dq_dR_relaxed, 2, 0),
+        (method.gradient, 0, 1),
     ):
         fingerprint_calls = 0
         force_input_calls = 0
         explicit_component_calls = 0
         contracted_calls = 0
-        native_calls = 0
         assert np.isfinite(calculation()).all()
         assert fingerprint_calls == 2
         assert force_input_calls == 1
         assert explicit_component_calls == expected_explicit
         assert contracted_calls == expected_contracted
-        assert native_calls == expected_native

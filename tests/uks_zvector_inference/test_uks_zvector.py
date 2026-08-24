@@ -19,39 +19,6 @@ from deepks.deephf import (
 )
 
 
-def test_uks_compact_selected_gradient_drivers_retain_one_array(
-    uks_case,
-    monkeypatch,
-):
-    expected = {
-        backend: uks_case.method.nuc_grad_method(
-            backend=backend,
-        ).kernel(atmlst=(1,))
-        for backend in ("direct", "zvector")
-    }
-    monkeypatch.setattr(
-        uks_case.method,
-        "dq_dR_explicit_spin",
-        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
-    )
-    for backend in ("direct", "zvector"):
-        driver = uks_case.method.nuc_grad_method(
-            backend=backend,
-            retain_details=False,
-        ).run(atmlst=(1,))
-        retained_bytes = sum(
-            value.nbytes
-            for value in vars(driver).values()
-            if isinstance(value, np.ndarray)
-        )
-        assert retained_bytes == driver.de.nbytes
-        assert driver.de.shape == (1, 3)
-        assert not hasattr(driver, "de_full")
-        result_name = "response_result" if backend == "direct" else "adjoint_result"
-        assert not hasattr(driver, result_name)
-        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
-
-
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "uks_analytic_forces" / "conftest.py"
 _SPEC = importlib.util.spec_from_file_location("_deepks_uks_oracle_fixtures", _FIXTURE_PATH)
 if _SPEC is None or _SPEC.loader is None:

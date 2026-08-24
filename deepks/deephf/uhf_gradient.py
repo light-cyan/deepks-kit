@@ -85,13 +85,9 @@ class UHFDeePHFGradients:
             atom_indices=atom_indices
         )
         dq_dP = self.base.dq_dP()
-        spin_density_response, metric_density, occupied_virtual_density = (
-            np.stack(partition) for partition in density_partitions
-        )
-        dq_response_spin = np.einsum(
-            "apij,sbxij->sbxap",
-            dq_dP,
-            spin_density_response,
+        spin_density_response, metric_density, occupied_virtual_density = density_partitions
+        dq_response_spin = np.stack(
+            [np.einsum("apij,bxij->bxap", dq_dP, density) for density in spin_density_response]
         )
         dq_relaxed_spin = dq_explicit_spin + dq_response_spin
         dq_explicit = dq_explicit_spin.sum(axis=0)
@@ -106,15 +102,11 @@ class UHFDeePHFGradients:
             dq_explicit_spin,
             sensitivity,
         )
-        correction_metric_spin = np.einsum(
-            "ij,sbxij->sbx",
-            objective_ao_potential,
-            metric_density,
+        correction_metric_spin = np.stack(
+            [np.einsum("ij,bxij->bx", objective_ao_potential, density) for density in metric_density]
         )
-        correction_occupied_virtual_spin = np.einsum(
-            "ij,sbxij->sbx",
-            objective_ao_potential,
-            occupied_virtual_density,
+        correction_occupied_virtual_spin = np.stack(
+            [np.einsum("ij,bxij->bx", objective_ao_potential, density) for density in occupied_virtual_density]
         )
         correction_response_spin = np.einsum(
             "sbxap,ap->sbx",
@@ -160,10 +152,15 @@ class UHFDeePHFGradients:
 
     def _compact_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response_diagnostics, density_partitions = self.base._solve_response(
+        explicit, objective = self.base._correction_derivatives(
+            sensitivity,
+            atom_indices,
+        )
+        response_diagnostics, response = self.base._solve_response(
             self.response_options,
             atom_indices=atom_indices,
             result_mode="gradient",
+            objective=objective,
         )
         self.base._validate_science_state("UHF native gradient evaluation")
         reference_gradient = _native_unrestricted_gradient(
@@ -172,15 +169,6 @@ class UHFDeePHFGradients:
             atom_indices,
         )
         self.base._validate_science_state("UHF native gradient evaluation")
-        explicit = self.base._correction_gradient_explicit(
-            sensitivity,
-            atom_indices,
-        )
-        objective = self.base._correction_ao_potential(sensitivity)
-        response = sum(
-            np.einsum("ij,bxij->bx", objective, spin_density)
-            for spin_density in density_partitions[0]
-        )
         total = reference_gradient + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():
             raise UHFResponseError("the compact UHF gradient is invalid")

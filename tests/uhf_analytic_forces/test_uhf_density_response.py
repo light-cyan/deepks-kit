@@ -76,7 +76,7 @@ def test_spin_resolved_ao_density_response_matches_finite_difference(
     )
 
 
-def test_compact_direct_gradient_builds_spin_density_partitions_once(
+def test_compact_direct_gradient_builds_two_spin_density_responses(
     uhf_oracle_case,
     monkeypatch,
 ):
@@ -105,7 +105,7 @@ def test_compact_direct_gradient_builds_spin_density_partitions_once(
     driver = uhf_oracle_case.method.nuc_grad_method(retain_details=False)
     driver.kernel(atmlst=(1,))
 
-    assert coordinate_calls == 4
+    assert coordinate_calls == 2
 
 
 def test_method_density_accessors_retain_spin_resolution(uhf_oracle_case):

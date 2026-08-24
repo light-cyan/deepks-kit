@@ -176,16 +176,18 @@ class RHFDeePHFGradients:
         for block_atoms, block_result in adapter.coordinate_blocks(
             block_size,
             atom_indices=atom_indices,
-            result_mode="gradient",
+            result_mode="gradient" if compact else "partitions",
+            objective=objective_ao_potential,
         ):
             target = [result_positions[atom_index] for atom_index in block_atoms]
-            diagnostics, density_partitions = block_result
-            density, density_metric, density_occupied_virtual = density_partitions
-            response_work[target] = (
-                np.einsum("ij,bxij->bx", objective_ao_potential, density)
-                if compact
-                else np.einsum("apij,bxij->bxap", dq_dP, density)
-            )
+            if compact:
+                diagnostics, response_work[target] = block_result
+            else:
+                block_response, density_partitions = block_result
+                diagnostics = block_response.diagnostics
+                density, density_metric, density_occupied_virtual = density_partitions
+            if not compact:
+                response_work[target] = np.einsum("apij,bxij->bxap", dq_dP, density)
             if not compact:
                 metric_gradient[target] = np.einsum(
                     "ij,bxij->bx",
@@ -254,11 +256,10 @@ class RHFDeePHFGradients:
                 atmlst=list(atom_indices)
             )
         )
-        explicit = self.base._correction_gradient_explicit(
+        explicit, objective = self.base._correction_derivatives(
             sensitivity,
             atom_indices,
         )
-        objective = self.base._correction_ao_potential(sensitivity)
         coordinate_block_size = self.response_options.get(
             "coordinate_block_size",
             self.base.response_options.get("coordinate_block_size"),
@@ -269,14 +270,12 @@ class RHFDeePHFGradients:
                 **self.response_options,
             }
             response_options.pop("coordinate_block_size", None)
-            response_diagnostics, density_partitions = RHFResponseAdapter(
+            response_diagnostics, response = RHFResponseAdapter(
                 self.base.reference,
                 **response_options,
-            )._solve_for_gradient(atom_indices=atom_indices)
-            response = np.einsum(
-                "ij,bxij->bx",
+            )._solve_for_gradient(
                 objective,
-                density_partitions[0],
+                atom_indices=atom_indices,
             )
         else:
             summary, response, _metric, _occupied_virtual = (

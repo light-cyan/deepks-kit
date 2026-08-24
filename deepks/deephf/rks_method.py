@@ -6,11 +6,9 @@ from .capabilities import science_state_transaction
 from .method import (
     DeePHF,
     _DIRECT_RESPONSE_OPTIONS,
-    _immutable_array,
     _validated_backend_options,
 )
 from .pyscf_rks import (
-    RKSAdjoint,
     RKSAdjointAdapter,
     RKSResponse,
     RKSResponseAdapter,
@@ -34,6 +32,10 @@ _RKS_ZVECTOR_OPTIONS = frozenset(
 
 class RKSDeePHF(DeePHF):
     """Evaluate a perturbative correction around one strict RKS reference."""
+
+    _adjoint_adapter_type = RKSAdjointAdapter
+    _response_adapter_type = RKSResponseAdapter
+    _zvector_options = _RKS_ZVECTOR_OPTIONS
 
     @staticmethod
     def _validate_reference_object(reference):
@@ -59,41 +61,6 @@ class RKSDeePHF(DeePHF):
             device=device,
             response_options=response_options,
             adjoint_options=adjoint_options,
-        )
-
-    @science_state_transaction
-    def response(self, **response_options) -> RKSResponse:
-        """Solve the audited complete finite-grid RKS density response."""
-        self.validate_force_compatibility()
-        return self._solve_response(response_options)
-
-    def _solve_response(
-        self,
-        response_options,
-        atom_indices=None,
-        result_mode="response",
-    ):
-        """Solve one response after the caller has validated descriptor semantics."""
-        options = _validated_backend_options(
-            self.response_options,
-            response_options,
-            _DIRECT_RESPONSE_OPTIONS,
-            "direct",
-        )
-        adapter = RKSResponseAdapter(self.reference, **options)
-        if result_mode == "gradient":
-            return adapter._solve_for_gradient(atom_indices=atom_indices)
-        if result_mode == "partitions":
-            response, density_partitions = adapter._solve_with_density_partitions(
-                atom_indices=atom_indices
-            )
-        else:
-            response = adapter.solve(atom_indices=atom_indices)
-        self._seal_response(response)
-        return (
-            (response, density_partitions)
-            if result_mode == "partitions"
-            else response
         )
 
     def _validate_response(self, response: RKSResponse) -> RKSResponse:
@@ -158,29 +125,6 @@ class RKSDeePHF(DeePHF):
             response=response,
             **response_options,
         )
-
-    @science_state_transaction
-    def adjoint(self, **adjoint_options) -> RKSAdjoint:
-        """Solve one audited correction-specific RKS scalar adjoint."""
-        return self._zvector_inputs(adjoint_options)[2]
-
-    def _zvector_inputs(self, adjoint_options, atom_indices=None):
-        """Build one RKS sensitivity and one scalar adjoint."""
-        self._validate_reference_object(self.reference)
-        descriptor_diagnostics, sensitivity = self._force_inputs()
-        sensitivity = _immutable_array(sensitivity)
-        options = _validated_backend_options(
-            self.adjoint_options,
-            adjoint_options,
-            _RKS_ZVECTOR_OPTIONS,
-            "zvector",
-        )
-        objective = self._correction_ao_potential(sensitivity)
-        adjoint = RKSAdjointAdapter(self.reference, **options).solve(
-            objective,
-            atom_indices=atom_indices,
-        )
-        return descriptor_diagnostics, sensitivity, adjoint
 
     def nuc_grad_method(self, *, backend="direct", retain_details=True, **backend_options):
         """Build one explicitly selected strict RKS gradient backend."""

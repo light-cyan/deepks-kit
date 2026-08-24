@@ -59,13 +59,9 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
             atom_indices=atom_indices
         )
         dq_dP = self.base.dq_dP()
-        spin_density_response, metric_density, ov_density = (
-            np.stack(partition) for partition in density_partitions
-        )
-        dq_response_spin = np.einsum(
-            "apij,sbxij->sbxap",
-            dq_dP,
-            spin_density_response,
+        spin_density_response, metric_density, ov_density = density_partitions
+        dq_response_spin = np.stack(
+            [np.einsum("apij,bxij->bxap", dq_dP, density) for density in spin_density_response]
         )
         dq_relaxed_spin = dq_explicit_spin + dq_response_spin
         dq_explicit = dq_explicit_spin.sum(axis=0)
@@ -73,8 +69,8 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
         dq_relaxed = dq_relaxed_spin.sum(axis=0)
         objective = self.base._correction_ao_potential(sensitivity, dq_dP)
         correction_explicit_spin = np.einsum("sbxap,ap->sbx", dq_explicit_spin, sensitivity)
-        correction_metric_spin = np.einsum("ij,sbxij->sbx", objective, metric_density)
-        correction_ov_spin = np.einsum("ij,sbxij->sbx", objective, ov_density)
+        correction_metric_spin = np.stack([np.einsum("ij,bxij->bx", objective, density) for density in metric_density])
+        correction_ov_spin = np.stack([np.einsum("ij,bxij->bx", objective, density) for density in ov_density])
         correction_response_spin = np.einsum("sbxap,ap->sbx", dq_response_spin, sensitivity)
         correction_spin = correction_explicit_spin + correction_response_spin
         correction_explicit = correction_explicit_spin.sum(axis=0)
@@ -111,20 +107,16 @@ class UKSDeePHFGradients(UHFDeePHFGradients):
 
     def _compact_kernel(self, atom_indices) -> dict:
         diagnostics, sensitivity = self.base._force_inputs()
-        response_diagnostics, density_partitions = self.base._solve_response(
+        explicit, objective = self.base._correction_derivatives(sensitivity, atom_indices)
+        response_diagnostics, response = self.base._solve_response(
             self.response_options,
             atom_indices=atom_indices,
             result_mode="gradient",
+            objective=objective,
         )
         self.base._validate_science_state("UKS native gradient evaluation")
         reference = native_uks_gradient(self.base.reference, atom_indices)
         self.base._validate_science_state("UKS native gradient evaluation")
-        explicit = self.base._correction_gradient_explicit(sensitivity, atom_indices)
-        objective = self.base._correction_ao_potential(sensitivity)
-        response = sum(
-            np.einsum("ij,bxij->bx", objective, spin_density)
-            for spin_density in density_partitions[0]
-        )
         total = reference + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():
             raise UKSResponseError("the compact UKS gradient is invalid")

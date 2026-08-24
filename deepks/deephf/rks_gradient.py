@@ -140,10 +140,15 @@ class RKSDeePHFGradients:
 
     def _compact_kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response_diagnostics, density_partitions = self.base._solve_response(
+        explicit, objective = self.base._correction_derivatives(
+            sensitivity,
+            atom_indices,
+        )
+        response_diagnostics, response = self.base._solve_response(
             self.response_options,
             atom_indices=atom_indices,
             result_mode="gradient",
+            objective=objective,
         )
         self.base._validate_science_state("RKS native gradient evaluation")
         reference_gradient = native_rks_gradient(
@@ -151,12 +156,6 @@ class RKSDeePHFGradients:
             atom_indices,
         )
         self.base._validate_science_state("RKS native gradient evaluation")
-        explicit = self.base._correction_gradient_explicit(
-            sensitivity,
-            atom_indices,
-        )
-        objective = self.base._correction_ao_potential(sensitivity)
-        response = np.einsum("ij,bxij->bx", objective, density_partitions[0])
         total = reference_gradient + explicit + response
         if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():
             raise RKSResponseError("the compact RKS gradient is invalid")

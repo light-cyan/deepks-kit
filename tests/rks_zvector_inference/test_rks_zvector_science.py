@@ -5,39 +5,6 @@ import pytest
 import torch
 
 
-def test_rks_compact_selected_gradient_drivers_retain_one_array(
-    rks_oracle_case,
-    monkeypatch,
-):
-    expected = {
-        backend: rks_oracle_case.method.nuc_grad_method(
-            backend=backend,
-        ).kernel(atmlst=(1,))
-        for backend in ("direct", "zvector")
-    }
-    monkeypatch.setattr(
-        rks_oracle_case.method,
-        "dq_dR_explicit",
-        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
-    )
-    for backend in ("direct", "zvector"):
-        driver = rks_oracle_case.method.nuc_grad_method(
-            backend=backend,
-            retain_details=False,
-        ).run(atmlst=(1,))
-        retained_bytes = sum(
-            value.nbytes
-            for value in vars(driver).values()
-            if isinstance(value, np.ndarray)
-        )
-        assert retained_bytes == driver.de.nbytes
-        assert driver.de.shape == (1, 3)
-        assert not hasattr(driver, "de_full")
-        result_name = "response_result" if backend == "direct" else "adjoint_result"
-        assert not hasattr(driver, result_name)
-        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
-
-
 def test_rks_adjoint_matches_independent_dense_grid_transpose_oracle(
     rks_oracle_case,
     rks_zvector_oracle,

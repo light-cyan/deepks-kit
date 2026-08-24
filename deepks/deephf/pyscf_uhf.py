@@ -1516,11 +1516,11 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         """Return a response and its transient spin-density work arrays."""
         return self._solve(atom_indices, "partitions")
 
-    def _solve_for_gradient(self, atom_indices=None):
-        """Return compact diagnostics and transient spin-density work arrays."""
-        return self._solve(atom_indices, "gradient")
+    def _solve_for_gradient(self, objective, atom_indices=None):
+        """Return compact diagnostics and the final density contraction."""
+        return self._solve(atom_indices, "gradient", objective)
 
-    def _solve(self, atom_indices, result_mode):
+    def _solve(self, atom_indices, result_mode, objective=None):
         self._validate_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         coefficient, energy, occupation, occupied, virtual, minimum_gaps = self._state()
@@ -1565,7 +1565,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         occupied_virtual_densities = []
         metric_residuals = []
         for spin_index in range(2):
-            if result_mode == "response":
+            if result_mode != "partitions":
                 density_response = self._density_from_mo_response(
                     responses[spin_index],
                     coefficient[spin_index],
@@ -1720,13 +1720,11 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 "UHF response invariant exceeds tolerance "
                 f"{self.invariant_tolerance:.3e}: maximum={max(invariant_values):.3e}"
             )
-        density_partitions = (
-            tuple(density_responses),
-            tuple(metric_densities),
-            tuple(occupied_virtual_densities),
-        )
         if result_mode == "gradient":
-            return diagnostics, density_partitions
+            return diagnostics, sum(
+                np.einsum("ij,bxij->bx", objective, density)
+                for density in density_responses
+            )
         response = UHFResponse(
             reference_identity=id(self.reference),
             state_fingerprint=self._reference_fingerprint(self.reference),
@@ -1747,7 +1745,18 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             response,
             integrity_fingerprint=uhf_response_integrity_fingerprint(response),
         )
-        return (response, density_partitions) if result_mode == "partitions" else response
+        return (
+            (
+                response,
+                (
+                    tuple(density_responses),
+                    tuple(metric_densities),
+                    tuple(occupied_virtual_densities),
+                ),
+            )
+            if result_mode == "partitions"
+            else response
+        )
 
     def _validate_supplied_structure(
         self,
@@ -2582,6 +2591,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         occupied,
         virtual,
         atom_indices=None,
+        compact=False,
     ):
         atom_indices = self._response_atom_indices(atom_indices)
         overlap_derivative = self._overlap_derivative(atom_indices)
@@ -2593,6 +2603,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         metric_spin = []
         nuclear_spin = []
         adjoint_metric_spin = []
+        response = np.zeros((len(atom_indices), 3), dtype=np.float64)
         for spin in range(2):
             occupied_coefficients = coefficient[spin][:, occupied[spin]]
             overlap_mo = np.einsum(
@@ -2612,9 +2623,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 - overlap_mo[..., virtual[spin], :]
                 * energy[spin, occupied[spin]]
             )
-            nuclear_spin.append(
-                -np.einsum("ai,...ai->...", zvector[spin], bare_rhs)
-            )
+            nuclear = -np.einsum("ai,...ai->...", zvector[spin], bare_rhs)
             objective_occupied = objective_mo[spin][occupied[spin]][
                 :, occupied[spin]
             ]
@@ -2634,19 +2643,25 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
                 + adjoint_potential_occupied.T
             )
             overlap_occupied = overlap_mo[..., occupied[spin], :]
-            metric_spin.append(
-                np.einsum(
-                    "...ij,ij->...",
-                    overlap_occupied,
-                    -objective_occupied,
-                )
+            metric = np.einsum(
+                "...ij,ij->...", overlap_occupied, -objective_occupied
             )
-            adjoint_metric_spin.append(
-                np.einsum(
-                    "...ij,ij->...",
-                    overlap_occupied,
-                    0.5 * adjoint_potential_occupied,
-                )
+            adjoint_metric = np.einsum(
+                "...ij,ij->...",
+                overlap_occupied,
+                0.5 * adjoint_potential_occupied,
+            )
+            if compact:
+                response += metric + nuclear + adjoint_metric
+            else:
+                metric_spin.append(metric)
+                nuclear_spin.append(nuclear)
+                adjoint_metric_spin.append(adjoint_metric)
+        if compact:
+            return _validated_float64_array(
+                response,
+                (len(atom_indices), 3),
+                "UHF adjoint response gradient",
             )
         metric_spin = np.stack(metric_spin)
         nuclear_spin = np.stack(nuclear_spin)
@@ -2684,10 +2699,10 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             reconstruction_residual,
         )
 
-    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> UHFAdjoint:
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         """Return one audited UHF adjoint and selected nuclear contractions."""
         try:
-            return self._solve(objective_ao_potential, atom_indices)
+            return self._solve(objective_ao_potential, atom_indices, compact=compact)
         except DeePHFCapabilityError:
             raise
         except UHFAdjointError:
@@ -2695,7 +2710,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
         except (AdjointError, UHFResponseError) as error:
             raise UHFAdjointError(f"UHF adjoint evaluation failed: {error}") from error
 
-    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> UHFAdjoint:
+    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         self._validate_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         objective = self._validated_objective_potential(objective_ao_potential)
@@ -2755,7 +2770,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             occupied,
             virtual,
         )
-        partitions = self._gradient_partitions(
+        gradient_data = self._gradient_partitions(
             objective_mo,
             zvector,
             adjoint_potential,
@@ -2765,32 +2780,38 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             occupied,
             virtual,
             atom_indices,
+            compact=compact,
         )
-        if partitions[-1] > self.invariant_tolerance:
+        reconstruction_residual = 0.0 if compact else gradient_data[-1]
+        if reconstruction_residual > self.invariant_tolerance:
             raise UHFAdjointError(
                 "the UHF adjoint gradient reconstruction residual exceeds tolerance"
             )
-        for name, value in zip(
-            (
-                "metric spin gradient",
-                "metric gradient",
-                "nuclear spin gradient",
-                "nuclear gradient",
-                "adjoint metric spin gradient",
-                "adjoint metric gradient",
-                "occupied-virtual spin gradient",
-                "occupied-virtual gradient",
-                "response gradient",
-            ),
-            partitions[:-1],
-            strict=True,
-        ):
-            expected_shape = (
-                (2, len(atom_indices), 3)
-                if "spin" in name
-                else (len(atom_indices), 3)
-            )
-            _validated_float64_array(value, expected_shape, f"UHF adjoint {name}")
+        if compact:
+            correction_gradient_response = gradient_data
+        else:
+            partitions = gradient_data
+            for name, value in zip(
+                (
+                    "metric spin gradient",
+                    "metric gradient",
+                    "nuclear spin gradient",
+                    "nuclear gradient",
+                    "adjoint metric spin gradient",
+                    "adjoint metric gradient",
+                    "occupied-virtual spin gradient",
+                    "occupied-virtual gradient",
+                    "response gradient",
+                ),
+                partitions[:-1],
+                strict=True,
+            ):
+                expected_shape = (
+                    (2, len(atom_indices), 3)
+                    if "spin" in name
+                    else (len(atom_indices), 3)
+                )
+                _validated_float64_array(value, expected_shape, f"UHF adjoint {name}")
         self._validate_reference(self.reference)
         linear_diagnostics = linear_result.diagnostics
         diagnostics = UHFAdjointDiagnostics(
@@ -2810,7 +2831,7 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             beta_adjoint_density_symmetry_residual=density_symmetry[1],
             alpha_adjoint_potential_symmetry_residual=potential_symmetry[0],
             beta_adjoint_potential_symmetry_residual=potential_symmetry[1],
-            gradient_reconstruction_residual=partitions[-1],
+            gradient_reconstruction_residual=reconstruction_residual,
             solver=linear_diagnostics.solver,
             solve_count=linear_diagnostics.solve_count,
             objective_gradient_norm=linear_diagnostics.objective_gradient_norm,
@@ -2821,6 +2842,8 @@ class UHFAdjointAdapter(_UHFLinearResponseCore):
             krylov_restart=self.krylov_restart,
             iteration_count=linear_diagnostics.iteration_count,
         )
+        if compact:
+            return diagnostics, correction_gradient_response
         adjoint = UHFAdjoint(
             reference_identity=id(self.reference),
             state_fingerprint=self._reference_fingerprint(self.reference),

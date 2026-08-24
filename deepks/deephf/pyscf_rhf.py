@@ -1775,6 +1775,7 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         block_size: int,
         atom_indices=None,
         result_mode="response",
+        objective=None,
     ):
         """Yield audited responses while retaining at most one atom block."""
         block_size = _cycle_limit(block_size, "coordinate_block_size")
@@ -1783,7 +1784,12 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         selected_atoms = self._response_atom_indices(atom_indices)
         for start in range(0, len(selected_atoms), block_size):
             block_atoms = selected_atoms[start : start + block_size]
-            yield block_atoms, self._solve(block_atoms, result_mode)
+            result = (
+                self._solve(block_atoms, result_mode, objective)
+                if result_mode == "gradient"
+                else self._solve(block_atoms, result_mode)
+            )
+            yield block_atoms, result
 
     def _orbital_residual(
         self,
@@ -2101,11 +2107,11 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         """Return a response and its transient AO density work arrays."""
         return self._solve(atom_indices, "partitions")
 
-    def _solve_for_gradient(self, atom_indices=None):
-        """Return compact diagnostics and transient AO density work arrays."""
-        return self._solve(atom_indices, "gradient")
+    def _solve_for_gradient(self, objective, atom_indices=None):
+        """Return compact diagnostics and the final density contraction."""
+        return self._solve(atom_indices, "gradient", objective)
 
-    def _solve(self, atom_indices, result_mode):
+    def _solve(self, atom_indices, result_mode, objective=None):
         validate_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         (
@@ -2148,23 +2154,22 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             occupied,
             virtual,
         )
-        metric_response = np.zeros_like(mo_response)
-        metric_response[..., occupied, :] = mo_response[..., occupied, :]
-        occupied_virtual_response = np.zeros_like(mo_response)
-        occupied_virtual_response[..., virtual, :] = mo_response[..., virtual, :]
-        density_metric = self._density_from_mo_response(
-            metric_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
-        density_occupied_virtual = self._density_from_mo_response(
-            occupied_virtual_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
-        density_response = density_metric + density_occupied_virtual
+        if result_mode == "partitions":
+            metric_response = np.zeros_like(mo_response)
+            metric_response[..., occupied, :] = mo_response[..., occupied, :]
+            occupied_virtual_response = np.zeros_like(mo_response)
+            occupied_virtual_response[..., virtual, :] = mo_response[..., virtual, :]
+            density_metric = self._density_from_mo_response(
+                metric_response, coefficient, occupation, occupied
+            )
+            density_occupied_virtual = self._density_from_mo_response(
+                occupied_virtual_response, coefficient, occupation, occupied
+            )
+            density_response = density_metric + density_occupied_virtual
+        else:
+            density_response = self._density_from_mo_response(
+                mo_response, coefficient, occupation, occupied
+            )
         density_ground = self.reference.make_rdm1()
         overlap_occupied = overlap_mo[..., occupied, :]
         metric_residual = np.max(
@@ -2214,11 +2219,7 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         )
         arrays = {
             "mo_response": mo_response,
-            "mo_response_occupied_virtual": occupied_virtual_response,
-            "mo_response_metric": metric_response,
             "density_response": density_response,
-            "density_response_occupied_virtual": density_occupied_virtual,
-            "density_response_metric": density_metric,
             "overlap_derivative": overlap_derivative,
             "hamiltonian_derivative": hamiltonian_derivative,
             "orbital_response_residual": residual,
@@ -2266,13 +2267,8 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
                 "RHF response invariant exceeds tolerance "
                 f"{self.invariant_tolerance:.3e}: {details}"
             )
-        density_partitions = (
-            density_response,
-            density_metric,
-            density_occupied_virtual,
-        )
         if result_mode == "gradient":
-            return diagnostics, density_partitions
+            return diagnostics, np.einsum("ij,bxij->bx", objective, density_response)
         response = RHFResponse(
             reference_identity=id(self.reference),
             state_fingerprint=reference_fingerprint(self.reference),
@@ -2292,7 +2288,11 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             response,
             integrity_fingerprint=response_integrity_fingerprint(response),
         )
-        return (response, density_partitions) if result_mode == "partitions" else response
+        return (
+            (response, (density_response, density_metric, density_occupied_virtual))
+            if result_mode == "partitions"
+            else response
+        )
 
 
 class _RHFScalarAdjointProblem:
@@ -2852,10 +2852,10 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             )
         validate_reference(self.reference)
 
-    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RHFAdjoint:
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         """Return one audited Z-vector and selected nuclear contractions."""
         try:
-            return self._solve(objective_ao_potential, atom_indices)
+            return self._solve(objective_ao_potential, atom_indices, compact=compact)
         except DeePHFCapabilityError:
             raise
         except RHFAdjointError:
@@ -2863,7 +2863,7 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
         except (AdjointError, RHFResponseError) as error:
             raise RHFAdjointError(f"RHF adjoint evaluation failed: {error}") from error
 
-    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RHFAdjoint:
+    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         validate_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         objective_ao_potential = self._validated_objective_potential(
@@ -3015,25 +3015,27 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             overlap_occupied,
             0.5 * adjoint_potential_occupied,
         )
-        correction_gradient_occupied_virtual = (
-            correction_gradient_adjoint_nuclear
-            + correction_gradient_adjoint_metric
-        )
         correction_gradient_response = (
             correction_gradient_metric
-            + correction_gradient_occupied_virtual
+            + correction_gradient_adjoint_nuclear
+            + correction_gradient_adjoint_metric
         )
         gradient_fields = {
-            "RHF objective metric gradient": correction_gradient_metric,
-            "RHF adjoint nuclear gradient": (
-                correction_gradient_adjoint_nuclear
-            ),
-            "RHF adjoint metric gradient": correction_gradient_adjoint_metric,
-            "RHF occupied-virtual gradient": (
-                correction_gradient_occupied_virtual
-            ),
             "RHF adjoint response gradient": correction_gradient_response,
         }
+        if not compact:
+            correction_gradient_occupied_virtual = (
+                correction_gradient_adjoint_nuclear
+                + correction_gradient_adjoint_metric
+            )
+            gradient_fields.update(
+                {
+                    "RHF objective metric gradient": correction_gradient_metric,
+                    "RHF adjoint nuclear gradient": correction_gradient_adjoint_nuclear,
+                    "RHF adjoint metric gradient": correction_gradient_adjoint_metric,
+                    "RHF occupied-virtual gradient": correction_gradient_occupied_virtual,
+                }
+            )
         for name, value in gradient_fields.items():
             _validated_float64_array(
                 value,
@@ -3070,6 +3072,8 @@ class RHFAdjointAdapter(_RHFLinearResponseCore):
             krylov_restart=self.krylov_restart,
             iteration_count=linear_diagnostics.iteration_count,
         )
+        if compact:
+            return diagnostics, correction_gradient_response
         adjoint = RHFAdjoint(
             reference_identity=id(self.reference),
             state_fingerprint=state_fingerprint,

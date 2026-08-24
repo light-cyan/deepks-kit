@@ -107,6 +107,10 @@ def _update_science_digest(digest, value) -> None:
 class DeePHF:
     """Evaluate a perturbative correction without modifying the RHF reference."""
 
+    _adjoint_adapter_type = RHFAdjointAdapter
+    _response_adapter_type = RHFResponseAdapter
+    _zvector_options = _ZVECTOR_OPTIONS
+
     @staticmethod
     def _validate_reference_object(reference):
         return validate_reference(reference)
@@ -308,12 +312,12 @@ class DeePHF:
                 raw_atom_indices=atom_indices,
             )
 
-    def _correction_gradient_explicit(self, sensitivity, atom_indices=None):
-        """Contract explicit descriptor motion without retaining its Jacobian."""
+    def _correction_derivatives(self, sensitivity, atom_indices=None):
+        """Contract explicit motion and the AO potential from one adjoint."""
         atom_indices = _validate_atom_indices(self.mol, atom_indices)
         density = self.ao_density()
         with torch.enable_grad():
-            return self._descriptor.correction_gradient_explicit(
+            return self._descriptor.correction_derivatives(
                 density,
                 density,
                 sensitivity,
@@ -524,6 +528,9 @@ class DeePHF:
     def response(self, **response_options) -> RHFResponse:
         """Solve the audited complete first-order RHF density response."""
         self.validate_force_compatibility()
+        return self._solve_response(response_options)
+
+    def _solve_response(self, response_options, atom_indices=None, result_mode="response", objective=None):
         options = _validated_backend_options(
             self.response_options,
             response_options,
@@ -531,16 +538,24 @@ class DeePHF:
             "direct",
         )
         options.pop("coordinate_block_size", None)
-        response = RHFResponseAdapter(self.reference, **options).solve()
+        adapter = self._response_adapter_type(self.reference, **options)
+        if result_mode == "gradient":
+            return adapter._solve_for_gradient(objective, atom_indices=atom_indices)
+        if result_mode == "partitions":
+            response, density_partitions = adapter._solve_with_density_partitions(
+                atom_indices=atom_indices
+            )
+        else:
+            response = adapter.solve(atom_indices=atom_indices)
         self._seal_response(response)
-        return response
+        return (response, density_partitions) if result_mode == "partitions" else response
 
     @science_state_transaction
     def adjoint(self, **adjoint_options) -> RHFAdjoint:
         """Solve one audited correction-specific RHF scalar adjoint."""
         return self._zvector_inputs(adjoint_options)[2]
 
-    def _zvector_inputs(self, adjoint_options, atom_indices=None):
+    def _zvector_inputs(self, adjoint_options, atom_indices=None, compact=False):
         """Build one sensitivity and one scalar adjoint."""
         self._assert_science_state("Z-vector input evaluation")
         self._validate_reference_object(self.reference)
@@ -549,14 +564,20 @@ class DeePHF:
         options = _validated_backend_options(
             self.adjoint_options,
             adjoint_options,
-            _ZVECTOR_OPTIONS,
+            self._zvector_options,
             "zvector",
         )
+        adapter = self._adjoint_adapter_type(self.reference, **options)
+        if compact:
+            explicit, objective_ao_potential = self._correction_derivatives(
+                sensitivity, atom_indices
+            )
+            diagnostics, response_gradient = adapter.solve(
+                objective_ao_potential, atom_indices=atom_indices, compact=True
+            )
+            return descriptor_diagnostics, explicit, diagnostics, response_gradient
         objective_ao_potential = self._correction_ao_potential(sensitivity)
-        adjoint = RHFAdjointAdapter(self.reference, **options).solve(
-            objective_ao_potential,
-            atom_indices=atom_indices,
-        )
+        adjoint = adapter.solve(objective_ao_potential, atom_indices=atom_indices)
         return descriptor_diagnostics, sensitivity, adjoint
 
     def _validate_response(self, response: RHFResponse) -> RHFResponse:

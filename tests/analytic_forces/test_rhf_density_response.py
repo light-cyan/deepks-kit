@@ -36,7 +36,7 @@ def test_complete_ao_density_response_matches_displaced_rhf(
     )
 
 
-def test_compact_direct_gradient_builds_density_partitions_once(
+def test_compact_direct_gradient_builds_one_density_response(
     rhf_oracle_case,
     monkeypatch,
 ):
@@ -61,7 +61,7 @@ def test_compact_direct_gradient_builds_density_partitions_once(
     driver = rhf_oracle_case.method.nuc_grad_method(retain_details=False)
     driver.kernel(atmlst=(1,))
 
-    assert coordinate_calls == 2
+    assert coordinate_calls == 1
 
 
 def test_density_response_satisfies_nonorthogonal_ao_invariants(

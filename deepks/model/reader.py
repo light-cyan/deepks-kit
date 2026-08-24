@@ -26,7 +26,7 @@ def _tensor_fingerprint(value) -> bytes:
     digest = hashlib.sha256()
     digest.update(array.dtype.str.encode("ascii"))
     digest.update(repr(array.shape).encode("ascii"))
-    digest.update(array.tobytes())
+    digest.update(memoryview(array).cast("B"))
     return digest.digest()
 
 

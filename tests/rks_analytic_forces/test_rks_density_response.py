@@ -12,7 +12,7 @@ def test_selected_response_omits_full_translation_diagnostic(rks_oracle_case):
     assert adapter.audit_response_equations(response) is None
 
 
-def test_compact_direct_gradient_builds_density_partitions_once(
+def test_compact_direct_gradient_builds_one_density_response(
     rks_oracle_case,
     monkeypatch,
 ):
@@ -41,7 +41,7 @@ def test_compact_direct_gradient_builds_density_partitions_once(
     driver = rks_oracle_case.method.nuc_grad_method(retain_details=False)
     driver.kernel(atmlst=(1,))
 
-    assert coordinate_calls == 2
+    assert coordinate_calls == 1
 
 
 def test_displaced_references_preserve_root_grid_and_descriptor_domain(

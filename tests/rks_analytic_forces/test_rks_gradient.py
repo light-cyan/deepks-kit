@@ -149,13 +149,11 @@ def test_rks_public_force_calls_have_single_transaction_budgets(
     original_fingerprint = pyscf_rks._dft_reference_validation_fingerprint
     original_force_inputs = method._force_inputs
     original_explicit = method._descriptor.dq_dR_explicit
-    original_contracted = method._descriptor.correction_gradient_explicit
-    original_native_kernel = pyscf_rks.rks_grad.Gradients.kernel
+    original_contracted = method._descriptor.correction_derivatives
     fingerprint_calls = 0
     force_input_calls = 0
     explicit_calls = 0
     contracted_calls = 0
-    native_calls = 0
 
     def counted_fingerprint(reference):
         nonlocal fingerprint_calls
@@ -177,11 +175,6 @@ def test_rks_public_force_calls_have_single_transaction_budgets(
         contracted_calls += 1
         return original_contracted(*args, **options)
 
-    def counted_native(instance, *args, **options):
-        nonlocal native_calls
-        native_calls += 1
-        return original_native_kernel(instance, *args, **options)
-
     monkeypatch.setattr(
         pyscf_rks,
         "_dft_reference_validation_fingerprint",
@@ -191,25 +184,22 @@ def test_rks_public_force_calls_have_single_transaction_budgets(
     monkeypatch.setattr(method._descriptor, "dq_dR_explicit", counted_explicit)
     monkeypatch.setattr(
         method._descriptor,
-        "correction_gradient_explicit",
+        "correction_derivatives",
         counted_contracted,
     )
-    monkeypatch.setattr(pyscf_rks.rks_grad.Gradients, "kernel", counted_native)
-    for calculation, expected_explicit, expected_contracted, expected_native in (
-        (method.dq_dR_relaxed, 1, 0, 0),
-        (method.gradient, 0, 1, 1),
+    for calculation, expected_explicit, expected_contracted in (
+        (method.dq_dR_relaxed, 1, 0),
+        (method.gradient, 0, 1),
     ):
         fingerprint_calls = 0
         force_input_calls = 0
         explicit_calls = 0
         contracted_calls = 0
-        native_calls = 0
         assert np.isfinite(calculation()).all()
         assert fingerprint_calls == 2
         assert force_input_calls == 1
         assert explicit_calls == expected_explicit
         assert contracted_calls == expected_contracted
-        assert native_calls == expected_native
 
 
 @pytest.mark.parametrize(

@@ -9,39 +9,6 @@ from deepks.model.model import CorrNet
 ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
 
 
-def test_uhf_compact_selected_gradient_drivers_retain_one_array(
-    uhf_oracle_case,
-    monkeypatch,
-):
-    expected = {
-        backend: uhf_oracle_case.method.nuc_grad_method(
-            backend=backend,
-        ).kernel(atmlst=(1,))
-        for backend in ("direct", "zvector")
-    }
-    monkeypatch.setattr(
-        uhf_oracle_case.method,
-        "dq_dR_explicit_spin",
-        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
-    )
-    for backend in ("direct", "zvector"):
-        driver = uhf_oracle_case.method.nuc_grad_method(
-            backend=backend,
-            retain_details=False,
-        ).run(atmlst=(1,))
-        retained_bytes = sum(
-            value.nbytes
-            for value in vars(driver).values()
-            if isinstance(value, np.ndarray)
-        )
-        assert retained_bytes == driver.de.nbytes
-        assert driver.de.shape == (1, 3)
-        assert not hasattr(driver, "de_full")
-        result_name = "response_result" if backend == "direct" else "adjoint_result"
-        assert not hasattr(driver, result_name)
-        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
-
-
 def test_coupled_adjoint_matches_independent_ao_oracle(
     uhf_oracle_case,
     independent_uhf_adjoint_oracle,

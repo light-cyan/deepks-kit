@@ -3,6 +3,7 @@
 from dataclasses import dataclass, fields, replace
 import ctypes
 import hashlib
+import inspect
 from numbers import Real
 import operator
 from typing import Any
@@ -13,7 +14,7 @@ import pyscf
 from pyscf import dft, gto
 from pyscf.dft import gen_grid, libxc, numint, radi
 from pyscf.gto import mole as gto_mole
-from pyscf.grad import rks as rks_grad
+from pyscf.grad import rhf as rhf_grad, rks as rks_grad
 from pyscf.hessian import rks as rks_hessian
 from pyscf.scf import cphf, hf as scf_hf
 
@@ -79,6 +80,41 @@ _SUPPORTED_REFERENCE_IMPLEMENTATIONS = {
         for name in ("get_hcore", "get_ovlp", "get_veff", "make_rdm1")
     ),
 }
+
+
+def _static_callable_definitions(cls, names):
+    return tuple(
+        (
+            name,
+            next(owner for owner in cls.__mro__ if name in vars(owner)),
+            inspect.getattr_static(cls, name),
+        )
+        for name in names
+    )
+
+
+_NATIVE_RKS_GRADIENT_METHODS = (
+    "kernel",
+    "grad_elec",
+    "hcore_generator",
+    "get_ovlp",
+    "_tag_rdm1",
+    "make_rdm1e",
+    "get_veff",
+    "get_j",
+    "grad_nuc",
+    "extra_force",
+    "_finalize",
+)
+_SUPPORTED_NATIVE_RKS_GRADIENT = (
+    _static_callable_definitions(rks_grad.Gradients, _NATIVE_RKS_GRADIENT_METHODS),
+    tuple(
+        (module, name, value)
+        for module in (rhf_grad, rks_grad)
+        for name, value in vars(module).items()
+        if callable(value) and name != "grids_response_cc"
+    ),
+)
 _GRID_WEIGHT_FD_STEP = 1.0e-5
 _GRID_WEIGHT_DERIVATIVE_ATOL = 1.0e-6
 _GRID_WEIGHT_DERIVATIVE_RTOL = 1.0e-7
@@ -374,6 +410,27 @@ def _validate_dft_implementations(method: str) -> None:
         for name, implementation in _SUPPORTED_REFERENCE_IMPLEMENTATIONS[method]
         if getattr(reference_type, name) is not implementation
     )
+    if method == "RKS":
+        class_definitions, module_definitions = _SUPPORTED_NATIVE_RKS_GRADIENT
+        current_class_definitions = _static_callable_definitions(
+            rks_grad.Gradients, _NATIVE_RKS_GRADIENT_METHODS
+        )
+        changed.extend(
+            f"{method} gradient {name}"
+            for (name, owner, definition), (
+                expected_name,
+                expected_owner,
+                expected_definition,
+            ) in zip(current_class_definitions, class_definitions, strict=True)
+            if name != expected_name
+            or owner is not expected_owner
+            or definition is not expected_definition
+        )
+        changed.extend(
+            f"{module.__name__}.{name}"
+            for module, name, implementation in module_definitions
+            if vars(module).get(name) is not implementation
+        )
     if changed:
         raise DeePHFCapabilityError(
             f"the strict {method} DFT implementation changed: {', '.join(changed)}"
@@ -1289,6 +1346,16 @@ def _dft_reference_validation_fingerprint(reference) -> str:
         tuple(
             getattr(libxc, name) is implementation
             for name, implementation in _SUPPORTED_LIBXC_IMPLEMENTATIONS
+        ),
+        (
+            tuple(
+                (name, owner.__module__, owner.__qualname__)
+                for name, owner, _definition in _static_callable_definitions(
+                    rks_grad.Gradients, _NATIVE_RKS_GRADIENT_METHODS
+                )
+            )
+            if method == "RKS"
+            else ()
         ),
         tuple(sorted(name for name, value in integration.__dict__.items() if callable(value))),
         _qualified_name(type(grid)),
@@ -2328,11 +2395,11 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         """Return a response and its transient AO density work arrays."""
         return self._solve(atom_indices, "partitions")
 
-    def _solve_for_gradient(self, atom_indices=None):
-        """Return compact diagnostics and transient AO density work arrays."""
-        return self._solve(atom_indices, "gradient")
+    def _solve_for_gradient(self, objective, atom_indices=None):
+        """Return compact diagnostics and the final density contraction."""
+        return self._solve(atom_indices, "gradient", objective)
 
-    def _solve(self, atom_indices, result_mode):
+    def _solve(self, atom_indices, result_mode, objective=None):
         validate_rks_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         initial_fingerprint = rks_reference_fingerprint(self.reference)
@@ -2372,23 +2439,22 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             occupied,
             virtual,
         )
-        metric_response = np.zeros_like(mo_response)
-        metric_response[..., occupied, :] = mo_response[..., occupied, :]
-        occupied_virtual_response = np.zeros_like(mo_response)
-        occupied_virtual_response[..., virtual, :] = mo_response[..., virtual, :]
-        density_metric = self._density_from_mo_response(
-            metric_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
-        density_occupied_virtual = self._density_from_mo_response(
-            occupied_virtual_response,
-            coefficient,
-            occupation,
-            occupied,
-        )
-        density_response = density_metric + density_occupied_virtual
+        if result_mode == "partitions":
+            metric_response = np.zeros_like(mo_response)
+            metric_response[..., occupied, :] = mo_response[..., occupied, :]
+            occupied_virtual_response = np.zeros_like(mo_response)
+            occupied_virtual_response[..., virtual, :] = mo_response[..., virtual, :]
+            density_metric = self._density_from_mo_response(
+                metric_response, coefficient, occupation, occupied
+            )
+            density_occupied_virtual = self._density_from_mo_response(
+                occupied_virtual_response, coefficient, occupation, occupied
+            )
+            density_response = density_metric + density_occupied_virtual
+        else:
+            density_response = self._density_from_mo_response(
+                mo_response, coefficient, occupation, occupied
+            )
         hamiltonian_reconstruction_residual = float(
             np.max(
                 np.abs(
@@ -2493,11 +2559,7 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         )
         arrays = {
             "mo_response": mo_response,
-            "mo_response_occupied_virtual": occupied_virtual_response,
-            "mo_response_metric": metric_response,
             "density_response": density_response,
-            "density_response_occupied_virtual": density_occupied_virtual,
-            "density_response_metric": density_metric,
             "overlap_derivative": overlap_derivative,
             "hamiltonian_derivative": hamiltonian_derivative,
             "hamiltonian_derivative_fixed_grid": hamiltonian_derivative_fixed_grid,
@@ -2544,13 +2606,8 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         validate_rks_reference(self.reference)
         if rks_reference_fingerprint(self.reference) != initial_fingerprint:
             raise RKSResponseError("the RKS reference changed during the response solve")
-        density_partitions = (
-            density_response,
-            density_metric,
-            density_occupied_virtual,
-        )
         if result_mode == "gradient":
-            return diagnostics, density_partitions
+            return diagnostics, np.einsum("ij,bxij->bx", objective, density_response)
         response = RKSResponse(
             reference_identity=id(self.reference),
             state_fingerprint=initial_fingerprint,
@@ -2577,7 +2634,11 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             response,
             integrity_fingerprint=rks_response_integrity_fingerprint(response),
         )
-        return (response, density_partitions) if result_mode == "partitions" else response
+        return (
+            (response, (density_response, density_metric, density_occupied_virtual))
+            if result_mode == "partitions"
+            else response
+        )
 
     def audit_response_equations(self, response: RKSResponse) -> None:
         """Independently rebuild every supplied equation without another solve."""
@@ -3120,7 +3181,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
         occupied: np.ndarray,
         virtual: np.ndarray,
         atom_indices=None,
-    ) -> tuple[dict[str, np.ndarray], float]:
+        compact=False,
+    ):
         atom_indices = self._response_atom_indices(atom_indices)
         overlap_derivative = self._overlap_derivative(atom_indices)
         (
@@ -3151,33 +3213,36 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             )
 
         overlap_mo = occupied_mo(overlap_derivative)
-        fixed_grid_mo = occupied_mo(hamiltonian_fixed_grid)
-        grid_coordinate_mo = occupied_mo(hamiltonian_grid_coordinate)
-        grid_weight_mo = occupied_mo(hamiltonian_grid_weight)
-        fixed_grid_rhs = (
-            fixed_grid_mo[..., virtual, :]
-            - overlap_mo[..., virtual, :] * energy[occupied]
-        )
-        correction_gradient_adjoint_fixed_grid = -np.einsum(
-            "ai,...ai->...",
-            zvector,
-            fixed_grid_rhs,
-        )
-        correction_gradient_adjoint_grid_coordinate = -np.einsum(
-            "ai,...ai->...",
-            zvector,
-            grid_coordinate_mo[..., virtual, :],
-        )
-        correction_gradient_adjoint_grid_weight = -np.einsum(
-            "ai,...ai->...",
-            zvector,
-            grid_weight_mo[..., virtual, :],
-        )
-        correction_gradient_adjoint_nuclear = (
-            correction_gradient_adjoint_fixed_grid
-            + correction_gradient_adjoint_grid_coordinate
-            + correction_gradient_adjoint_grid_weight
-        )
+        if compact:
+            full_rhs = (
+                occupied_mo(hamiltonian_derivative)[..., virtual, :]
+                - overlap_mo[..., virtual, :] * energy[occupied]
+            )
+            correction_gradient_adjoint_nuclear = -np.einsum(
+                "ai,...ai->...", zvector, full_rhs
+            )
+        else:
+            fixed_grid_mo = occupied_mo(hamiltonian_fixed_grid)
+            grid_coordinate_mo = occupied_mo(hamiltonian_grid_coordinate)
+            grid_weight_mo = occupied_mo(hamiltonian_grid_weight)
+            fixed_grid_rhs = (
+                fixed_grid_mo[..., virtual, :]
+                - overlap_mo[..., virtual, :] * energy[occupied]
+            )
+            correction_gradient_adjoint_fixed_grid = -np.einsum(
+                "ai,...ai->...", zvector, fixed_grid_rhs
+            )
+            correction_gradient_adjoint_grid_coordinate = -np.einsum(
+                "ai,...ai->...", zvector, grid_coordinate_mo[..., virtual, :]
+            )
+            correction_gradient_adjoint_grid_weight = -np.einsum(
+                "ai,...ai->...", zvector, grid_weight_mo[..., virtual, :]
+            )
+            correction_gradient_adjoint_nuclear = (
+                correction_gradient_adjoint_fixed_grid
+                + correction_gradient_adjoint_grid_coordinate
+                + correction_gradient_adjoint_grid_weight
+            )
         objective_mo = coefficient.T @ objective_ao_potential @ coefficient
         objective_occupied = objective_mo[occupied][:, occupied]
         objective_occupied = 0.5 * (
@@ -3204,13 +3269,21 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             overlap_occupied,
             0.5 * adjoint_potential_occupied,
         )
+        correction_gradient_response = (
+            correction_gradient_metric
+            + correction_gradient_adjoint_nuclear
+            + correction_gradient_adjoint_metric
+        )
+        if compact:
+            _validated_float64_array(
+                correction_gradient_response,
+                (len(atom_indices), 3),
+                "RKS correction_gradient_response",
+            )
+            return correction_gradient_response, hamiltonian_reconstruction_residual
         correction_gradient_occupied_virtual = (
             correction_gradient_adjoint_nuclear
             + correction_gradient_adjoint_metric
-        )
-        correction_gradient_response = (
-            correction_gradient_metric
-            + correction_gradient_occupied_virtual
         )
         partitions = {
             "correction_gradient_metric": correction_gradient_metric,
@@ -3264,10 +3337,10 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             "correction occupied-virtual objective gradient",
         )
 
-    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RKSAdjoint:
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         """Return one audited RKS Z-vector and selected nuclear contractions."""
         try:
-            return self._solve(objective_ao_potential, atom_indices)
+            return self._solve(objective_ao_potential, atom_indices, compact=compact)
         except DeePHFCapabilityError:
             raise
         except RKSAdjointError:
@@ -3277,7 +3350,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
                 f"RKS adjoint evaluation failed: {error}"
             ) from error
 
-    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> RKSAdjoint:
+    def _solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         validate_rks_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         initial_fingerprint = rks_reference_fingerprint(self.reference)
@@ -3364,7 +3437,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
                 f"{self.objective_symmetry_tolerance:.3e}"
             )
         (
-            partitions,
+            gradient_data,
             hamiltonian_reconstruction_residual,
         ) = self._gradient_partitions(
             objective_ao_potential,
@@ -3376,26 +3449,31 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             occupied,
             virtual,
             atom_indices,
+            compact=compact,
         )
-        self._require_close(
-            partitions["correction_gradient_adjoint_nuclear"],
-            partitions["correction_gradient_adjoint_fixed_grid"]
-            + partitions["correction_gradient_adjoint_grid_coordinate"]
-            + partitions["correction_gradient_adjoint_grid_weight"],
-            "nuclear gradient partition",
-        )
-        self._require_close(
-            partitions["correction_gradient_occupied_virtual"],
-            partitions["correction_gradient_adjoint_nuclear"]
-            + partitions["correction_gradient_adjoint_metric"],
-            "occupied-virtual gradient partition",
-        )
-        self._require_close(
-            partitions["correction_gradient_response"],
-            partitions["correction_gradient_metric"]
-            + partitions["correction_gradient_occupied_virtual"],
-            "response gradient partition",
-        )
+        if compact:
+            correction_gradient_response = gradient_data
+        else:
+            partitions = gradient_data
+            self._require_close(
+                partitions["correction_gradient_adjoint_nuclear"],
+                partitions["correction_gradient_adjoint_fixed_grid"]
+                + partitions["correction_gradient_adjoint_grid_coordinate"]
+                + partitions["correction_gradient_adjoint_grid_weight"],
+                "nuclear gradient partition",
+            )
+            self._require_close(
+                partitions["correction_gradient_occupied_virtual"],
+                partitions["correction_gradient_adjoint_nuclear"]
+                + partitions["correction_gradient_adjoint_metric"],
+                "occupied-virtual gradient partition",
+            )
+            self._require_close(
+                partitions["correction_gradient_response"],
+                partitions["correction_gradient_metric"]
+                + partitions["correction_gradient_occupied_virtual"],
+                "response gradient partition",
+            )
         if hamiltonian_reconstruction_residual > self.invariant_tolerance:
             raise RKSAdjointError(
                 "the RKS adjoint Hamiltonian reconstruction exceeds tolerance"
@@ -3440,6 +3518,8 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             krylov_restart=self.krylov_restart,
             iteration_count=linear_diagnostics.iteration_count,
         )
+        if compact:
+            return diagnostics, correction_gradient_response
         adjoint = RKSAdjoint(
             reference_identity=id(self.reference),
             state_fingerprint=initial_fingerprint,
@@ -3849,6 +3929,7 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
 def native_rks_gradient(reference, atom_indices=None) -> np.ndarray:
     """Evaluate one selected native RKS gradient with grid response."""
     validate_rks_reference(reference)
+    _validate_dft_implementations("RKS")
     from .gradient import _validate_atom_indices
 
     selected = _validate_atom_indices(reference.mol, atom_indices)
@@ -3870,6 +3951,7 @@ def native_rks_gradient(reference, atom_indices=None) -> np.ndarray:
         (len(atom_indices), 3),
         "native RKS gradient",
     )
+    _validate_dft_implementations("RKS")
     validate_rks_reference(reference)
     if rks_reference_fingerprint(reference) != initial_fingerprint:
         raise RKSResponseError("the RKS reference changed during native gradient evaluation")

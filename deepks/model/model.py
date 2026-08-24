@@ -684,14 +684,33 @@ class CorrNet(nn.Module):
         )
 
 
-_FORCE_CORRNET_FORWARD = CorrNet.forward
-_FORCE_DENSENET_FORWARD = DenseNet.forward
-_FORCE_TRACE_FORWARD = TraceEmbedding.forward
-_FORCE_THERMAL_FORWARD = ThermalEmbedding.forward
-_FORCE_LINEAR_FORWARD = nn.Linear.forward
-_FORCE_MODULE_DUNDER_CALL = nn.Module.__call__
-_FORCE_MODULE_WRAPPED_CALL = nn.Module._wrapped_call_impl
-_FORCE_MODULE_CALL = nn.Module._call_impl
+_FORCE_CORRNET_FORWARD = vars(CorrNet)["forward"]
+_FORCE_DENSENET_FORWARD = vars(DenseNet)["forward"]
+_FORCE_TRACE_FORWARD = vars(TraceEmbedding)["forward"]
+_FORCE_THERMAL_FORWARD = vars(ThermalEmbedding)["forward"]
+_FORCE_LINEAR_FORWARD = vars(nn.Linear)["forward"]
+_FORCE_DISPATCH_NAMES = ("__call__", "_wrapped_call_impl", "_call_impl")
+
+
+def _static_definitions(module_type):
+    definitions = []
+    for name in _FORCE_DISPATCH_NAMES:
+        definition = inspect.getattr_static(module_type, name)
+        owner = next(base for base in module_type.__mro__ if name in vars(base))
+        definitions.append((owner, definition))
+    return tuple(definitions)
+
+
+_FORCE_MODULE_DISPATCH = _static_definitions(nn.Module)
+
+
+def _has_trusted_dispatch(module_type):
+    return all(
+        owner is trusted_owner and definition is trusted_definition
+        for (owner, definition), (trusted_owner, trusted_definition) in zip(
+            _static_definitions(module_type), _FORCE_MODULE_DISPATCH, strict=True
+        )
+    )
 _FORCE_ACTIVATIONS = frozenset(
     {
         torch.sigmoid,
@@ -720,17 +739,13 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
     """Restrict force derivatives to the built-in differentiable CorrNet graph."""
     if type(model) is not CorrNet:
         raise TypeError("force derivatives require an exact deepks.model.model.CorrNet")
-    if "forward" in vars(model) or CorrNet.forward is not _FORCE_CORRNET_FORWARD:
+    if "forward" in vars(model) or vars(CorrNet).get("forward") is not _FORCE_CORRNET_FORWARD:
         raise ValueError("the force CorrNet forward implementation was replaced")
     if type(model.linear) is not nn.Linear or type(model.densenet) is not DenseNet:
         raise ValueError("the force CorrNet has an unsupported network structure")
-    if (
-        nn.Module.__call__ is not _FORCE_MODULE_DUNDER_CALL
-        or nn.Module._wrapped_call_impl is not _FORCE_MODULE_WRAPPED_CALL
-        or nn.Module._call_impl is not _FORCE_MODULE_CALL
-    ):
+    if not _has_trusted_dispatch(nn.Module):
         raise ValueError("the force module execution implementation was replaced")
-    if "forward" in vars(model.densenet) or DenseNet.forward is not _FORCE_DENSENET_FORWARD:
+    if "forward" in vars(model.densenet) or vars(DenseNet).get("forward") is not _FORCE_DENSENET_FORWARD:
         raise ValueError("the force DenseNet forward implementation was replaced")
     if model.densenet.actv_fn not in _FORCE_ACTIVATIONS:
         raise ValueError("the force CorrNet uses an unsupported activation")
@@ -739,7 +754,7 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
     ):
         raise ValueError("the force CorrNet contains unsupported dense layers")
     linear_layers = (model.linear, *model.densenet.layers)
-    if nn.Linear.forward is not _FORCE_LINEAR_FORWARD or any(
+    if vars(nn.Linear).get("forward") is not _FORCE_LINEAR_FORWARD or any(
         "forward" in vars(layer) for layer in linear_layers
     ):
         raise ValueError("a force linear-layer forward implementation was replaced")
@@ -749,10 +764,10 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
     if embedder is None:
         pass
     elif type(embedder) is TraceEmbedding:
-        if "forward" in vars(embedder) or TraceEmbedding.forward is not _FORCE_TRACE_FORWARD:
+        if "forward" in vars(embedder) or vars(TraceEmbedding).get("forward") is not _FORCE_TRACE_FORWARD:
             raise ValueError("the force trace embedding was replaced")
     elif type(embedder) is ThermalEmbedding and not training:
-        if "forward" in vars(embedder) or ThermalEmbedding.forward is not _FORCE_THERMAL_FORWARD:
+        if "forward" in vars(embedder) or vars(ThermalEmbedding).get("forward") is not _FORCE_THERMAL_FORWARD:
             raise ValueError("the force thermal embedding was replaced")
     elif type(embedder) is ThermalEmbedding:
         raise ValueError("force-aware training does not support stateful thermal embedding")
@@ -762,16 +777,9 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
     executed_modules = (model, model.densenet, *linear_layers)
     if embedder is not None:
         executed_modules += (embedder,)
-    dispatch_names = ("__call__", "_wrapped_call_impl", "_call_impl")
-    trusted_dispatch = (
-        _FORCE_MODULE_DUNDER_CALL,
-        _FORCE_MODULE_WRAPPED_CALL,
-        _FORCE_MODULE_CALL,
-    )
     if any(
-        tuple(getattr(type(module), name) for name in dispatch_names)
-        != trusted_dispatch
-        or any(name in vars(module) for name in dispatch_names)
+        not _has_trusted_dispatch(type(module))
+        or any(name in vars(module) for name in _FORCE_DISPATCH_NAMES)
         or getattr(module, "_compiled_call_impl", None) is not None
         for module in executed_modules
     ):
@@ -814,12 +822,10 @@ def force_model_structure_evidence(model):
             modules += (model.embedder,)
         dispatch = tuple(
             (
-                id(type(module).__call__),
-                id(type(module)._wrapped_call_impl),
-                id(type(module)._call_impl),
+                tuple((id(owner), id(definition)) for owner, definition in _static_definitions(type(module))),
                 tuple(
                     name in vars(module)
-                    for name in ("__call__", "_wrapped_call_impl", "_call_impl")
+                    for name in _FORCE_DISPATCH_NAMES
                 ),
                 id(getattr(module, "_compiled_call_impl", None)),
             )
@@ -861,14 +867,12 @@ def force_model_structure_evidence(model):
             repr(model.elem_table),
             tuple("forward" in vars(module) for module in modules),
             tuple(module.training for module in modules),
-            id(CorrNet.forward),
-            id(DenseNet.forward),
-            id(TraceEmbedding.forward),
-            id(ThermalEmbedding.forward),
-            id(nn.Linear.forward),
-            id(nn.Module.__call__),
-            id(nn.Module._wrapped_call_impl),
-            id(nn.Module._call_impl),
+            id(vars(CorrNet).get("forward")),
+            id(vars(DenseNet).get("forward")),
+            id(vars(TraceEmbedding).get("forward")),
+            id(vars(ThermalEmbedding).get("forward")),
+            id(vars(nn.Linear).get("forward")),
+            tuple((id(owner), id(definition)) for owner, definition in _static_definitions(nn.Module)),
             dispatch,
             hooks,
             global_hooks,

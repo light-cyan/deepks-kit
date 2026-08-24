@@ -14,7 +14,7 @@ from .derivatives import (
     dD_dR_explicit,
     dq_dR_explicit,
     dq_dR_explicit_component,
-    contract_dq_dR_explicit,
+    contract_descriptor_derivatives,
 )
 
 
@@ -191,16 +191,16 @@ class AtomicDensityDescriptor:
         )
         return result.detach().cpu().numpy()
 
-    def correction_gradient_explicit(
+    def correction_derivatives(
         self,
         ao_density,
         motion_density,
         sensitivity,
         raw_atom_indices=None,
     ) -> np.ndarray:
-        """Contract fixed-density descriptor motion with one sensitivity."""
+        """Return contracted explicit motion and the AO correction potential."""
         density = _as_ao_density_tensor(ao_density)
-        result = contract_dq_dR_explicit(
+        gradient, potential = contract_descriptor_derivatives(
             self.mol,
             density,
             _as_ao_density_tensor(motion_density),
@@ -210,4 +210,7 @@ class AtomicDensityDescriptor:
             self.descriptor_atom_indices,
             raw_atom_indices,
         )
-        return result.detach().cpu().numpy()
+        return (
+            gradient.detach().cpu().numpy(),
+            potential.detach().cpu().numpy(),
+        )

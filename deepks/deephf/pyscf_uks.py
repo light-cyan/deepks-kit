@@ -35,6 +35,7 @@ from .pyscf_rks import (
     _grid_provenance,
     _normalized_atom_grid,
     _normalized_functional_components,
+    _static_callable_definitions,
     _validate_dft_implementations,
     _validated_grid_response_blocks,
 )
@@ -56,6 +57,47 @@ from .pyscf_uhf import (
     uhf_response_integrity_fingerprint,
     validate_pyscf_version,
 )
+
+
+_SUPPORTED_NATIVE_UNRESTRICTED_GRADIENT = _native_unrestricted_gradient
+_NATIVE_UKS_GRADIENT_METHODS = (
+    "hcore_generator",
+    "get_ovlp",
+    "_tag_rdm1",
+    "make_rdm1e",
+    "get_veff",
+    "get_j",
+    "grad_nuc",
+)
+_SUPPORTED_NATIVE_UKS_GRADIENT = (
+    _static_callable_definitions(uks_grad.Gradients, _NATIVE_UKS_GRADIENT_METHODS),
+    tuple(
+        (name, value)
+        for name, value in vars(uks_grad).items()
+        if callable(value)
+    ),
+)
+
+
+def _validate_native_uks_gradient() -> None:
+    _validate_dft_implementations("UKS")
+    expected_methods, expected_module = _SUPPORTED_NATIVE_UKS_GRADIENT
+    current_methods = _static_callable_definitions(
+        uks_grad.Gradients, _NATIVE_UKS_GRADIENT_METHODS
+    )
+    changed = [
+        name
+        for (name, owner, definition), (expected_name, expected_owner, expected_definition)
+        in zip(current_methods, expected_methods, strict=True)
+        if name != expected_name or owner is not expected_owner or definition is not expected_definition
+    ]
+    changed.extend(
+        name
+        for name, implementation in expected_module
+        if vars(uks_grad).get(name) is not implementation
+    )
+    if changed or _native_unrestricted_gradient is not _SUPPORTED_NATIVE_UNRESTRICTED_GRADIENT:
+        raise DeePHFCapabilityError("the strict UKS native-gradient implementation changed")
 
 
 class UKSResponseError(UHFResponseError):
@@ -103,7 +145,7 @@ class UKSAdjointDiagnostics:
     core: UHFAdjointDiagnostics
     functional: RKSFunctionalProvenance
     grid: RKSGridProvenance
-    nuclear_partition_residual: float
+    nuclear_partition_residual: float | None
 
     def __getattr__(self, name):
         return getattr(self.core, name)
@@ -501,6 +543,7 @@ def validate_uks_reference(reference):
     """Validate a UKS reference once per unchanged scientific state."""
     if reference_is_transaction_validated(reference):
         return reference
+    _validate_native_uks_gradient()
     if type(reference) is not dft.uks.UKS:
         return _audit_uks_reference(reference)
     try:
@@ -834,14 +877,15 @@ class UKSResponseAdapter:
         """Return a response and its transient spin-density work arrays."""
         return self._solve(atom_indices, "partitions")
 
-    def _solve_for_gradient(self, atom_indices=None):
-        """Return compact diagnostics and transient spin-density work arrays."""
-        return self._solve(atom_indices, "gradient")
+    def _solve_for_gradient(self, objective, atom_indices=None):
+        """Return compact diagnostics and the final density contraction."""
+        return self._solve(atom_indices, "gradient", objective)
 
-    def _solve(self, atom_indices, result_mode):
+    def _solve(self, atom_indices, result_mode, objective=None):
         try:
             if result_mode == "gradient":
                 core_diagnostics, density_partitions = self._core._solve_for_gradient(
+                    objective,
                     atom_indices=atom_indices
                 )
                 core_response = None
@@ -999,9 +1043,21 @@ class UKSAdjointAdapter:
         """Run the bounded explicit debug audit of the internal UKS operator."""
         return self._core.validate_response_operator_exact()
 
-    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None) -> UKSAdjoint:
+    def solve(self, objective_ao_potential: np.ndarray, atom_indices=None, compact=False):
         """Return one immutable UKS adjoint from exactly one transpose solve."""
         try:
+            if compact:
+                core_diagnostics, response = self._core.solve(
+                    objective_ao_potential,
+                    atom_indices=atom_indices,
+                    compact=True,
+                )
+                return UKSAdjointDiagnostics(
+                    core=core_diagnostics,
+                    functional=_uks_functional_provenance(self.reference),
+                    grid=_grid_provenance(self.reference),
+                    nuclear_partition_residual=None,
+                ), response
             core_adjoint = self._core.solve(
                 objective_ao_potential,
                 atom_indices=atom_indices,
@@ -1084,6 +1140,7 @@ class UKSAdjointAdapter:
 def native_uks_gradient(reference, atom_indices=None) -> np.ndarray:
     """Evaluate one selected native UKS gradient with grid response."""
     validate_uks_reference(reference)
+    _validate_native_uks_gradient()
     atom_indices = (
         tuple(range(reference.mol.natm))
         if atom_indices is None
@@ -1106,6 +1163,7 @@ def native_uks_gradient(reference, atom_indices=None) -> np.ndarray:
         (len(atom_indices), 3),
         "native UKS gradient",
     )
+    _validate_native_uks_gradient()
     validate_uks_reference(reference)
     if uks_reference_fingerprint(reference) != initial_fingerprint:
         raise UKSResponseError("the UKS reference changed during native gradient evaluation")

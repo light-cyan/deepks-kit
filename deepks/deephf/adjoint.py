@@ -431,17 +431,19 @@ def solve_scalar_adjoint(
         raise AdjointError(
             "adjoint problem dimension changed during independent residual checks"
         )
+    self_adjoint = getattr(problem, "is_self_adjoint", None) is True
     if solver == "dense":
         final_matrix = _validated_matrix(dense_operator(), dimension)
         if not np.array_equal(final_matrix, matrix):
             raise AdjointError(
                 "adjoint response operator changed during independent residual checks"
             )
-        residual_value = final_matrix.T @ solution - objective_gradient
+        residual_matrix = final_matrix if self_adjoint else final_matrix.T
+        residual_value = residual_matrix @ solution - objective_gradient
     else:
         residual_action = (
             problem.apply
-            if getattr(problem, "is_self_adjoint", None) is True
+            if self_adjoint
             else problem.apply_transpose
         )
         residual_image = _isolated_problem_action(
@@ -469,16 +471,11 @@ def solve_scalar_adjoint(
     )
     maximum_residual, residual_rms = _residual_statistics(residual)
     if maximum_residual > residual_tolerance:
-        residual_label = (
-            "literal transpose adjoint residual"
-            if solver == "dense"
-            else "adjoint solver residual"
-        )
         raise AdjointError(
-            f"{residual_label} exceeds tolerance: "
+            "adjoint solver residual exceeds tolerance: "
             f"{maximum_residual:.3e} > {residual_tolerance:.3e}"
         )
-    if require_physical_residual and getattr(problem, "is_self_adjoint", None) is not True:
+    if require_physical_residual and not self_adjoint:
         physical = _isolated_problem_action(
             problem.apply,
             solution,

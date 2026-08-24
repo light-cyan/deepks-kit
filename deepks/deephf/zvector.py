@@ -71,9 +71,10 @@ class RHFDeePHFZVectorGradients:
         return self.adjoint_diagnostics
 
     def _compact_kernel(self, atom_indices):
-        descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
+        descriptor_diagnostics, explicit, adjoint_diagnostics, response_gradient = self.base._zvector_inputs(
             self.response_options,
             atom_indices=atom_indices,
+            compact=True,
         )
         self.base._assert_science_state("native RHF gradient evaluation")
         reference_gradient = np.asarray(
@@ -82,14 +83,10 @@ class RHFDeePHFZVectorGradients:
             )
         )
         self.base._validate_science_state("native RHF gradient evaluation")
-        explicit = self.base._correction_gradient_explicit(
-            sensitivity,
-            atom_indices,
-        )
-        total = reference_gradient + explicit + adjoint.correction_gradient_response
-        if total.shape != (len(adjoint.atom_indices), 3) or not np.isfinite(total).all():
+        total = reference_gradient + explicit + response_gradient
+        if total.shape != reference_gradient.shape or not np.isfinite(total).all():
             raise RHFAdjointError("the compact RHF Z-vector gradient is invalid")
-        return descriptor_diagnostics, adjoint.diagnostics, total
+        return descriptor_diagnostics, adjoint_diagnostics, total
 
     @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:

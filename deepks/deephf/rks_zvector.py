@@ -167,21 +167,21 @@ class RKSDeePHFZVectorGradients:
         }
 
     def _compact_kernel(self, atom_indices) -> dict:
-        diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
+        diagnostics, explicit, adjoint_diagnostics, response_gradient = self.base._zvector_inputs(
             self.adjoint_options,
             atom_indices=atom_indices,
+            compact=True,
         )
         self.base._validate_science_state("RKS Z-vector native gradient evaluation")
         reference = native_rks_gradient(self.base.reference, atom_indices)
         self.base._validate_science_state("RKS Z-vector native gradient evaluation")
-        explicit = self.base._correction_gradient_explicit(sensitivity, atom_indices)
-        total = reference + explicit + adjoint.correction_gradient_response
-        if total.shape != (len(adjoint.atom_indices), 3) or not np.isfinite(total).all():
+        total = reference + explicit + response_gradient
+        if total.shape != reference.shape or not np.isfinite(total).all():
             raise RKSAdjointError("the compact RKS Z-vector gradient is invalid")
         self.base._validate_science_state("RKS Z-vector gradient assembly")
         return {
             "descriptor_diagnostics": diagnostics,
-            "response_diagnostics": adjoint.diagnostics,
+            "response_diagnostics": adjoint_diagnostics,
             "de": total,
         }
 
