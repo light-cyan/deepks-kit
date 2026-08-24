@@ -63,17 +63,14 @@ def model_state_evidence(model) -> tuple:
     )
 
 
-def predict_correction(
+def _predict_correction(
     model,
     descriptor: torch.Tensor,
     dq_dR_relaxed: torch.Tensor | None = None,
     require_force: bool = False,
     create_graph: bool = False,
-    *,
-    _validated_inputs: bool = False,
-    _validated_model: bool = False,
 ) -> CorrectionPrediction:
-    """Predict a correction energy and, only from ``dq_dR_relaxed``, its force.
+    """Execute correction prediction after the caller validates model and data.
 
     Serialized force data use axes ``(frame, raw_atom, xyz,
     descriptor_atom, descriptor_feature)``.  The contraction in this helper is
@@ -84,7 +81,7 @@ def predict_correction(
         descriptor,
         "descriptor",
         ndim=3,
-        check_finite=not _validated_inputs,
+        check_finite=False,
     )
     if any(size <= 0 for size in descriptor.shape):
         raise ValueError("descriptor axes must all be nonempty")
@@ -97,13 +94,11 @@ def predict_correction(
 
     calculate_force = dq_dR_relaxed is not None
     if calculate_force:
-        if not _validated_model:
-            validate_force_model_architecture(model, training=model.training)
         dq_dR_relaxed = _require_float64_tensor(
             dq_dR_relaxed,
             "dq_dR_relaxed",
             ndim=5,
-            check_finite=not _validated_inputs,
+            check_finite=False,
         )
         expected_outer_axes = (
             descriptor.shape[0],
@@ -127,8 +122,6 @@ def predict_correction(
         if dq_dR_relaxed.device != descriptor.device:
             raise ValueError("descriptor and dq_dR_relaxed must be on the same device")
 
-    if not _validated_model:
-        _validate_model_state(model, descriptor)
     values = descriptor
     if calculate_force and not values.requires_grad:
         values = values.detach().requires_grad_(True)
@@ -182,6 +175,28 @@ def predict_correction(
         energy=energy,
         force=force,
         descriptor_gradient=descriptor_gradient,
+    )
+
+
+def predict_correction(
+    model,
+    descriptor: torch.Tensor,
+    dq_dR_relaxed: torch.Tensor | None = None,
+    require_force: bool = False,
+    create_graph: bool = False,
+) -> CorrectionPrediction:
+    """Predict a correction energy and optional relaxed nuclear force."""
+    descriptor = _require_float64_tensor(descriptor, "descriptor", ndim=3)
+    if dq_dR_relaxed is not None:
+        validate_force_model_architecture(model, training=model.training)
+        _require_float64_tensor(dq_dR_relaxed, "dq_dR_relaxed", ndim=5)
+    _validate_model_state(model, descriptor)
+    return _predict_correction(
+        model,
+        descriptor,
+        dq_dR_relaxed,
+        require_force,
+        create_graph,
     )
 
 

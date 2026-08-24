@@ -153,19 +153,19 @@ def test_selected_atoms_limit_coordinate_response_work(
     monkeypatch,
 ):
     solved_atoms = []
-    original_solve = RHFResponseAdapter.solve
+    original_solve = RHFResponseAdapter._solve
 
-    def counted_solve(self, atom_indices=None):
-        solved_atoms.append(tuple(atom_indices))
-        return original_solve(self, atom_indices=atom_indices)
+    def counted_solve(self, atom_indices, result_mode):
+        solved_atoms.append((tuple(atom_indices), result_mode))
+        return original_solve(self, atom_indices, result_mode)
 
-    monkeypatch.setattr(RHFResponseAdapter, "solve", counted_solve)
+    monkeypatch.setattr(RHFResponseAdapter, "_solve", counted_solve)
     driver = scalable_rhf_method.nuc_grad_method(
         backend="direct",
         coordinate_block_size=1,
     )
     selected = driver.kernel(atmlst=(3, 1))
 
-    assert solved_atoms == [(3,), (1,)]
+    assert solved_atoms == [((3,), "gradient"), ((1,), "gradient")]
     assert selected.shape == (2, 3)
     assert driver.dq_dR_response.shape[:2] == (2, 3)

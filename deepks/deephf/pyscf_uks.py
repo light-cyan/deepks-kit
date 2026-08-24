@@ -129,17 +129,6 @@ class UKSAdjoint:
         return getattr(self.core, name)
 
 
-@dataclass(frozen=True)
-class UKSNativeGradient:
-    """Native UKS gradient with explicit finite-grid motion partitions."""
-
-    gradient: np.ndarray
-    gradient_without_grid_response: np.ndarray
-    xc_grid_coordinate: np.ndarray
-    xc_grid_weight: np.ndarray
-    reconstruction_residual: float
-
-
 def _update_fingerprint_value(digest, value: Any) -> None:
     if isinstance(value, np.ndarray):
         array = np.ascontiguousarray(value)
@@ -839,23 +828,55 @@ class UKSResponseAdapter:
 
     def solve(self, atom_indices=None) -> UKSResponse:
         """Return one immutable UKS response for selected atoms."""
+        return self._solve(atom_indices, "response")
+
+    def _solve_with_density_partitions(self, atom_indices=None):
+        """Return a response and its transient spin-density work arrays."""
+        return self._solve(atom_indices, "partitions")
+
+    def _solve_for_gradient(self, atom_indices=None):
+        """Return compact diagnostics and transient spin-density work arrays."""
+        return self._solve(atom_indices, "gradient")
+
+    def _solve(self, atom_indices, result_mode):
         try:
-            core_response = self._core.solve(atom_indices=atom_indices)
-            full, fixed, coordinate, weight = self._components(
-                self._core
-            )
-            _require_wrapper_close(full, fixed + coordinate + weight, "Hamiltonian derivative partition", UKSResponseError)
-            reconstruction = float(
-                np.max(np.abs(full - fixed - coordinate - weight), initial=0.0)
-            )
+            if result_mode == "gradient":
+                core_diagnostics, density_partitions = self._core._solve_for_gradient(
+                    atom_indices=atom_indices
+                )
+                core_response = None
+            elif result_mode == "partitions":
+                core_response, density_partitions = (
+                    self._core._solve_with_density_partitions(
+                        atom_indices=atom_indices
+                    )
+                )
+                core_diagnostics = core_response.diagnostics
+            else:
+                core_response = self._core.solve(atom_indices=atom_indices)
+                core_diagnostics = core_response.diagnostics
+            if result_mode == "gradient":
+                components = self._core._last_hamiltonian_components
+                reconstruction = max(
+                    float(np.max(np.abs(a - b - c - d), initial=0.0))
+                    for a, b, c, d in zip(*components, strict=True)
+                )
+            else:
+                full, fixed, coordinate, weight = self._components(self._core)
+                _require_wrapper_close(full, fixed + coordinate + weight, "Hamiltonian derivative partition", UKSResponseError)
+                reconstruction = float(
+                    np.max(np.abs(full - fixed - coordinate - weight), initial=0.0)
+                )
             functional = _uks_functional_provenance(self.reference)
             grid = _grid_provenance(self.reference)
             diagnostics = UKSResponseDiagnostics(
-                core=core_response.diagnostics,
+                core=core_diagnostics,
                 functional=functional,
                 grid=grid,
                 hamiltonian_reconstruction_residual=reconstruction,
             )
+            if result_mode == "gradient":
+                return diagnostics, density_partitions
             response = UKSResponse(
                 core=core_response,
                 functional=functional,
@@ -866,9 +887,14 @@ class UKSResponseAdapter:
                 diagnostics=diagnostics,
                 integrity_fingerprint="",
             )
-            return replace(
+            response = replace(
                 response,
                 integrity_fingerprint=uks_response_integrity_fingerprint(response),
+            )
+            return (
+                (response, density_partitions)
+                if result_mode == "partitions"
+                else response
             )
         except DeePHFCapabilityError:
             raise
@@ -1055,92 +1081,35 @@ class UKSAdjointAdapter:
             raise UKSAdjointError("the supplied UKS adjoint invariant exceeds tolerance")
 
 
-def _native_uks_xc_grid_force_components(reference, atom_indices) -> tuple[np.ndarray, np.ndarray]:
-    molecule = reference.mol
-    atom_indices = tuple(range(molecule.natm)) if atom_indices is None else tuple(atom_indices)
-    result_indices = {atom_index: index for index, atom_index in enumerate(atom_indices)}
-    integration = reference._numint
-    density = np.asarray(reference.make_rdm1())
-    coordinate_force = np.zeros((len(atom_indices), 3), dtype=np.float64)
-    weight_force = np.zeros_like(coordinate_force)
-    blocks = _validated_grid_response_blocks(
-        reference,
-        _normalized_atom_grid(molecule, reference.grids.atom_grid),
-        audit_weight_derivative=False,
-    )
-    for host_atom, (coordinates, weights, weight_derivative) in enumerate(blocks):
-        try:
-            ao = integration.eval_ao(molecule, coordinates, deriv=1)
-            values = np.asarray(ao[0])
-            rho = np.stack([
-                np.einsum("gp,pq,gq->g", values, density[spin], values, optimize=True)
-                for spin in range(2)
-            ])
-            xc = integration.eval_xc_eff(reference.xc, rho, deriv=1, xctype="LDA", spin=1)
-            energy_density = np.asarray(xc[0])
-            potential = np.asarray(xc[1])[:, 0]
-        except Exception as error:
-            raise UKSResponseError(f"native UKS LDA grid-force quadrature failed: {error}") from error
-        checked = (coordinates, weights, weight_derivative, ao, rho, energy_density, potential)
-        if not all(np.isfinite(value).all() for value in checked):
-            raise UKSResponseError("the native UKS grid-force quadrature is nonfinite")
-        weight_force += np.einsum("g,sg,axg->ax", energy_density, rho, weight_derivative[list(atom_indices)], optimize=True)
-        density_gradient = np.stack([
-            2.0 * np.einsum("xgp,pq,gq->xg", ao[1:4], density[spin], values, optimize=True)
-            for spin in range(2)
-        ])
-        if host_atom in result_indices:
-            coordinate_force[result_indices[host_atom]] += np.einsum("g,sg,sxg->x", weights, potential, density_gradient, optimize=True)
-    return coordinate_force, weight_force
-
-
-def native_uks_gradient(reference, atom_indices=None) -> UKSNativeGradient:
-    """Return the selected native UKS finite-grid gradient."""
+def native_uks_gradient(reference, atom_indices=None) -> np.ndarray:
+    """Evaluate one selected native UKS gradient with grid response."""
     validate_uks_reference(reference)
-    atom_indices = tuple(range(reference.mol.natm)) if atom_indices is None else tuple(atom_indices)
+    atom_indices = (
+        tuple(range(reference.mol.natm))
+        if atom_indices is None
+        else tuple(atom_indices)
+    )
     initial_fingerprint = uks_reference_fingerprint(reference)
-    coordinate_force, weight_force = _native_uks_xc_grid_force_components(reference, atom_indices)
     try:
-        full_driver = uks_grad.Gradients(reference)
-        fixed_driver = uks_grad.Gradients(reference)
-        if type(full_driver) is not uks_grad.Gradients or type(fixed_driver) is not uks_grad.Gradients:
+        driver = uks_grad.Gradients(reference)
+        if type(driver) is not uks_grad.Gradients:
             raise UKSResponseError("the native UKS gradient driver type is invalid")
-        full_driver.grids = reference.grids
-        fixed_driver.grids = reference.grids
-        full_driver.grid_response = True
-        fixed_driver.grid_response = False
-        gradient = _native_unrestricted_gradient(
-            reference,
-            full_driver,
-            atom_indices,
-        )
-        fixed = _native_unrestricted_gradient(
-            reference,
-            fixed_driver,
-            atom_indices,
-        )
+        driver.grids = reference.grids
+        driver.grid_response = True
+        gradient = _native_unrestricted_gradient(reference, driver, atom_indices)
     except UKSResponseError:
         raise
     except Exception as error:
-        raise UKSResponseError(f"PySCF native UKS grid-response gradient failed: {error}") from error
-    shape = (len(atom_indices), 3)
-    gradient = _validated_float64_array(gradient, shape, "native UKS grid-response gradient")
-    fixed = _validated_float64_array(fixed, shape, "native UKS fixed-grid gradient")
-    coordinate_force = _validated_float64_array(coordinate_force, shape, "native UKS grid-coordinate force")
-    weight_force = _validated_float64_array(weight_force, shape, "native UKS grid-weight force")
-    residual = float(np.max(np.abs(gradient - fixed - coordinate_force - weight_force), initial=0.0))
-    if residual > 1.0e-9:
-        raise UKSResponseError(f"the native UKS gradient grid-response reconstruction failed: residual {residual:.3e}")
+        raise UKSResponseError(f"PySCF native UKS gradient failed: {error}") from error
+    gradient = _validated_float64_array(
+        gradient,
+        (len(atom_indices), 3),
+        "native UKS gradient",
+    )
     validate_uks_reference(reference)
     if uks_reference_fingerprint(reference) != initial_fingerprint:
         raise UKSResponseError("the UKS reference changed during native gradient evaluation")
-    return UKSNativeGradient(
-        gradient=_immutable_array(gradient),
-        gradient_without_grid_response=_immutable_array(fixed),
-        xc_grid_coordinate=_immutable_array(coordinate_force),
-        xc_grid_weight=_immutable_array(weight_force),
-        reconstruction_residual=residual,
-    )
+    return gradient
 
 
 __all__ = [
@@ -1148,7 +1117,6 @@ __all__ = [
     "UKSAdjointAdapter",
     "UKSAdjointDiagnostics",
     "UKSAdjointError",
-    "UKSNativeGradient",
     "UKSResponse",
     "UKSResponseAdapter",
     "UKSResponseDiagnostics",

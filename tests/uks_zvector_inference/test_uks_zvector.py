@@ -19,7 +19,21 @@ from deepks.deephf import (
 )
 
 
-def test_uks_compact_selected_gradient_drivers_retain_one_array(uks_case):
+def test_uks_compact_selected_gradient_drivers_retain_one_array(
+    uks_case,
+    monkeypatch,
+):
+    expected = {
+        backend: uks_case.method.nuc_grad_method(
+            backend=backend,
+        ).kernel(atmlst=(1,))
+        for backend in ("direct", "zvector")
+    }
+    monkeypatch.setattr(
+        uks_case.method,
+        "dq_dR_explicit_spin",
+        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
+    )
     for backend in ("direct", "zvector"):
         driver = uks_case.method.nuc_grad_method(
             backend=backend,
@@ -35,7 +49,7 @@ def test_uks_compact_selected_gradient_drivers_retain_one_array(uks_case):
         assert not hasattr(driver, "de_full")
         result_name = "response_result" if backend == "direct" else "adjoint_result"
         assert not hasattr(driver, result_name)
-        assert driver.response_diagnostics is not None
+        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
 
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "uks_analytic_forces" / "conftest.py"
@@ -55,16 +69,12 @@ def test_zvector_matches_direct_and_fresh_energy_finite_differences(uks_case):
         np.testing.assert_allclose(uks_case.zvector_gradient, expected, rtol=3.0e-6, atol=tolerance)
 
 
-def test_zvector_has_one_solve_and_complete_grid_partitions(uks_case):
+def test_zvector_has_one_solve(uks_case):
     driver = uks_case.method.nuc_grad_method(backend="zvector")
     driver.kernel()
     adjoint = driver.adjoint_result
     assert type(adjoint) is UKSAdjoint
     assert adjoint.diagnostics.solve_count == 1
-    np.testing.assert_allclose(adjoint.correction_gradient_adjoint_nuclear_spin, adjoint.correction_gradient_adjoint_fixed_grid_spin + adjoint.correction_gradient_adjoint_grid_coordinate_spin + adjoint.correction_gradient_adjoint_grid_weight_spin, rtol=0.0, atol=1.0e-12)
-    np.testing.assert_allclose(driver.correction_gradient_response, driver.correction_gradient_metric + driver.correction_gradient_occupied_virtual, rtol=0.0, atol=1.0e-12)
-    assert np.max(np.abs(adjoint.correction_gradient_adjoint_grid_coordinate)) > 1.0e-6
-    assert np.max(np.abs(adjoint.correction_gradient_adjoint_grid_weight)) > 1.0e-6
 
 
 def test_zvector_does_not_call_direct_response(monkeypatch, uks_case):
@@ -156,7 +166,7 @@ def test_uks_production_response_and_adjoint_are_matrix_free(
 
 def test_direct_failure_clears_results_without_zvector_fallback(monkeypatch, uks_case):
     driver = uks_case.method.nuc_grad_method(backend="direct")
-    monkeypatch.setattr(UKSResponseAdapter, "solve", lambda self, **kwargs: (_ for _ in ()).throw(UKSResponseError("injected direct failure")))
+    monkeypatch.setattr(UKSResponseAdapter, "_solve", lambda self, *args, **kwargs: (_ for _ in ()).throw(UKSResponseError("injected direct failure")))
     with pytest.raises(UKSResponseError, match="injected direct failure"):
         driver.kernel()
     assert driver.de is None

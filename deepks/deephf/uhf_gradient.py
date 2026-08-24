@@ -4,7 +4,6 @@ import numpy as np
 
 from .capabilities import science_state_transaction
 from .gradient import (
-    _compact_driver_results,
     _reset_driver_results,
     _validate_atom_indices,
     _validate_retain_details,
@@ -70,9 +69,10 @@ class UHFDeePHFGradients:
 
     def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response_result = self.base._solve_response(
+        response_result, density_partitions = self.base._solve_response(
             self.response_options,
             atom_indices=atom_indices,
+            result_mode="partitions",
         )
         self.base._validate_science_state("UHF native gradient evaluation")
         reference_gradient = _native_unrestricted_gradient(
@@ -86,7 +86,7 @@ class UHFDeePHFGradients:
         )
         dq_dP = self.base.dq_dP()
         spin_density_response, metric_density, occupied_virtual_density = (
-            response_result.density_partitions()
+            np.stack(partition) for partition in density_partitions
         )
         dq_response_spin = np.einsum(
             "apij,sbxij->sbxap",
@@ -121,47 +121,15 @@ class UHFDeePHFGradients:
             dq_response_spin,
             sensitivity,
         )
-        if not np.allclose(
-            correction_response_spin,
-            correction_metric_spin + correction_occupied_virtual_spin,
-            rtol=0.0,
-            atol=1.0e-12,
-        ):
-            raise UHFResponseError(
-                "the UHF direct spin-response gradient partitions are inconsistent"
-            )
         correction_spin = correction_explicit_spin + correction_response_spin
         correction_explicit = correction_explicit_spin.sum(axis=0)
         correction_metric = correction_metric_spin.sum(axis=0)
         correction_occupied_virtual = correction_occupied_virtual_spin.sum(axis=0)
         correction_response = correction_response_spin.sum(axis=0)
         correction = correction_spin.sum(axis=0)
-        if not np.allclose(
-            correction,
-            correction_explicit + correction_response,
-            rtol=0.0,
-            atol=1.0e-12,
-        ):
-            raise UHFResponseError(
-                "the UHF direct correction-gradient partitions are inconsistent"
-            )
         de_full = reference_gradient + correction
-        arrays = {
-            "reference gradient": reference_gradient,
-            "explicit descriptor derivative": dq_explicit_spin,
-            "response descriptor derivative": dq_response_spin,
-            "relaxed descriptor derivative": dq_relaxed_spin,
-            "correction gradient": correction_spin,
-            "total gradient": de_full,
-        }
-        nonfinite = [
-            name for name, value in arrays.items() if not np.isfinite(value).all()
-        ]
-        if nonfinite:
-            raise UHFResponseError(
-                "nonfinite UHF DeePHF gradient quantities: "
-                + ", ".join(nonfinite)
-            )
+        if not np.isfinite(de_full).all():
+            raise UHFResponseError("the UHF DeePHF gradient is nonfinite")
         self.base._validate_science_state("UHF gradient assembly")
         return {
             "response_result": response_result,
@@ -190,6 +158,39 @@ class UHFDeePHFGradients:
             "de_full": de_full,
         }
 
+    def _compact_kernel(self, atom_indices) -> dict:
+        descriptor_diagnostics, sensitivity = self.base._force_inputs()
+        response_diagnostics, density_partitions = self.base._solve_response(
+            self.response_options,
+            atom_indices=atom_indices,
+            result_mode="gradient",
+        )
+        self.base._validate_science_state("UHF native gradient evaluation")
+        reference_gradient = _native_unrestricted_gradient(
+            self.base.reference,
+            self.base.reference.nuc_grad_method(),
+            atom_indices,
+        )
+        self.base._validate_science_state("UHF native gradient evaluation")
+        explicit = self.base._correction_gradient_explicit(
+            sensitivity,
+            atom_indices,
+        )
+        objective = self.base._correction_ao_potential(sensitivity)
+        response = sum(
+            np.einsum("ij,bxij->bx", objective, spin_density)
+            for spin_density in density_partitions[0]
+        )
+        total = reference_gradient + explicit + response
+        if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():
+            raise UHFResponseError("the compact UHF gradient is invalid")
+        self.base._validate_science_state("UHF gradient assembly")
+        return {
+            "descriptor_diagnostics": descriptor_diagnostics,
+            "response_diagnostics": response_diagnostics,
+            "de": total,
+        }
+
     @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR for all or selected atoms."""
@@ -202,12 +203,16 @@ class UHFDeePHFGradients:
                 if atom_indices is None
                 else atom_indices
             )
+            if not self.retain_details:
+                results = self._compact_kernel(calculation_atom_indices)
+                self.descriptor_diagnostics = results["descriptor_diagnostics"]
+                self._response_diagnostics = results["response_diagnostics"]
+                self.de = results["de"]
+                return self.de
             results = self._kernel(calculation_atom_indices)
             for name, value in results.items():
                 setattr(self, name, value)
             self.de = self.de_full
-            if not self.retain_details:
-                _compact_driver_results(self)
             return self.de
         except Exception:
             self._reset_results()

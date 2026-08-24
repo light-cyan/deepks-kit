@@ -325,71 +325,6 @@ def independent_xc_hamiltonian_components(reference):
     return ao_motion, grid_coordinate, grid_weight
 
 
-def independent_native_grid_gradient(reference):
-    molecule = reference.mol
-    density = np.asarray(reference.make_rdm1())
-    numerical_integrator = reference._numint
-    coordinate_response = np.zeros((molecule.natm, 3), dtype=np.float64)
-    weight_response = np.zeros_like(coordinate_response)
-    for center_index, (
-        coordinates,
-        weights,
-        derivative_weights,
-    ) in enumerate(rks_gradient.grids_response_cc(reference.grids)):
-        coordinates = np.asarray(coordinates)
-        weights = np.asarray(weights)
-        derivative_weights = np.asarray(derivative_weights)
-        ao_values = np.asarray(
-            numerical_integrator.eval_ao(
-                molecule,
-                coordinates,
-                deriv=1,
-            )
-        )
-        rho = np.asarray(
-            numerical_integrator.eval_rho(
-                molecule,
-                ao_values[0],
-                density,
-                xctype="LDA",
-                hermi=1,
-            )
-        )
-        exc, vxc = numerical_integrator.eval_xc_eff(
-            reference.xc,
-            rho,
-            1,
-            xctype="LDA",
-        )[:2]
-        weight_response += np.einsum(
-            "g,g,nxg->nx",
-            np.asarray(exc),
-            rho,
-            derivative_weights,
-        )
-        coordinate_response[center_index] += 2.0 * np.einsum(
-            "g,xgi,ij,gj->x",
-            weights * np.asarray(vxc[0]),
-            ao_values[1:4],
-            density,
-            ao_values[0],
-            optimize=True,
-        )
-    without_grid_driver = reference.nuc_grad_method()
-    without_grid_driver.grid_response = False
-    without_grid = np.asarray(without_grid_driver.kernel())
-    full_driver = reference.nuc_grad_method()
-    full_driver.grid_response = True
-    full = np.asarray(full_driver.kernel())
-    np.testing.assert_allclose(
-        full,
-        without_grid + coordinate_response + weight_response,
-        rtol=0.0,
-        atol=5.0e-14,
-    )
-    return full, without_grid, coordinate_response, weight_response
-
-
 def fresh_grid_fixed_density_hamiltonian_components(
     reference,
     step=3.0e-5,
@@ -722,12 +657,9 @@ def independent_cpks_oracle(reference):
         )
 
     full_solution = solve()
-    (
-        native_gradient,
-        native_gradient_without_grid_response,
-        native_gradient_grid_coordinate,
-        native_gradient_grid_weight,
-    ) = independent_native_grid_gradient(reference)
+    native_driver = reference.nuc_grad_method()
+    native_driver.grid_response = True
+    native_gradient = np.asarray(native_driver.kernel())
     (
         fresh_grid_fd_coordinate,
         fresh_grid_fd_weight,
@@ -746,11 +678,6 @@ def independent_cpks_oracle(reference):
         xc_hamiltonian_derivative_grid_weight=grid_weight,
         quadrature_electron_count=quadrature_electron_count,
         native_gradient=native_gradient,
-        native_gradient_without_grid_response=(
-            native_gradient_without_grid_response
-        ),
-        native_gradient_grid_coordinate=native_gradient_grid_coordinate,
-        native_gradient_grid_weight=native_gradient_grid_weight,
         fresh_grid_fd_coordinate=fresh_grid_fd_coordinate,
         fresh_grid_fd_weight=fresh_grid_fd_weight,
         fresh_grid_fd_total=fresh_grid_fd_total,
@@ -793,9 +720,6 @@ class IndependentRKSResponseOracle:
     xc_hamiltonian_derivative_grid_weight: np.ndarray
     quadrature_electron_count: float
     native_gradient: np.ndarray
-    native_gradient_without_grid_response: np.ndarray
-    native_gradient_grid_coordinate: np.ndarray
-    native_gradient_grid_weight: np.ndarray
     fresh_grid_fd_coordinate: np.ndarray
     fresh_grid_fd_weight: np.ndarray
     fresh_grid_fd_total: np.ndarray

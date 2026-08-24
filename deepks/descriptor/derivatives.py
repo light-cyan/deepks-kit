@@ -71,6 +71,27 @@ def dq_dR_explicit(
     raw_atom_indices: Sequence[int] | None = None,
 ) -> torch.Tensor:
     """Return fixed-density dq/dR with axes (raw_atom, xyz, descriptor_atom, feature)."""
+    shell_results = _dq_dR_explicit_shells(
+        mol,
+        ao_density,
+        ao_density,
+        overlap_shells,
+        derivative_overlap_shells,
+        descriptor_atom_indices,
+        raw_atom_indices,
+    )
+    return torch.cat(shell_results, dim=-1)
+
+
+def _dq_dR_explicit_shells(
+    mol,
+    ao_density: torch.Tensor,
+    motion_density: torch.Tensor,
+    overlap_shells: Sequence[torch.Tensor],
+    derivative_overlap_shells: Sequence[torch.Tensor],
+    descriptor_atom_indices: Sequence[int],
+    raw_atom_indices: Sequence[int] | None,
+) -> list[torch.Tensor]:
     density_blocks = [
         block.requires_grad_(True)
         for block in projected_density(ao_density, overlap_shells)
@@ -81,20 +102,19 @@ def dq_dR_explicit(
     ]
     coordinate_jacobians = dD_dR_explicit(
         mol,
-        ao_density,
+        motion_density,
         overlap_shells,
         derivative_overlap_shells,
         descriptor_atom_indices,
         raw_atom_indices,
     )
-    shell_results = [
+    return [
         torch.einsum("bxapq,avpq->bxav", coordinate, eigenvalue)
         for coordinate, eigenvalue in zip(
             coordinate_jacobians,
             eigenvalue_jacobians,
         )
     ]
-    return torch.cat(shell_results, dim=-1)
 
 
 def dq_dR_explicit_component(
@@ -109,27 +129,46 @@ def dq_dR_explicit_component(
     """Return one additive fixed-density component of the descriptor derivative."""
     if component_density.shape != ao_density.shape:
         raise ValueError("component_density must match ao_density")
-    density_blocks = [
-        block.requires_grad_(True)
-        for block in projected_density(ao_density, overlap_shells)
-    ]
-    eigenvalue_jacobians = [
-        batch_jacobian(shell_eigenvalues, block, block.shape[-1])
-        for block in density_blocks
-    ]
-    coordinate_jacobians = dD_dR_explicit(
+    shell_results = _dq_dR_explicit_shells(
         mol,
+        ao_density,
         component_density,
         overlap_shells,
         derivative_overlap_shells,
         descriptor_atom_indices,
         raw_atom_indices,
     )
-    shell_results = [
-        torch.einsum("bxapq,avpq->bxav", coordinate, eigenvalue)
-        for coordinate, eigenvalue in zip(
-            coordinate_jacobians,
-            eigenvalue_jacobians,
-        )
-    ]
     return torch.cat(shell_results, dim=-1)
+
+
+def contract_dq_dR_explicit(
+    mol,
+    ao_density: torch.Tensor,
+    motion_density: torch.Tensor,
+    sensitivity: torch.Tensor,
+    overlap_shells: Sequence[torch.Tensor],
+    derivative_overlap_shells: Sequence[torch.Tensor],
+    descriptor_atom_indices: Sequence[int],
+    raw_atom_indices: Sequence[int] | None = None,
+) -> torch.Tensor:
+    """Contract fixed-density descriptor motion without materializing dq/dR."""
+    shell_sizes = tuple(overlap.shape[-1] for overlap in overlap_shells)
+    if sensitivity.shape != (len(descriptor_atom_indices), sum(shell_sizes)):
+        raise ValueError("sensitivity does not match the descriptor layout")
+    shell_results = _dq_dR_explicit_shells(
+        mol,
+        ao_density,
+        motion_density,
+        overlap_shells,
+        derivative_overlap_shells,
+        descriptor_atom_indices,
+        raw_atom_indices,
+    )
+    return sum(
+        torch.einsum("bxav,av->bx", derivative, shell_sensitivity)
+        for derivative, shell_sensitivity in zip(
+            shell_results,
+            sensitivity.split(shell_sizes, dim=-1),
+            strict=True,
+        )
+    )

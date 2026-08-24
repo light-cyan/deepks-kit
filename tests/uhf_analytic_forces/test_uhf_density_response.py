@@ -4,6 +4,16 @@ import pytest
 from deepks.deephf import UHFResponseAdapter
 
 
+def test_selected_response_omits_full_translation_diagnostics(uhf_oracle_case):
+    adapter = UHFResponseAdapter(uhf_oracle_case.reference)
+    response = adapter.solve(atom_indices=(1,))
+
+    assert response.diagnostics.alpha_translation_residual is None
+    assert response.diagnostics.beta_translation_residual is None
+    assert response.diagnostics.translation_residual is None
+    assert adapter.audit_response_equations(response) is None
+
+
 def test_displaced_references_preserve_each_spin_occupied_subspace(
     uhf_oracle_case,
 ):
@@ -66,30 +76,36 @@ def test_spin_resolved_ao_density_response_matches_finite_difference(
     )
 
 
-def test_density_partitions_are_built_with_four_spin_ao_transforms(
+def test_compact_direct_gradient_builds_spin_density_partitions_once(
     uhf_oracle_case,
     monkeypatch,
 ):
-    response = uhf_oracle_case.response
-    original = type(response)._density_response
-    calls = []
+    original = UHFResponseAdapter._density_from_mo_response
+    original_solve = UHFResponseAdapter._solve_orbitals
+    coordinate_calls = 0
+    solved = False
 
-    def counted(instance, spin, mo_response):
-        calls.append(spin)
-        return original(instance, spin, mo_response)
+    def counted_solve(instance, *args):
+        nonlocal solved
+        result = original_solve(instance, *args)
+        solved = True
+        return result
 
-    monkeypatch.setattr(type(response), "_density_response", counted)
-    complete, metric, occupied_virtual = response.density_partitions()
+    def counted(*args):
+        nonlocal coordinate_calls
+        coordinate_calls += solved
+        return original(*args)
 
-    assert calls == [0, 1, 0, 1]
-    np.testing.assert_allclose(
-        complete,
-        metric + occupied_virtual,
-        rtol=0.0,
-        atol=2.0e-15,
+    monkeypatch.setattr(UHFResponseAdapter, "_solve_orbitals", counted_solve)
+    monkeypatch.setattr(
+        UHFResponseAdapter,
+        "_density_from_mo_response",
+        staticmethod(counted),
     )
-    assert np.linalg.norm(metric) > 0.5
-    assert np.linalg.norm(occupied_virtual) > 0.1
+    driver = uhf_oracle_case.method.nuc_grad_method(retain_details=False)
+    driver.kernel(atmlst=(1,))
+
+    assert coordinate_calls == 4
 
 
 def test_method_density_accessors_retain_spin_resolution(uhf_oracle_case):

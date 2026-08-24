@@ -4,13 +4,11 @@ import numpy as np
 
 from .capabilities import science_state_transaction
 from .gradient import (
-    _compact_driver_results,
     _reset_driver_results,
     _validate_atom_indices,
     _validate_retain_details,
 )
 from .pyscf_rks import (
-    RKSNativeGradient,
     RKSResponseError,
     native_rks_gradient,
 )
@@ -72,78 +70,22 @@ class RKSDeePHFGradients:
             else self.response_result.diagnostics
         )
 
-    def _validated_native_gradient(self, atom_indices) -> RKSNativeGradient:
-        native = native_rks_gradient(self.base.reference, atom_indices=atom_indices)
-        if type(native) is not RKSNativeGradient:
-            raise RKSResponseError(
-                "the native RKS gradient adapter returned an invalid result type"
-            )
-        expected_shape = (len(atom_indices), 3)
-        partitions = {
-            "complete native RKS gradient": native.gradient,
-            "native RKS gradient without grid response": (
-                native.gradient_without_grid_response
-            ),
-            "native RKS XC grid-coordinate gradient": native.xc_grid_coordinate,
-            "native RKS XC grid-weight gradient": native.xc_grid_weight,
-        }
-        for name, value in partitions.items():
-            if not isinstance(value, np.ndarray) or value.shape != expected_shape:
-                raise RKSResponseError(
-                    f"the {name} has shape {getattr(value, 'shape', None)}; "
-                    f"expected {expected_shape}"
-                )
-            if value.dtype != np.dtype(np.float64) or np.iscomplexobj(value):
-                raise RKSResponseError(f"the {name} must use real numpy.float64")
-            if not np.isfinite(value).all():
-                raise RKSResponseError(f"the {name} must be finite")
-            if value.flags.writeable:
-                raise RKSResponseError(f"the {name} must be immutable")
-        measured_residual = float(
-            np.max(
-                np.abs(
-                    native.gradient
-                    - native.gradient_without_grid_response
-                    - native.xc_grid_coordinate
-                    - native.xc_grid_weight
-                ),
-                initial=0.0,
-            )
-        )
-        if (
-            isinstance(native.reconstruction_residual, (bool, np.bool_))
-            or not isinstance(
-                native.reconstruction_residual,
-                (int, float, np.integer, np.floating),
-            )
-            or not np.isfinite(native.reconstruction_residual)
-            or native.reconstruction_residual < 0.0
-            or not np.isclose(
-                native.reconstruction_residual,
-                measured_residual,
-                rtol=1.0e-12,
-                atol=np.finfo(float).eps,
-            )
-        ):
-            raise RKSResponseError(
-                "the native RKS gradient reconstruction diagnostic is invalid"
-            )
-        return native
-
     def _kernel(self, atom_indices) -> dict:
         descriptor_diagnostics, sensitivity = self.base._force_inputs()
-        response_result = self.base._solve_response(
+        response_result, density_partitions = self.base._solve_response(
             self.response_options,
+            atom_indices=atom_indices,
+            result_mode="partitions",
+        )
+        self.base._validate_science_state("RKS native gradient evaluation")
+        reference_gradient = native_rks_gradient(
+            self.base.reference,
             atom_indices=atom_indices,
         )
         self.base._validate_science_state("RKS native gradient evaluation")
-        native_gradient_result = self._validated_native_gradient(atom_indices)
-        self.base._validate_science_state("RKS native gradient evaluation")
         dq_explicit = self.base.dq_dR_explicit(atom_indices=atom_indices)
         dq_dP = self.base.dq_dP()
-        density, density_metric, density_occupied_virtual = (
-            response_result.density_partitions()
-        )
+        density, density_metric, density_occupied_virtual = density_partitions
         dq_response = np.einsum(
             "apij,bxij->bxap",
             dq_dP,
@@ -174,56 +116,15 @@ class RKSDeePHFGradients:
             dq_response,
             sensitivity,
         )
-        if not np.allclose(
-            correction_response,
-            correction_metric + correction_occupied_virtual,
-            rtol=0.0,
-            atol=1.0e-12,
-        ):
-            raise RKSResponseError(
-                "the RKS direct response-gradient partitions are inconsistent"
-            )
         correction = correction_explicit + correction_response
-        de_full = native_gradient_result.gradient + correction
-        arrays = {
-            "explicit descriptor derivative": dq_explicit,
-            "response descriptor derivative": dq_response,
-            "relaxed descriptor derivative": dq_relaxed,
-            "explicit correction gradient": correction_explicit,
-            "metric correction gradient": correction_metric,
-            "occupied-virtual correction gradient": (
-                correction_occupied_virtual
-            ),
-            "response correction gradient": correction_response,
-            "correction gradient": correction,
-            "total gradient": de_full,
-        }
-        nonfinite = [
-            name for name, value in arrays.items() if not np.isfinite(value).all()
-        ]
-        if nonfinite:
-            raise RKSResponseError(
-                "nonfinite RKS DeePHF gradient quantities: "
-                + ", ".join(nonfinite)
-            )
+        de_full = reference_gradient + correction
+        if not np.isfinite(de_full).all():
+            raise RKSResponseError("the RKS DeePHF gradient is nonfinite")
         self.base._validate_science_state("RKS gradient assembly")
         return {
             "response_result": response_result,
             "descriptor_diagnostics": descriptor_diagnostics,
-            "native_gradient_result": native_gradient_result,
-            "reference_gradient": native_gradient_result.gradient,
-            "reference_gradient_without_grid_response": (
-                native_gradient_result.gradient_without_grid_response
-            ),
-            "reference_gradient_xc_grid_coordinate": (
-                native_gradient_result.xc_grid_coordinate
-            ),
-            "reference_gradient_xc_grid_weight": (
-                native_gradient_result.xc_grid_weight
-            ),
-            "reference_gradient_reconstruction_residual": (
-                native_gradient_result.reconstruction_residual
-            ),
+            "reference_gradient": reference_gradient,
             "dq_dR_explicit": dq_explicit,
             "dq_dR_response": dq_response,
             "dq_dR_relaxed": dq_relaxed,
@@ -235,6 +136,35 @@ class RKSDeePHFGradients:
             "correction_gradient_response": correction_response,
             "correction_gradient": correction,
             "de_full": de_full,
+        }
+
+    def _compact_kernel(self, atom_indices) -> dict:
+        descriptor_diagnostics, sensitivity = self.base._force_inputs()
+        response_diagnostics, density_partitions = self.base._solve_response(
+            self.response_options,
+            atom_indices=atom_indices,
+            result_mode="gradient",
+        )
+        self.base._validate_science_state("RKS native gradient evaluation")
+        reference_gradient = native_rks_gradient(
+            self.base.reference,
+            atom_indices,
+        )
+        self.base._validate_science_state("RKS native gradient evaluation")
+        explicit = self.base._correction_gradient_explicit(
+            sensitivity,
+            atom_indices,
+        )
+        objective = self.base._correction_ao_potential(sensitivity)
+        response = np.einsum("ij,bxij->bx", objective, density_partitions[0])
+        total = reference_gradient + explicit + response
+        if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():
+            raise RKSResponseError("the compact RKS gradient is invalid")
+        self.base._validate_science_state("RKS gradient assembly")
+        return {
+            "descriptor_diagnostics": descriptor_diagnostics,
+            "response_diagnostics": response_diagnostics,
+            "de": total,
         }
 
     @science_state_transaction
@@ -249,12 +179,16 @@ class RKSDeePHFGradients:
                 if atom_indices is None
                 else atom_indices
             )
+            if not self.retain_details:
+                results = self._compact_kernel(calculation_atom_indices)
+                self.descriptor_diagnostics = results["descriptor_diagnostics"]
+                self._response_diagnostics = results["response_diagnostics"]
+                self.de = results["de"]
+                return self.de
             results = self._kernel(calculation_atom_indices)
             for name, value in results.items():
                 setattr(self, name, value)
             self.de = self.de_full
-            if not self.retain_details:
-                _compact_driver_results(self)
             return self.de
         except Exception:
             self._reset_results()

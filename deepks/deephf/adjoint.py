@@ -439,8 +439,13 @@ def solve_scalar_adjoint(
             )
         residual_value = final_matrix.T @ solution - objective_gradient
     else:
+        residual_action = (
+            problem.apply
+            if getattr(problem, "is_self_adjoint", None) is True
+            else problem.apply_transpose
+        )
         residual_image = _isolated_problem_action(
-            problem.apply_transpose,
+            residual_action,
             solution,
             dimension,
             action_name="independent adjoint residual action",
@@ -507,9 +512,9 @@ def solve_scalar_adjoint(
     result = AdjointResult(
         operator_fingerprint=operator_fingerprint,
         integrity_fingerprint="",
-        objective_gradient=_immutable_array(objective_gradient),
-        solution=_immutable_array(solution),
-        residual=_immutable_array(residual),
+        objective_gradient=objective_gradient,
+        solution=solution,
+        residual=residual,
         diagnostics=diagnostics,
     )
     return replace(

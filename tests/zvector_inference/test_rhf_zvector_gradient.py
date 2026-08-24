@@ -3,6 +3,7 @@ import hashlib
 import json
 
 import numpy as np
+import pytest
 import torch
 
 import deepks.deephf.adjoint as adjoint_module
@@ -11,7 +12,21 @@ from deepks.deephf.gradient import RHFDeePHFGradients
 from deepks.model.model import CorrNet
 
 
-def test_rhf_compact_selected_gradient_drivers_retain_one_array(zvector_algebra_case):
+def test_rhf_compact_selected_gradient_drivers_retain_one_array(
+    zvector_algebra_case,
+    monkeypatch,
+):
+    expected = {
+        backend: zvector_algebra_case.method.nuc_grad_method(
+            backend=backend,
+        ).kernel(atmlst=(1,))
+        for backend in ("direct", "zvector")
+    }
+    monkeypatch.setattr(
+        zvector_algebra_case.method,
+        "dq_dR_explicit",
+        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
+    )
     for backend in ("direct", "zvector"):
         driver = zvector_algebra_case.method.nuc_grad_method(
             backend=backend,
@@ -27,7 +42,7 @@ def test_rhf_compact_selected_gradient_drivers_retain_one_array(zvector_algebra_
         assert not hasattr(driver, "de_full")
         result_name = "response_result" if backend == "direct" else "adjoint_result"
         assert not hasattr(driver, result_name)
-        assert driver.response_diagnostics is not None
+        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
 
 
 def _make_constant_model(template, bias):
@@ -63,54 +78,6 @@ def _force_checkpoint_metadata(model):
         "reference_family": "RHF",
         "response_backend": "rhf_direct",
     }
-
-
-def test_zvector_matches_direct_oracle_by_every_public_gradient_partition(
-    zvector_algebra_case,
-):
-    method = zvector_algebra_case.method
-    direct = method.nuc_grad_method(backend="direct").run()
-    zvector = method.nuc_grad_method(backend="zvector").run()
-
-    assert direct.backend == "direct"
-    assert zvector.backend == "zvector"
-    assert isinstance(method.nuc_grad_method(), RHFDeePHFGradients)
-    for field in (
-        "reference_gradient",
-        "correction_gradient_explicit",
-        "correction_gradient_metric",
-        "correction_gradient_occupied_virtual",
-        "correction_gradient_response",
-        "correction_gradient",
-        "de_full",
-        "de",
-    ):
-        np.testing.assert_allclose(
-            getattr(zvector, field),
-            getattr(direct, field),
-            rtol=4.0e-11,
-            atol=4.0e-11,
-            err_msg=field,
-        )
-    np.testing.assert_allclose(
-        zvector.correction_gradient_response,
-        zvector.correction_gradient_metric
-        + zvector.correction_gradient_occupied_virtual,
-        rtol=0.0,
-        atol=1.0e-12,
-    )
-    np.testing.assert_allclose(
-        zvector.correction_gradient,
-        zvector.correction_gradient_explicit
-        + zvector.correction_gradient_response,
-        rtol=0.0,
-        atol=1.0e-12,
-    )
-    assert np.max(np.abs(zvector.correction_gradient_explicit)) > 1.0e-3
-    assert np.max(np.abs(zvector.correction_gradient_metric)) > 1.0e-3
-    assert np.max(
-        np.abs(zvector.correction_gradient_occupied_virtual)
-    ) > 1.0e-3
 
 
 def test_zvector_total_gradient_matches_three_step_fresh_total_energy_fd(

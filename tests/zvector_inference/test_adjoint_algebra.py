@@ -31,6 +31,7 @@ class _NonsymmetricAdjointProblem:
 
 def test_self_adjoint_matrix_free_solve_has_one_postsolve_action(monkeypatch):
     calls = {"forward": 0, "transpose": 0}
+    freeze_count = 0
 
     class IdentityProblem:
         dimension = 2
@@ -48,13 +49,22 @@ def test_self_adjoint_matrix_free_solve_has_one_postsolve_action(monkeypatch):
     def exact_gmres(_operator, objective, **_controls):
         return objective.copy(), 0
 
+    original_freeze = adjoint_module._immutable_array
+
+    def counted_freeze(value):
+        nonlocal freeze_count
+        freeze_count += 1
+        return original_freeze(value)
+
     monkeypatch.setattr(adjoint_module, "gmres", exact_gmres)
+    monkeypatch.setattr(adjoint_module, "_immutable_array", counted_freeze)
     result = solve_scalar_adjoint(
         IdentityProblem(),
         np.array([0.3, -0.2], dtype=np.float64),
         require_physical_residual=True,
     )
-    assert calls == {"forward": 0, "transpose": 1}
+    assert calls == {"forward": 1, "transpose": 0}
+    assert freeze_count == 5
     assert tuple(result.__dataclass_fields__) == (
         "operator_fingerprint",
         "integrity_fingerprint",
@@ -63,6 +73,27 @@ def test_self_adjoint_matrix_free_solve_has_one_postsolve_action(monkeypatch):
         "residual",
         "diagnostics",
     )
+
+
+def test_false_self_adjoint_claim_cannot_skip_the_physical_residual(monkeypatch):
+    class FalseClaim:
+        dimension = 1
+        is_self_adjoint = True
+        operator_fingerprint = hashlib.sha256(b"false-claim").hexdigest()
+
+        def apply(self, vector):
+            return 2.0 * vector
+
+        def apply_transpose(self, vector):
+            return vector
+
+    monkeypatch.setattr(
+        adjoint_module,
+        "gmres",
+        lambda _operator, objective, **_controls: (objective.copy(), 0),
+    )
+    with pytest.raises(adjoint_module.AdjointError, match="residual exceeds tolerance"):
+        solve_scalar_adjoint(FalseClaim(), np.ones(1), require_physical_residual=True)
 
 
 def _independent_objective_ao_potential(case):

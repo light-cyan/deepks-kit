@@ -1,5 +1,7 @@
 from collections.abc import Mapping
+import hashlib
 from types import MappingProxyType
+from weakref import WeakSet
 import os,time,sys
 import numpy as np
 import torch
@@ -16,35 +18,65 @@ FORCE_MODE_DEEPHF_RELAXED = "deephf_relaxed"
 FORCE_DATA_MODES = {FORCE_MODE_NONE, FORCE_MODE_DEEPHF_RELAXED}
 
 
-_FORCE_BATCH_TOKEN = object()
+_FORCE_BATCH_ISSUERS = WeakSet()
+
+
+def _tensor_fingerprint(value) -> bytes:
+    array = np.ascontiguousarray(value.detach().cpu().numpy())
+    digest = hashlib.sha256()
+    digest.update(array.dtype.str.encode("ascii"))
+    digest.update(repr(array.shape).encode("ascii"))
+    digest.update(array.tobytes())
+    return digest.digest()
 
 
 class _ForceBatchIssuer:
-    __slots__ = ("contract",)
+    __slots__ = ("contract", "fingerprints", "frame_count", "__weakref__")
 
-    def __init__(self, contract):
-        self.contract = contract
+    def __new__(cls, *args, **kwargs):
+        raise TypeError("force-batch issuers are created only by validated readers")
+
+    def __setattr__(self, name, value):
+        raise AttributeError("force-batch issuers are immutable")
 
 
 class _ForceBatch(Mapping):
-    """Immutable reader-issued tensors bound to frame selections and versions."""
+    """Immutable reader-issued tensors bound to frame selections and content."""
 
-    __slots__ = ("_values", "_selections", "_versions")
+    __slots__ = ("_values", "_selections")
 
-    def __init__(self, values, selections, token):
-        if token is not _FORCE_BATCH_TOKEN:
-            raise TypeError("force batches are issued only by validated readers")
+    def __new__(cls, *args, **kwargs):
+        raise TypeError("force batches are issued only by validated readers")
+
+    @classmethod
+    def _from_issued(cls, values, selections):
         values = dict(values)
+        selections = tuple(
+            (issuer, tuple(indices)) for issuer, indices in selections
+        )
+        if any(issuer not in _FORCE_BATCH_ISSUERS for issuer, _indices in selections):
+            raise TypeError("force batches require registered reader issuers")
         frame_count = next(iter(values.values())).shape[0]
         if any(value.shape[0] != frame_count for value in values.values()):
             raise ValueError("force-batch fields must share one frame axis")
         if sum(len(indices) for _issuer, indices in selections) != frame_count:
             raise ValueError("force-batch frame selections do not match tensor rows")
-        self._values = MappingProxyType(values)
-        self._selections = tuple(selections)
-        self._versions = tuple(
-            (name, value, value._version) for name, value in values.items()
-        )
+        if any(
+            not isinstance(index, (int, np.integer))
+            or isinstance(index, (bool, np.bool_))
+            or index < 0
+            or index >= issuer.frame_count
+            for issuer, indices in selections
+            for index in indices
+        ):
+            raise ValueError("force-batch frame selections are invalid")
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_values", MappingProxyType(values))
+        object.__setattr__(instance, "_selections", selections)
+        return instance
+
+    def __setattr__(self, name, value):
+        raise AttributeError("force batches are immutable")
 
     def __getitem__(self, name):
         return self._values[name]
@@ -56,10 +88,6 @@ class _ForceBatch(Mapping):
         return len(self._values)
 
 
-def _issue_force_batch(values, selections):
-    return _ForceBatch(values, selections, _FORCE_BATCH_TOKEN)
-
-
 def _force_batch_error(batch, accepted_contracts) -> str | None:
     if type(batch) is not _ForceBatch:
         return "force-aware samples must come from a validated force-data reader"
@@ -68,8 +96,17 @@ def _force_batch_error(batch, accepted_contracts) -> str | None:
         for issuer, _indices in batch._selections
     ):
         return "force-aware sample does not belong to the configured readers"
-    if any(value._version != version for _name, value, version in batch._versions):
-        return "force-aware sample tensors changed after reader issuance"
+    offset = 0
+    for issuer, indices in batch._selections:
+        stop = offset + len(indices)
+        for name, value in batch._values.items():
+            expected = issuer.fingerprints.get(name)
+            if expected is None or any(
+                _tensor_fingerprint(value[offset + position]) != expected[index]
+                for position, index in enumerate(indices)
+            ):
+                return "force-aware sample content does not match its reader frames"
+        offset = stop
     return None
 
 
@@ -99,7 +136,7 @@ def concat_batch(tdicts, dim=0):
             for batch in tdicts
             for selection in batch._selections
         )
-        return _issue_force_batch(values, selections)
+        return _ForceBatch._from_issued(values, selections)
     return values
 
 
@@ -115,7 +152,7 @@ def split_batch(tdict, size, dim=0):
     for batch in batches:
         stop = start + next(iter(batch.values())).shape[dim]
         result.append(
-            _issue_force_batch(
+            _ForceBatch._from_issued(
                 batch,
                 _slice_selections(tdict._selections, start, stop),
             )
@@ -159,7 +196,6 @@ class Reader(object):
                     "strict DeePHF force data uses canonical dq_dR_relaxed"
                 )
             self.force_contract, self._force_arrays = load_force_dataset(data_path)
-            self._force_batch_issuer = _ForceBatchIssuer(self.force_contract)
         elif os.path.isfile(strict_manifest_path):
             raise ForceDataError(
                 "a strict force dataset must be read with "
@@ -188,6 +224,25 @@ class Reader(object):
         # load data
         self.load_meta()
         self.prepare()
+        if self.force_contract is not None:
+            issuer = object.__new__(_ForceBatchIssuer)
+            object.__setattr__(issuer, "contract", self.force_contract)
+            object.__setattr__(
+                issuer,
+                "fingerprints",
+                MappingProxyType(
+                    {
+                        name: tuple(
+                            _tensor_fingerprint(value[index])
+                            for index in range(self.nframes)
+                        )
+                        for name, value in self.tensor_data.items()
+                    }
+                ),
+            )
+            object.__setattr__(issuer, "frame_count", self.nframes)
+            _FORCE_BATCH_ISSUERS.add(issuer)
+            self._force_batch_issuer = issuer
         # initialize sample index queue
         self.idx_queue = []
 
@@ -320,7 +375,7 @@ class Reader(object):
         self.idx_queue = self.idx_queue[self.batch_size:]
         values = {k: v[sample_idx] for k, v in self.tensor_data.items()}
         if self.force_contract is not None:
-            return _issue_force_batch(
+            return _ForceBatch._from_issued(
                 values,
                 ((self._force_batch_issuer, tuple(map(int, sample_idx))),),
             )
@@ -328,7 +383,7 @@ class Reader(object):
 
     def sample_all(self):
         if self.force_contract is not None:
-            return _issue_force_batch(
+            return _ForceBatch._from_issued(
                 self.tensor_data,
                 ((self._force_batch_issuer, range(self.nframes)),),
             )

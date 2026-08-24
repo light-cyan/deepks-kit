@@ -112,9 +112,9 @@ class UHFResponseDiagnostics:
     beta_idempotency_residual: float
     alpha_particle_number_residual: float
     beta_particle_number_residual: float
-    alpha_translation_residual: float
-    beta_translation_residual: float
-    translation_residual: float
+    alpha_translation_residual: float | None
+    beta_translation_residual: float | None
+    translation_residual: float | None
     refinement_cycles: int
     residual_history: tuple[float, ...]
 
@@ -137,26 +137,6 @@ class UHFResponse:
     alpha_orbital_response_residual: np.ndarray
     beta_orbital_response_residual: np.ndarray
     diagnostics: UHFResponseDiagnostics
-
-    def density_partitions(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Build complete, metric, and occupied-virtual spin densities once."""
-        metric = np.stack(
-            (
-                self._density_response(0, self.alpha_mo_response_metric),
-                self._density_response(1, self.beta_mo_response_metric),
-            )
-        )
-        occupied_virtual = np.stack(
-            (
-                self._density_response(0, self.alpha_mo_response_occupied_virtual),
-                self._density_response(1, self.beta_mo_response_occupied_virtual),
-            )
-        )
-        return (
-            _immutable_array(metric + occupied_virtual),
-            _immutable_array(metric),
-            _immutable_array(occupied_virtual),
-        )
 
     def _mo_partition(self, spin: int, occupied_virtual: bool) -> np.ndarray:
         response = (self.alpha_mo_response, self.beta_mo_response)[spin]
@@ -1530,6 +1510,17 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
 
     def solve(self, atom_indices=None) -> UHFResponse:
         """Return the audited spin response for selected atoms."""
+        return self._solve(atom_indices, "response")
+
+    def _solve_with_density_partitions(self, atom_indices=None):
+        """Return a response and its transient spin-density work arrays."""
+        return self._solve(atom_indices, "partitions")
+
+    def _solve_for_gradient(self, atom_indices=None):
+        """Return compact diagnostics and transient spin-density work arrays."""
+        return self._solve(atom_indices, "gradient")
+
+    def _solve(self, atom_indices, result_mode):
         self._validate_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         coefficient, energy, occupation, occupied, virtual, minimum_gaps = self._state()
@@ -1570,15 +1561,39 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             virtual,
         )
         density_responses = []
+        metric_densities = []
+        occupied_virtual_densities = []
         metric_residuals = []
         for spin_index in range(2):
-            density_responses.append(
-                self._density_from_mo_response(
+            if result_mode == "response":
+                density_response = self._density_from_mo_response(
                     responses[spin_index],
                     coefficient[spin_index],
                     occupied[spin_index],
                 )
-            )
+            else:
+                metric_response = np.zeros_like(responses[spin_index])
+                metric_response[..., occupied[spin_index], :] = responses[
+                    spin_index
+                ][..., occupied[spin_index], :]
+                occupied_virtual_response = np.zeros_like(responses[spin_index])
+                occupied_virtual_response[..., virtual[spin_index], :] = responses[
+                    spin_index
+                ][..., virtual[spin_index], :]
+                metric_density = self._density_from_mo_response(
+                    metric_response,
+                    coefficient[spin_index],
+                    occupied[spin_index],
+                )
+                occupied_virtual_density = self._density_from_mo_response(
+                    occupied_virtual_response,
+                    coefficient[spin_index],
+                    occupied[spin_index],
+                )
+                density_response = metric_density + occupied_virtual_density
+                metric_densities.append(metric_density)
+                occupied_virtual_densities.append(occupied_virtual_density)
+            density_responses.append(density_response)
             overlap_occupied = overlap_mo[spin_index][
                 ..., occupied[spin_index], :
             ]
@@ -1606,9 +1621,9 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 np.max(np.abs(np.sum(total_density, axis=0)), initial=0.0)
             )
         else:
-            alpha_translation_residual = 0.0
-            beta_translation_residual = 0.0
-            translation_residual = 0.0
+            alpha_translation_residual = None
+            beta_translation_residual = None
+            translation_residual = None
         density_ground = np.asarray(self.reference.make_rdm1())
         invariants = [
             self._invariants(
@@ -1679,6 +1694,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             getattr(diagnostics, field.name)
             for field in fields(diagnostics)
             if field.name not in {"pyscf_version", "residual_history"}
+            and getattr(diagnostics, field.name) is not None
         ) + diagnostics.residual_history
         if not np.isfinite(diagnostic_values).all():
             raise UHFResponseError("nonfinite UHF response diagnostics")
@@ -1689,7 +1705,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 f"{diagnostics.maximum_residual:.3e} > {self.residual_tolerance:.3e}; "
                 f"refinement history: {history}"
             )
-        invariant_values = (
+        invariant_values = tuple(value for value in (
             *metric_residuals,
             invariants[0][0],
             invariants[1][0],
@@ -1698,12 +1714,19 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             alpha_translation_residual,
             beta_translation_residual,
             translation_residual,
-        )
+        ) if value is not None)
         if max(invariant_values) > self.invariant_tolerance:
             raise UHFResponseError(
                 "UHF response invariant exceeds tolerance "
                 f"{self.invariant_tolerance:.3e}: maximum={max(invariant_values):.3e}"
             )
+        density_partitions = (
+            tuple(density_responses),
+            tuple(metric_densities),
+            tuple(occupied_virtual_densities),
+        )
+        if result_mode == "gradient":
+            return diagnostics, density_partitions
         response = UHFResponse(
             reference_identity=id(self.reference),
             state_fingerprint=self._reference_fingerprint(self.reference),
@@ -1724,7 +1747,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             response,
             integrity_fingerprint=uhf_response_integrity_fingerprint(response),
         )
-        return response
+        return (response, density_partitions) if result_mode == "partitions" else response
 
     def _validate_supplied_structure(
         self,
@@ -1815,6 +1838,16 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             if name in {"pyscf_version", "residual_history"}:
                 continue
             value = getattr(diagnostics, name)
+            if name in {
+                "alpha_translation_residual",
+                "beta_translation_residual",
+                "translation_residual",
+            } and len(atom_indices) != self.molecule.natm:
+                if value is not None:
+                    raise UHFResponseError(
+                        "selected UHF responses cannot publish translation residuals"
+                    )
+                continue
             if name == "operator_is_self_adjoint":
                 if value is not True:
                     raise UHFResponseError(
@@ -1903,7 +1936,11 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
             "beta_translation_residual",
             "translation_residual",
         }
-        if any(float(getattr(diagnostics, name)) < 0 for name in nonnegative_fields):
+        if any(
+            float(getattr(diagnostics, name)) < 0
+            for name in nonnegative_fields
+            if getattr(diagnostics, name) is not None
+        ):
             raise UHFResponseError(
                 "the supplied UHF response contains a negative residual diagnostic"
             )
@@ -2190,13 +2227,18 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         beta_maximum = float(np.max(np.abs(residuals[1]), initial=0.0))
         squared_sum = sum(float(np.sum(np.square(value))) for value in residuals)
         residual_size = sum(value.size for value in residuals)
-        alpha_translation = float(
-            np.max(np.abs(np.sum(density_responses[0], axis=0)), initial=0.0)
-        )
-        beta_translation = float(
-            np.max(np.abs(np.sum(density_responses[1], axis=0)), initial=0.0)
-        )
-        translation = float(np.max(np.abs(np.sum(expected_total, axis=0)), initial=0.0))
+        if len(response.atom_indices) == self.molecule.natm:
+            alpha_translation = float(
+                np.max(np.abs(np.sum(density_responses[0], axis=0)), initial=0.0)
+            )
+            beta_translation = float(
+                np.max(np.abs(np.sum(density_responses[1], axis=0)), initial=0.0)
+            )
+            translation = float(
+                np.max(np.abs(np.sum(expected_total, axis=0)), initial=0.0)
+            )
+        else:
+            alpha_translation = beta_translation = translation = None
         measured = {
             "minimum_alpha_orbital_gap": minimum_gaps[0],
             "minimum_beta_orbital_gap": minimum_gaps[1],
@@ -2219,7 +2261,9 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
         }
         for name, value in measured.items():
             recorded = getattr(response.diagnostics, name)
-            if isinstance(value, int):
+            if value is None:
+                consistent = recorded is None
+            elif isinstance(value, int):
                 consistent = recorded == value
             else:
                 consistent = np.isclose(recorded, value, rtol=1.0e-10, atol=1.0e-12)
@@ -2244,6 +2288,7 @@ class UHFResponseAdapter(_UHFLinearResponseCore):
                 "beta_translation_residual",
                 "translation_residual",
             )
+            if measured[name] is not None
         )
         if invariant_maximum > self.invariant_tolerance:
             raise UHFResponseError(

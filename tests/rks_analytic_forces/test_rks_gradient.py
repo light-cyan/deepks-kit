@@ -76,88 +76,6 @@ def test_native_grid_response_gradient_matches_base_energy_finite_difference(
     )
 
 
-def test_native_grid_coordinate_and_weight_gradient_parts_are_independent(
-    rks_oracle_case,
-):
-    driver = rks_oracle_case.gradient_driver
-    independent = rks_oracle_case.independent
-
-    for actual, expected in (
-        (
-            driver.reference_gradient,
-            independent.native_gradient,
-        ),
-        (
-            driver.reference_gradient_without_grid_response,
-            independent.native_gradient_without_grid_response,
-        ),
-        (
-            driver.reference_gradient_xc_grid_coordinate,
-            independent.native_gradient_grid_coordinate,
-        ),
-        (
-            driver.reference_gradient_xc_grid_weight,
-            independent.native_gradient_grid_weight,
-        ),
-    ):
-        np.testing.assert_allclose(
-            actual,
-            expected,
-            rtol=2.0e-12,
-            atol=2.0e-12,
-        )
-    np.testing.assert_allclose(
-        driver.reference_gradient,
-        driver.reference_gradient_without_grid_response
-        + driver.reference_gradient_xc_grid_coordinate
-        + driver.reference_gradient_xc_grid_weight,
-        rtol=0.0,
-        atol=5.0e-14,
-    )
-    assert np.max(
-        np.abs(driver.reference_gradient_xc_grid_coordinate)
-    ) > 0.99
-    assert np.max(
-        np.abs(driver.reference_gradient_xc_grid_weight)
-    ) > 0.98
-    assert np.max(
-        np.abs(
-            driver.reference_gradient
-            - driver.reference_gradient_without_grid_response
-        )
-    ) > 4.0e-3
-    finite_difference = rks_oracle_case.finite_difference(
-        "base_energy",
-        3.0e-4,
-    )
-    assert np.max(
-        np.abs(
-            driver.reference_gradient_without_grid_response
-            - finite_difference
-        )
-    ) > 4.0e-3
-    assert np.max(
-        np.abs(
-            driver.reference_gradient
-            - driver.reference_gradient_xc_grid_coordinate
-            - finite_difference
-        )
-    ) > 0.98
-    assert np.max(
-        np.abs(
-            driver.reference_gradient
-            - driver.reference_gradient_xc_grid_weight
-            - finite_difference
-        )
-    ) > 0.98
-    np.testing.assert_allclose(
-        driver.reference_gradient.sum(axis=0),
-        np.zeros(3),
-        rtol=0.0,
-        atol=2.0e-10,
-    )
-
-
 @pytest.mark.parametrize(
     ("omission", "minimum_error"),
     [
@@ -231,9 +149,13 @@ def test_rks_public_force_calls_have_single_transaction_budgets(
     original_fingerprint = pyscf_rks._dft_reference_validation_fingerprint
     original_force_inputs = method._force_inputs
     original_explicit = method._descriptor.dq_dR_explicit
+    original_contracted = method._descriptor.correction_gradient_explicit
+    original_native_kernel = pyscf_rks.rks_grad.Gradients.kernel
     fingerprint_calls = 0
     force_input_calls = 0
     explicit_calls = 0
+    contracted_calls = 0
+    native_calls = 0
 
     def counted_fingerprint(reference):
         nonlocal fingerprint_calls
@@ -250,6 +172,16 @@ def test_rks_public_force_calls_have_single_transaction_budgets(
         explicit_calls += 1
         return original_explicit(*args, **options)
 
+    def counted_contracted(*args, **options):
+        nonlocal contracted_calls
+        contracted_calls += 1
+        return original_contracted(*args, **options)
+
+    def counted_native(instance, *args, **options):
+        nonlocal native_calls
+        native_calls += 1
+        return original_native_kernel(instance, *args, **options)
+
     monkeypatch.setattr(
         pyscf_rks,
         "_dft_reference_validation_fingerprint",
@@ -257,15 +189,27 @@ def test_rks_public_force_calls_have_single_transaction_budgets(
     )
     monkeypatch.setattr(method, "_force_inputs", counted_force_inputs)
     monkeypatch.setattr(method._descriptor, "dq_dR_explicit", counted_explicit)
-
-    for calculation in (method.dq_dR_relaxed, method.gradient):
+    monkeypatch.setattr(
+        method._descriptor,
+        "correction_gradient_explicit",
+        counted_contracted,
+    )
+    monkeypatch.setattr(pyscf_rks.rks_grad.Gradients, "kernel", counted_native)
+    for calculation, expected_explicit, expected_contracted, expected_native in (
+        (method.dq_dR_relaxed, 1, 0, 0),
+        (method.gradient, 0, 1, 1),
+    ):
         fingerprint_calls = 0
         force_input_calls = 0
         explicit_calls = 0
+        contracted_calls = 0
+        native_calls = 0
         assert np.isfinite(calculation()).all()
         assert fingerprint_calls == 2
         assert force_input_calls == 1
-        assert explicit_calls == 1
+        assert explicit_calls == expected_explicit
+        assert contracted_calls == expected_contracted
+        assert native_calls == expected_native
 
 
 @pytest.mark.parametrize(

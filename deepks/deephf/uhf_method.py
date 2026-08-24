@@ -114,7 +114,12 @@ class UHFDeePHF(DeePHF):
         self.validate_force_compatibility()
         return self._solve_response(response_options)
 
-    def _solve_response(self, response_options, atom_indices=None) -> UHFResponse:
+    def _solve_response(
+        self,
+        response_options,
+        atom_indices=None,
+        result_mode="response",
+    ):
         """Solve one response after the caller has validated descriptor semantics."""
         options = _validated_backend_options(
             self.response_options,
@@ -122,11 +127,21 @@ class UHFDeePHF(DeePHF):
             _DIRECT_RESPONSE_OPTIONS,
             "direct",
         )
-        response = UHFResponseAdapter(self.reference, **options).solve(
-            atom_indices=atom_indices
-        )
+        adapter = UHFResponseAdapter(self.reference, **options)
+        if result_mode == "gradient":
+            return adapter._solve_for_gradient(atom_indices=atom_indices)
+        if result_mode == "partitions":
+            response, density_partitions = adapter._solve_with_density_partitions(
+                atom_indices=atom_indices
+            )
+        else:
+            response = adapter.solve(atom_indices=atom_indices)
         self._seal_response(response)
-        return response
+        return (
+            (response, density_partitions)
+            if result_mode == "partitions"
+            else response
+        )
 
     def _validate_response(self, response: UHFResponse) -> UHFResponse:
         """Return a response produced by this exact UHF method."""

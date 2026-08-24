@@ -172,6 +172,48 @@ def test_force_training_rejects_relu_activation():
         predict_correction(model, descriptor, jacobian)
 
 
+@pytest.mark.parametrize("replacement", ("compiled", "class-call"))
+def test_force_prediction_rejects_module_dispatch_replacement(
+    monkeypatch,
+    replacement,
+):
+    model, descriptor, jacobian, _, _ = _force_case()
+    detached = lambda values: model.forward(values.detach()) + 0.0 * values.sum()
+    if replacement == "compiled":
+        model._compiled_call_impl = detached
+    else:
+        monkeypatch.setattr(CorrNet, "__call__", lambda self, values: detached(values))
+
+    with pytest.raises(ValueError, match="call-dispatch implementation"):
+        predict_correction(model, descriptor, jacobian)
+
+
+@pytest.mark.parametrize("replacement", ("compiled", "class-call"))
+def test_force_evaluator_rejects_module_dispatch_replacement(
+    tmp_path,
+    monkeypatch,
+    replacement,
+):
+    model, descriptor, jacobian, _, force = _force_case()
+    contract, sample = write_force_contract_sample(
+        tmp_path / replacement,
+        energy=model(descriptor).detach(),
+        descriptor=descriptor,
+        force=force,
+        jacobian=jacobian,
+        projector_basis=TEST_PROJECTOR_BASIS,
+        shell_sizes=[1, 1],
+    )
+    detached = lambda values: model.forward(values.detach()) + 0.0 * values.sum()
+    if replacement == "compiled":
+        model._compiled_call_impl = detached
+    else:
+        monkeypatch.setattr(CorrNet, "__call__", lambda self, values: detached(values))
+
+    with pytest.raises(ValueError, match="call-dispatch implementation"):
+        Evaluator(force_factor=1.0, force_contract=contract).evaluate(model, sample)
+
+
 def test_nonlinear_normalized_force_matches_descriptor_displacement_energy_fd():
     model = CorrNet(
         input_dim=2,
@@ -401,7 +443,8 @@ def test_force_evaluator_reports_nonzero_component_losses_and_metrics(tmp_path):
     )
 
 
-def test_force_evaluator_rejects_reader_batch_tensor_mutation(tmp_path):
+@pytest.mark.parametrize("mutation", ("torch", "numpy", "data"))
+def test_force_evaluator_rejects_reader_batch_tensor_mutation(tmp_path, mutation):
     model, descriptor, jacobian, _, force = _force_case()
     contract, sample = write_force_contract_sample(
         tmp_path / "mutated-sample",
@@ -413,9 +456,14 @@ def test_force_evaluator_rejects_reader_batch_tensor_mutation(tmp_path):
         shell_sizes=[1, 1],
     )
     evaluator = Evaluator(force_factor=1.0, force_contract=contract)
-    sample["descriptor"].add_(1.0)
+    if mutation == "torch":
+        sample["descriptor"].add_(1.0)
+    elif mutation == "numpy":
+        sample["descriptor"].numpy()[...] += 1.0
+    else:
+        sample["descriptor"].data.fill_(1.0)
 
-    with pytest.raises(ForceTrainingError, match="changed after reader issuance"):
+    with pytest.raises(ForceTrainingError, match="does not match its reader frames"):
         evaluator.evaluate(model, sample)
 
 

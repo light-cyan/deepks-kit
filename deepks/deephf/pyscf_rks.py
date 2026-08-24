@@ -165,7 +165,7 @@ class RKSResponseDiagnostics:
     metric_residual: float
     idempotency_residual: float
     particle_number_residual: float
-    translation_residual: float
+    translation_residual: float | None
     refinement_cycles: int
     residual_history: tuple[float, ...]
 
@@ -180,17 +180,6 @@ class RKSResponse(RHFResponse):
     xc_hamiltonian_derivative_grid_coordinate: np.ndarray
     xc_hamiltonian_derivative_grid_weight: np.ndarray
     diagnostics: RKSResponseDiagnostics
-
-
-@dataclass(frozen=True)
-class RKSNativeGradient:
-    """Audited native RKS gradient and its finite-grid XC response split."""
-
-    gradient: np.ndarray
-    gradient_without_grid_response: np.ndarray
-    xc_grid_coordinate: np.ndarray
-    xc_grid_weight: np.ndarray
-    reconstruction_residual: float
 
 
 @dataclass(frozen=True)
@@ -2333,6 +2322,17 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
 
     def solve(self, atom_indices=None) -> RKSResponse:
         """Return the audited finite-grid response for selected atoms."""
+        return self._solve(atom_indices, "response")
+
+    def _solve_with_density_partitions(self, atom_indices=None):
+        """Return a response and its transient AO density work arrays."""
+        return self._solve(atom_indices, "partitions")
+
+    def _solve_for_gradient(self, atom_indices=None):
+        """Return compact diagnostics and transient AO density work arrays."""
+        return self._solve(atom_indices, "gradient")
+
+    def _solve(self, atom_indices, result_mode):
         validate_rks_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         initial_fingerprint = rks_reference_fingerprint(self.reference)
@@ -2439,7 +2439,7 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         translation_residual = (
             float(np.max(np.abs(np.sum(density_response, axis=0)), initial=0.0))
             if len(atom_indices) == self.molecule.natm
-            else 0.0
+            else None
         )
         try:
             ao = self.reference._numint.eval_ao(
@@ -2531,7 +2531,7 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         invariant_failures = {
             name: value
             for name, value in invariant_failures.items()
-            if value > self.invariant_tolerance
+            if value is not None and value > self.invariant_tolerance
         }
         if invariant_failures:
             details = ", ".join(
@@ -2544,6 +2544,13 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
         validate_rks_reference(self.reference)
         if rks_reference_fingerprint(self.reference) != initial_fingerprint:
             raise RKSResponseError("the RKS reference changed during the response solve")
+        density_partitions = (
+            density_response,
+            density_metric,
+            density_occupied_virtual,
+        )
+        if result_mode == "gradient":
+            return diagnostics, density_partitions
         response = RKSResponse(
             reference_identity=id(self.reference),
             state_fingerprint=initial_fingerprint,
@@ -2566,10 +2573,11 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             xc_hamiltonian_derivative_grid_weight=_immutable_array(xc_grid_weight),
             diagnostics=diagnostics,
         )
-        return replace(
+        response = replace(
             response,
             integrity_fingerprint=rks_response_integrity_fingerprint(response),
         )
+        return (response, density_partitions) if result_mode == "partitions" else response
 
     def audit_response_equations(self, response: RKSResponse) -> None:
         """Independently rebuild every supplied equation without another solve."""
@@ -2836,11 +2844,15 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                 expected_overlap_derivative,
             )
         )
-        translation_residual = float(
-            np.max(
-                np.abs(np.sum(response.density_response, axis=0)),
-                initial=0.0,
+        translation_residual = (
+            float(
+                np.max(
+                    np.abs(np.sum(response.density_response, axis=0)),
+                    initial=0.0,
+                )
             )
+            if len(atom_indices) == self.molecule.natm
+            else None
         )
         hamiltonian_reconstruction_residual = float(
             np.max(
@@ -2917,6 +2929,12 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
                     f"the supplied RKS response diagnostic {name} is invalid"
                 )
         for name, expected in measured.items():
+            if expected is None:
+                if getattr(diagnostics, name) is not None:
+                    raise RKSResponseError(
+                        f"the supplied RKS response diagnostic {name} is not reproducible"
+                    )
+                continue
             if not np.isclose(
                 getattr(diagnostics, name),
                 expected,
@@ -2958,7 +2976,11 @@ class RKSResponseAdapter(_RKSLinearResponseCore):
             "particle_number_residual",
             "translation_residual",
         )
-        if max(measured[name] for name in invariant_names) > self.invariant_tolerance:
+        if max(
+            measured[name]
+            for name in invariant_names
+            if measured[name] is not None
+        ) > self.invariant_tolerance:
             raise RKSResponseError(
                 "the supplied RKS response invariant exceeds tolerance"
             )
@@ -3824,169 +3846,31 @@ class RKSAdjointAdapter(_RKSLinearResponseCore):
             )
 
 
-def _native_xc_grid_force_components(
-    reference,
-    atom_indices,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Rebuild the LDA grid-coordinate and partition-weight nuclear forces."""
-    molecule = reference.mol
-    integration = reference._numint
-    density = np.asarray(reference.make_rdm1())
-    coordinate_force = np.zeros((len(atom_indices), 3), dtype=np.float64)
-    weight_force = np.zeros_like(coordinate_force)
-    result_positions = {
-        atom_index: result_index
-        for result_index, atom_index in enumerate(atom_indices)
-    }
-    atom_grid = _normalized_atom_grid(molecule, reference.grids.atom_grid)
-    blocks = _validated_grid_response_blocks(
-        reference,
-        atom_grid,
-        audit_weight_derivative=False,
-    )
-    for host_atom, (coordinates, weights, weight_derivative) in enumerate(blocks):
-        coordinates = np.asarray(coordinates)
-        weights = np.asarray(weights)
-        weight_derivative = np.asarray(weight_derivative)
-        try:
-            ao = integration.eval_ao(molecule, coordinates, deriv=1)
-            values = ao[0]
-            rho = np.einsum(
-                "gp,pq,gq->g",
-                values,
-                density,
-                values,
-                optimize=True,
-            )
-            xc_values = integration.eval_xc_eff(
-                reference.xc,
-                rho,
-                deriv=1,
-                xctype="LDA",
-                spin=0,
-            )
-            energy_density = np.asarray(xc_values[0])
-            potential = np.asarray(xc_values[1])[0]
-        except Exception as error:
-            raise RKSResponseError(
-                f"native RKS LDA grid-force quadrature failed: {error}"
-            ) from error
-        values_to_check = (
-            coordinates,
-            weights,
-            weight_derivative,
-            ao,
-            rho,
-            energy_density,
-            potential,
-        )
-        if not all(np.isfinite(value).all() for value in values_to_check):
-            raise RKSResponseError("the native RKS grid-force quadrature is nonfinite")
-        weight_force += np.einsum(
-            "g,g,axg->ax",
-            energy_density,
-            rho,
-            weight_derivative[list(atom_indices)],
-            optimize=True,
-        )
-        density_gradient = 2.0 * np.einsum(
-            "xgp,pq,gq->xg",
-            ao[1:4],
-            density,
-            values,
-            optimize=True,
-        )
-        if host_atom in result_positions:
-            coordinate_force[result_positions[host_atom]] += np.einsum(
-                "g,g,xg->x",
-                weights,
-                potential,
-                density_gradient,
-                optimize=True,
-            )
-    return coordinate_force, weight_force
-
-
-def native_rks_gradient(reference, atom_indices=None) -> RKSNativeGradient:
-    """Return the native finite-grid RKS gradient with grid response enforced."""
+def native_rks_gradient(reference, atom_indices=None) -> np.ndarray:
+    """Evaluate one selected native RKS gradient with grid response."""
     validate_rks_reference(reference)
     from .gradient import _validate_atom_indices
 
     selected = _validate_atom_indices(reference.mol, atom_indices)
-    atom_indices = (
-        tuple(range(reference.mol.natm)) if selected is None else selected
-    )
+    atom_indices = tuple(range(reference.mol.natm)) if selected is None else selected
     initial_fingerprint = rks_reference_fingerprint(reference)
-    coordinate_force, weight_force = _native_xc_grid_force_components(
-        reference,
-        atom_indices,
-    )
     try:
-        full_driver = rks_grad.Gradients(reference)
-        fixed_driver = rks_grad.Gradients(reference)
-        if type(full_driver) is not rks_grad.Gradients or type(fixed_driver) is not rks_grad.Gradients:
+        driver = rks_grad.Gradients(reference)
+        if type(driver) is not rks_grad.Gradients:
             raise RKSResponseError("the native RKS gradient driver type is invalid")
-        full_driver.grids = reference.grids
-        fixed_driver.grids = reference.grids
-        full_driver.grid_response = True
-        fixed_driver.grid_response = False
-        gradient = full_driver.kernel(atmlst=list(atom_indices))
-        gradient_without_grid_response = fixed_driver.kernel(
-            atmlst=list(atom_indices)
-        )
+        driver.grids = reference.grids
+        driver.grid_response = True
+        gradient = driver.kernel(atmlst=list(atom_indices))
     except RKSResponseError:
         raise
     except Exception as error:
-        raise RKSResponseError(
-            f"PySCF native RKS grid-response gradient failed: {error}"
-        ) from error
-    expected_shape = (len(atom_indices), 3)
+        raise RKSResponseError(f"PySCF native RKS gradient failed: {error}") from error
     gradient = _validated_float64_array(
         gradient,
-        expected_shape,
-        "native RKS grid-response gradient",
+        (len(atom_indices), 3),
+        "native RKS gradient",
     )
-    gradient_without_grid_response = _validated_float64_array(
-        gradient_without_grid_response,
-        expected_shape,
-        "native RKS fixed-grid gradient",
-    )
-    coordinate_force = _validated_float64_array(
-        coordinate_force,
-        expected_shape,
-        "native RKS grid-coordinate force",
-    )
-    weight_force = _validated_float64_array(
-        weight_force,
-        expected_shape,
-        "native RKS grid-weight force",
-    )
-    reconstruction_residual = float(
-        np.max(
-            np.abs(
-                gradient
-                - gradient_without_grid_response
-                - coordinate_force
-                - weight_force
-            ),
-            initial=0.0,
-        )
-    )
-    if reconstruction_residual > 1.0e-9:
-        raise RKSResponseError(
-            "the native RKS gradient does not contain the complete independently "
-            "reconstructed grid response: residual "
-            f"{reconstruction_residual:.3e}"
-        )
     validate_rks_reference(reference)
     if rks_reference_fingerprint(reference) != initial_fingerprint:
         raise RKSResponseError("the RKS reference changed during native gradient evaluation")
-    return RKSNativeGradient(
-        gradient=_immutable_array(gradient),
-        gradient_without_grid_response=_immutable_array(
-            gradient_without_grid_response
-        ),
-        xc_grid_coordinate=_immutable_array(coordinate_force),
-        xc_grid_weight=_immutable_array(weight_force),
-        reconstruction_residual=reconstruction_residual,
-    )
+    return gradient

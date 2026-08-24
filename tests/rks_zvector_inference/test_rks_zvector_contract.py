@@ -24,12 +24,7 @@ from deepks.model.model import CorrNet
 DRIVER_RESULT_FIELDS = (
     "adjoint_result",
     "descriptor_diagnostics",
-    "native_gradient_result",
     "reference_gradient",
-    "reference_gradient_without_grid_response",
-    "reference_gradient_xc_grid_coordinate",
-    "reference_gradient_xc_grid_weight",
-    "reference_gradient_reconstruction_residual",
     "dq_dR_explicit",
     "correction_gradient_explicit",
     "correction_gradient_metric",

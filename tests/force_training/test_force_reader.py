@@ -9,7 +9,16 @@ from deepks.data.force_schema import (
     _write_force_dataset as write_force_dataset,
 )
 from deepks.data.stats import concat_data, make_label
-from deepks.model.reader import GroupReader, Reader, SimpleReader
+from deepks.model.reader import (
+    GroupReader,
+    Reader,
+    SimpleReader,
+    _ForceBatch,
+    _ForceBatchIssuer,
+    _force_batch_error,
+    concat_batch,
+    split_batch,
+)
 from test_force_schema import make_schema_inputs
 
 
@@ -54,6 +63,39 @@ def test_reader_exposes_only_canonical_relaxed_force_training_fields(tmp_path):
     assert reader._force_arrays is None
     assert np.shares_memory(reader.data_energy, sample["energy"].numpy())
     assert np.shares_memory(reader.data_descriptor, sample["descriptor"].numpy())
+
+
+def test_force_batch_issuance_selection_split_and_concatenation(tmp_path):
+    first_path = tmp_path / "first"
+    second_path = tmp_path / "second"
+    _write_schema_dataset(first_path)
+    second_arrays, provenance = make_schema_inputs(frame_count=2)
+    second_arrays["descriptor"] = second_arrays["descriptor"] + 1.0
+    write_force_dataset(second_path, arrays=second_arrays, provenance=provenance)
+    first = Reader(first_path, batch_size=1, force_mode="deephf_relaxed")
+    second = Reader(second_path, batch_size=1, force_mode="deephf_relaxed")
+    accepted = (first.force_contract, second.force_contract)
+
+    with pytest.raises(TypeError, match="validated readers"):
+        _ForceBatchIssuer(first.force_contract)
+    forged_issuer = object.__new__(_ForceBatchIssuer)
+    with pytest.raises(TypeError, match="registered reader issuers"):
+        _ForceBatch._from_issued(first.sample_all(), ((forged_issuer, (0, 1)),))
+
+    sample = first.sample_all()
+    forged_selection = _ForceBatch._from_issued(
+        dict(sample),
+        ((second._force_batch_issuer, (0, 1)),),
+    )
+    assert "does not match its reader frames" in _force_batch_error(
+        forged_selection,
+        accepted,
+    )
+
+    sections = split_batch(sample, 1)
+    combined = concat_batch(sections)
+    assert all(_force_batch_error(section, accepted) is None for section in sections)
+    assert _force_batch_error(combined, accepted) is None
 
 
 def test_reader_rejects_explicit_aliases_and_missing_strict_manifest(tmp_path):

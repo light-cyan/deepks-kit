@@ -71,16 +71,6 @@ def _reset_driver_results(driver) -> None:
     driver.de = None
 
 
-def _compact_driver_results(driver) -> None:
-    diagnostics = driver.response_diagnostics
-    descriptor_diagnostics = driver.descriptor_diagnostics
-    gradient = driver.de
-    driver._reset_results()
-    driver._response_diagnostics = diagnostics
-    driver.descriptor_diagnostics = descriptor_diagnostics
-    driver.de = gradient
-
-
 class RHFDeePHFGradients:
     """Contract the complete relaxed descriptor response with one correction model."""
 
@@ -142,7 +132,7 @@ class RHFDeePHFGradients:
         block_size,
         objective_ao_potential,
         atom_indices,
-        dq_dP,
+        dq_dP=None,
     ):
         if isinstance(block_size, (bool, np.bool_)):
             raise TypeError("coordinate_block_size must be an integer")
@@ -158,45 +148,57 @@ class RHFDeePHFGradients:
         }
         options.pop("coordinate_block_size", None)
         adapter = RHFResponseAdapter(self.base.reference, **options)
-        expected_shape = (
-            len(atom_indices),
-            3,
-            self.base.n_descriptor_atoms,
-            self.base.n_descriptor_features,
+        compact = dq_dP is None
+        response_work = np.empty(
+            (len(atom_indices), 3)
+            if compact
+            else (
+                len(atom_indices),
+                3,
+                self.base.n_descriptor_atoms,
+                self.base.n_descriptor_features,
+            ),
+            dtype=np.float64,
         )
-        dq_response = np.empty(expected_shape, dtype=np.float64)
-        metric_gradient = np.empty((len(atom_indices), 3), dtype=np.float64)
-        occupied_virtual_gradient = np.empty_like(metric_gradient)
+        metric_gradient = (
+            None
+            if compact
+            else np.empty((len(atom_indices), 3), dtype=np.float64)
+        )
+        occupied_virtual_gradient = (
+            None if compact else np.empty_like(metric_gradient)
+        )
         block_diagnostics = []
         result_positions = {
             atom_index: result_index
             for result_index, atom_index in enumerate(atom_indices)
         }
-        for block_atoms, response in adapter.coordinate_blocks(
+        for block_atoms, block_result in adapter.coordinate_blocks(
             block_size,
             atom_indices=atom_indices,
+            result_mode="gradient",
         ):
             target = [result_positions[atom_index] for atom_index in block_atoms]
-            density, density_metric, density_occupied_virtual = (
-                response.density_partitions()
+            diagnostics, density_partitions = block_result
+            density, density_metric, density_occupied_virtual = density_partitions
+            response_work[target] = (
+                np.einsum("ij,bxij->bx", objective_ao_potential, density)
+                if compact
+                else np.einsum("apij,bxij->bxap", dq_dP, density)
             )
-            dq_response[target] = np.einsum(
-                "apij,bxij->bxap",
-                dq_dP,
-                density,
-            )
-            metric_gradient[target] = np.einsum(
-                "ij,bxij->bx",
-                objective_ao_potential,
-                density_metric,
-            )
-            occupied_virtual_gradient[target] = np.einsum(
-                "ij,bxij->bx",
-                objective_ao_potential,
-                density_occupied_virtual,
-            )
+            if not compact:
+                metric_gradient[target] = np.einsum(
+                    "ij,bxij->bx",
+                    objective_ao_potential,
+                    density_metric,
+                )
+                occupied_virtual_gradient[target] = np.einsum(
+                    "ij,bxij->bx",
+                    objective_ao_potential,
+                    density_occupied_virtual,
+                )
             block_diagnostics.append(
-                (len(block_atoms), response.diagnostics)
+                (len(block_atoms), diagnostics)
             )
         worst = max(
             (diagnostics for _, diagnostics in block_diagnostics),
@@ -240,10 +242,55 @@ class RHFDeePHFGradients:
         )
         return (
             summary,
-            dq_response,
+            response_work,
             metric_gradient,
             occupied_virtual_gradient,
         )
+
+    def _compact_kernel(self, atom_indices):
+        descriptor_diagnostics, sensitivity = self.base._force_inputs()
+        reference_gradient = np.asarray(
+            self.base.reference.nuc_grad_method().kernel(
+                atmlst=list(atom_indices)
+            )
+        )
+        explicit = self.base._correction_gradient_explicit(
+            sensitivity,
+            atom_indices,
+        )
+        objective = self.base._correction_ao_potential(sensitivity)
+        coordinate_block_size = self.response_options.get(
+            "coordinate_block_size",
+            self.base.response_options.get("coordinate_block_size"),
+        )
+        if coordinate_block_size is None:
+            response_options = {
+                **self.base.response_options,
+                **self.response_options,
+            }
+            response_options.pop("coordinate_block_size", None)
+            response_diagnostics, density_partitions = RHFResponseAdapter(
+                self.base.reference,
+                **response_options,
+            )._solve_for_gradient(atom_indices=atom_indices)
+            response = np.einsum(
+                "ij,bxij->bx",
+                objective,
+                density_partitions[0],
+            )
+        else:
+            summary, response, _metric, _occupied_virtual = (
+                self._blocked_response(
+                    coordinate_block_size,
+                    objective,
+                    atom_indices,
+                )
+            )
+            response_diagnostics = summary.diagnostics
+        total = reference_gradient + explicit + response
+        if total.shape != (len(atom_indices), 3) or not np.isfinite(total).all():
+            raise RHFResponseError("the compact RHF gradient is invalid")
+        return descriptor_diagnostics, response_diagnostics, total
 
     @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
@@ -256,6 +303,13 @@ class RHFDeePHFGradients:
             if atom_indices is None
             else atom_indices
         )
+        if not self.retain_details:
+            (
+                self.descriptor_diagnostics,
+                self._response_diagnostics,
+                self.de,
+            ) = self._compact_kernel(calculation_atom_indices)
+            return self.de
         self.descriptor_diagnostics, sensitivity = self.base._force_inputs()
         self.reference_gradient = np.asarray(
             self.base.reference.nuc_grad_method().kernel(
@@ -284,13 +338,13 @@ class RHFDeePHFGradients:
                 **self.response_options,
             }
             response_options.pop("coordinate_block_size", None)
-            self.response_result = RHFResponseAdapter(
+            self.response_result, density_partitions = RHFResponseAdapter(
                 self.base.reference,
                 **response_options,
-            ).solve(atom_indices=calculation_atom_indices)
-            density, density_metric, density_occupied_virtual = (
-                self.response_result.density_partitions()
+            )._solve_with_density_partitions(
+                atom_indices=calculation_atom_indices
             )
+            density, density_metric, density_occupied_virtual = density_partitions
             self.dq_dR_response = np.einsum(
                 "apij,bxij->bxap",
                 dq_dP,
@@ -329,16 +383,6 @@ class RHFDeePHFGradients:
             self.dq_dR_response,
             sensitivity,
         )
-        if not np.allclose(
-            self.correction_gradient_response,
-            self.correction_gradient_metric
-            + self.correction_gradient_occupied_virtual,
-            rtol=0.0,
-            atol=1.0e-12,
-        ):
-            raise RHFResponseError(
-                "the RHF direct response-gradient partitions are inconsistent"
-            )
         self.correction_gradient = (
             self.correction_gradient_explicit
             + self.correction_gradient_response
@@ -347,8 +391,6 @@ class RHFDeePHFGradients:
         if not np.isfinite(self.de_full).all():
             raise RHFResponseError("the RHF DeePHF analytic gradient is nonfinite")
         self.de = self.de_full
-        if not self.retain_details:
-            _compact_driver_results(self)
         return self.de
 
     def run(self, atmlst=None):

@@ -408,12 +408,6 @@ class RHFResponse:
         )
         return _immutable_array(density + density.swapaxes(-1, -2))
 
-    def density_partitions(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Build complete, metric, and occupied-virtual AO densities once."""
-        metric = self._density_response(self._mo_partition(False))
-        occupied_virtual = self._density_response(self._mo_partition(True))
-        return _immutable_array(metric + occupied_virtual), metric, occupied_virtual
-
     @property
     def mo_response_occupied_virtual(self) -> np.ndarray:
         return self._mo_partition(True)
@@ -1776,7 +1770,12 @@ class _RHFLinearResponseCore:
 class RHFResponseAdapter(_RHFLinearResponseCore):
     """Solve and audit molecular RHF nuclear CPHF through PySCF 2.14."""
 
-    def coordinate_blocks(self, block_size: int, atom_indices=None):
+    def coordinate_blocks(
+        self,
+        block_size: int,
+        atom_indices=None,
+        result_mode="response",
+    ):
         """Yield audited responses while retaining at most one atom block."""
         block_size = _cycle_limit(block_size, "coordinate_block_size")
         if block_size <= 0:
@@ -1784,7 +1783,7 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
         selected_atoms = self._response_atom_indices(atom_indices)
         for start in range(0, len(selected_atoms), block_size):
             block_atoms = selected_atoms[start : start + block_size]
-            yield block_atoms, self.solve(atom_indices=block_atoms)
+            yield block_atoms, self._solve(block_atoms, result_mode)
 
     def _orbital_residual(
         self,
@@ -2096,6 +2095,17 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
 
     def solve(self, atom_indices=None) -> RHFResponse:
         """Return an audited first-order response for selected atoms."""
+        return self._solve(atom_indices, "response")
+
+    def _solve_with_density_partitions(self, atom_indices=None):
+        """Return a response and its transient AO density work arrays."""
+        return self._solve(atom_indices, "partitions")
+
+    def _solve_for_gradient(self, atom_indices=None):
+        """Return compact diagnostics and transient AO density work arrays."""
+        return self._solve(atom_indices, "gradient")
+
+    def _solve(self, atom_indices, result_mode):
         validate_reference(self.reference)
         atom_indices = self._response_atom_indices(atom_indices)
         (
@@ -2256,6 +2266,13 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
                 "RHF response invariant exceeds tolerance "
                 f"{self.invariant_tolerance:.3e}: {details}"
             )
+        density_partitions = (
+            density_response,
+            density_metric,
+            density_occupied_virtual,
+        )
+        if result_mode == "gradient":
+            return diagnostics, density_partitions
         response = RHFResponse(
             reference_identity=id(self.reference),
             state_fingerprint=reference_fingerprint(self.reference),
@@ -2271,10 +2288,11 @@ class RHFResponseAdapter(_RHFLinearResponseCore):
             orbital_response_residual=_immutable_array(residual),
             diagnostics=diagnostics,
         )
-        return replace(
+        response = replace(
             response,
             integrity_fingerprint=response_integrity_fingerprint(response),
         )
+        return (response, density_partitions) if result_mode == "partitions" else response
 
 
 class _RHFScalarAdjointProblem:

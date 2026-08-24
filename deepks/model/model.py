@@ -689,6 +689,8 @@ _FORCE_DENSENET_FORWARD = DenseNet.forward
 _FORCE_TRACE_FORWARD = TraceEmbedding.forward
 _FORCE_THERMAL_FORWARD = ThermalEmbedding.forward
 _FORCE_LINEAR_FORWARD = nn.Linear.forward
+_FORCE_MODULE_DUNDER_CALL = nn.Module.__call__
+_FORCE_MODULE_WRAPPED_CALL = nn.Module._wrapped_call_impl
 _FORCE_MODULE_CALL = nn.Module._call_impl
 _FORCE_ACTIVATIONS = frozenset(
     {
@@ -722,7 +724,11 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         raise ValueError("the force CorrNet forward implementation was replaced")
     if type(model.linear) is not nn.Linear or type(model.densenet) is not DenseNet:
         raise ValueError("the force CorrNet has an unsupported network structure")
-    if nn.Module._call_impl is not _FORCE_MODULE_CALL:
+    if (
+        nn.Module.__call__ is not _FORCE_MODULE_DUNDER_CALL
+        or nn.Module._wrapped_call_impl is not _FORCE_MODULE_WRAPPED_CALL
+        or nn.Module._call_impl is not _FORCE_MODULE_CALL
+    ):
         raise ValueError("the force module execution implementation was replaced")
     if "forward" in vars(model.densenet) or DenseNet.forward is not _FORCE_DENSENET_FORWARD:
         raise ValueError("the force DenseNet forward implementation was replaced")
@@ -752,6 +758,24 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         raise ValueError("force-aware training does not support stateful thermal embedding")
     else:
         raise ValueError("the force CorrNet uses an unsupported embedding")
+
+    executed_modules = (model, model.densenet, *linear_layers)
+    if embedder is not None:
+        executed_modules += (embedder,)
+    dispatch_names = ("__call__", "_wrapped_call_impl", "_call_impl")
+    trusted_dispatch = (
+        _FORCE_MODULE_DUNDER_CALL,
+        _FORCE_MODULE_WRAPPED_CALL,
+        _FORCE_MODULE_CALL,
+    )
+    if any(
+        tuple(getattr(type(module), name) for name in dispatch_names)
+        != trusted_dispatch
+        or any(name in vars(module) for name in dispatch_names)
+        or getattr(module, "_compiled_call_impl", None) is not None
+        for module in executed_modules
+    ):
+        raise ValueError("a force module call-dispatch implementation was replaced")
 
     active_hooks = []
     for name, module in model.named_modules(remove_duplicate=False):
@@ -788,6 +812,19 @@ def force_model_structure_evidence(model):
         modules = (model, model.densenet, *layers)
         if model.embedder is not None:
             modules += (model.embedder,)
+        dispatch = tuple(
+            (
+                id(type(module).__call__),
+                id(type(module)._wrapped_call_impl),
+                id(type(module)._call_impl),
+                tuple(
+                    name in vars(module)
+                    for name in ("__call__", "_wrapped_call_impl", "_call_impl")
+                ),
+                id(getattr(module, "_compiled_call_impl", None)),
+            )
+            for module in modules
+        )
         hooks = tuple(
             (
                 id(getattr(module, field_name)),
@@ -829,7 +866,10 @@ def force_model_structure_evidence(model):
             id(TraceEmbedding.forward),
             id(ThermalEmbedding.forward),
             id(nn.Linear.forward),
+            id(nn.Module.__call__),
+            id(nn.Module._wrapped_call_impl),
             id(nn.Module._call_impl),
+            dispatch,
             hooks,
             global_hooks,
         )

@@ -308,6 +308,18 @@ class DeePHF:
                 raw_atom_indices=atom_indices,
             )
 
+    def _correction_gradient_explicit(self, sensitivity, atom_indices=None):
+        """Contract explicit descriptor motion without retaining its Jacobian."""
+        atom_indices = _validate_atom_indices(self.mol, atom_indices)
+        density = self.ao_density()
+        with torch.enable_grad():
+            return self._descriptor.correction_gradient_explicit(
+                density,
+                density,
+                sensitivity,
+                raw_atom_indices=atom_indices,
+            )
+
     def _descriptor_values_tensor(self) -> torch.Tensor:
         self._assert_science_state("descriptor evaluation")
         values = self._descriptor.torch_descriptor(self.ao_density())

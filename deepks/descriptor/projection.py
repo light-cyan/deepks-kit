@@ -14,6 +14,7 @@ from .derivatives import (
     dD_dR_explicit,
     dq_dR_explicit,
     dq_dR_explicit_component,
+    contract_dq_dR_explicit,
 )
 
 
@@ -183,6 +184,27 @@ class AtomicDensityDescriptor:
             self.mol,
             _as_ao_density_tensor(ao_density),
             _as_ao_density_tensor(component_density),
+            self.overlap_shells,
+            self.derivative_overlap_shells(),
+            self.descriptor_atom_indices,
+            raw_atom_indices,
+        )
+        return result.detach().cpu().numpy()
+
+    def correction_gradient_explicit(
+        self,
+        ao_density,
+        motion_density,
+        sensitivity,
+        raw_atom_indices=None,
+    ) -> np.ndarray:
+        """Contract fixed-density descriptor motion with one sensitivity."""
+        density = _as_ao_density_tensor(ao_density)
+        result = contract_dq_dR_explicit(
+            self.mol,
+            density,
+            _as_ao_density_tensor(motion_density),
+            torch.tensor(sensitivity, dtype=density.dtype, device=density.device),
             self.overlap_shells,
             self.derivative_overlap_shells(),
             self.descriptor_atom_indices,

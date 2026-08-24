@@ -15,7 +15,6 @@ from deepks.deephf import (
     RKSDeePHF,
     RKSDeePHFGradients,
     RKSDeePHFZVectorGradients,
-    RKSNativeGradient,
     RKSResponse,
     RKSResponseAdapter,
     RKSResponseDiagnostics,
@@ -1004,28 +1003,6 @@ def test_rks_direct_backend_remains_default_and_rejects_scanner_and_force_data_p
         )
 
 
-def test_rks_native_gradient_result_preserves_observable_grid_partitions(
-    rks_oracle_case,
-):
-    driver = rks_oracle_case.gradient_driver
-    native = driver.native_gradient_result
-
-    assert type(native) is RKSNativeGradient
-    np.testing.assert_allclose(
-        native.gradient,
-        native.gradient_without_grid_response
-        + native.xc_grid_coordinate
-        + native.xc_grid_weight,
-        rtol=0.0,
-        atol=5.0e-14,
-    )
-    assert driver.reference_gradient is native.gradient
-    assert driver.reference_gradient_without_grid_response is native.gradient_without_grid_response
-    assert driver.reference_gradient_xc_grid_coordinate is native.xc_grid_coordinate
-    assert driver.reference_gradient_xc_grid_weight is native.xc_grid_weight
-    assert driver.reference_gradient_reconstruction_residual == native.reconstruction_residual
-
-
 def test_rks_gradient_failure_clears_results(
     rks_oracle_case,
     monkeypatch,
@@ -1036,14 +1013,13 @@ def test_rks_gradient_failure_clears_results(
     def failed_solve(*args, **kwargs):
         raise RKSResponseError("injected RKS response failure")
 
-    monkeypatch.setattr(RKSResponseAdapter, "solve", failed_solve)
+    monkeypatch.setattr(RKSResponseAdapter, "_solve", failed_solve)
 
     with pytest.raises(RKSResponseError, match="injected RKS response failure"):
         driver.kernel()
 
     for name in (
         "response_result",
-        "native_gradient_result",
         "dq_dR_explicit",
         "dq_dR_response",
         "dq_dR_relaxed",
@@ -1090,7 +1066,6 @@ def test_rks_native_gradient_failure_clears_driver_results(
     with pytest.raises(RKSResponseError, match="injected native RKS gradient failure"):
         driver.kernel()
     assert not hasattr(driver, "response_result")
-    assert not hasattr(driver, "native_gradient_result")
     assert not hasattr(driver, "correction_gradient")
     assert not hasattr(driver, "de_full")
     assert driver.de is None

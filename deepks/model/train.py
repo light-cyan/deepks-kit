@@ -23,10 +23,10 @@ from deepks.data.force_schema import (
 )
 from deepks.model.evaluate import (
     CorrectionPrediction,
+    _predict_correction,
     _validate_model_state,
     model_reference,
     model_state_evidence,
-    predict_correction,
 )
 from deepks.model.model import (
     CorrNet,
@@ -471,14 +471,12 @@ class Evaluator:
         )
         if needs_auxiliary_gradient and self.force_factor == 0:
             descriptor = descriptor.detach().requires_grad_(True)
-        prediction = predict_correction(
+        prediction = _predict_correction(
             model,
             descriptor,
             dq_dR_relaxed=relaxed_jacobian,
             require_force=self.force_factor > 0,
             create_graph=create_graph,
-            _validated_inputs=True,
-            _validated_model=True,
         )
         energy_loss = self.energy_lossfn(prediction.energy, energy)
         if not isinstance(energy_loss, torch.Tensor) or energy_loss.numel() != 1:

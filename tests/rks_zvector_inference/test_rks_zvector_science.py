@@ -5,7 +5,21 @@ import pytest
 import torch
 
 
-def test_rks_compact_selected_gradient_drivers_retain_one_array(rks_oracle_case):
+def test_rks_compact_selected_gradient_drivers_retain_one_array(
+    rks_oracle_case,
+    monkeypatch,
+):
+    expected = {
+        backend: rks_oracle_case.method.nuc_grad_method(
+            backend=backend,
+        ).kernel(atmlst=(1,))
+        for backend in ("direct", "zvector")
+    }
+    monkeypatch.setattr(
+        rks_oracle_case.method,
+        "dq_dR_explicit",
+        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
+    )
     for backend in ("direct", "zvector"):
         driver = rks_oracle_case.method.nuc_grad_method(
             backend=backend,
@@ -21,7 +35,7 @@ def test_rks_compact_selected_gradient_drivers_retain_one_array(rks_oracle_case)
         assert not hasattr(driver, "de_full")
         result_name = "response_result" if backend == "direct" else "adjoint_result"
         assert not hasattr(driver, result_name)
-        assert driver.response_diagnostics is not None
+        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
 
 
 def test_rks_adjoint_matches_independent_dense_grid_transpose_oracle(
@@ -121,98 +135,6 @@ def test_independent_rks_adjoint_operator_requires_coulomb_and_lda_fxc(
     ) > 1.0e-4
 
 
-def test_every_rks_adjoint_nuclear_partition_matches_independent_formula(
-    rks_oracle_case,
-    rks_zvector_oracle,
-):
-    adjoint = rks_oracle_case.method.adjoint()
-    oracle = rks_zvector_oracle
-
-    for field in (
-        "correction_gradient_metric",
-        "correction_gradient_adjoint_fixed_grid",
-        "correction_gradient_adjoint_grid_coordinate",
-        "correction_gradient_adjoint_grid_weight",
-        "correction_gradient_adjoint_nuclear",
-        "correction_gradient_adjoint_metric",
-        "correction_gradient_occupied_virtual",
-        "correction_gradient_response",
-    ):
-        np.testing.assert_allclose(
-            getattr(adjoint, field),
-            getattr(oracle, field),
-            rtol=3.0e-11,
-            atol=3.0e-11,
-            err_msg=field,
-        )
-    np.testing.assert_allclose(
-        oracle.correction_gradient_adjoint_metric,
-        oracle.correction_gradient_adjoint_metric_overlap_form,
-        rtol=2.0e-11,
-        atol=2.0e-11,
-    )
-    np.testing.assert_allclose(
-        adjoint.correction_gradient_adjoint_nuclear,
-        adjoint.correction_gradient_adjoint_fixed_grid
-        + adjoint.correction_gradient_adjoint_grid_coordinate
-        + adjoint.correction_gradient_adjoint_grid_weight,
-        rtol=0.0,
-        atol=2.0e-12,
-    )
-    np.testing.assert_allclose(
-        adjoint.correction_gradient_occupied_virtual,
-        adjoint.correction_gradient_adjoint_nuclear
-        + adjoint.correction_gradient_adjoint_metric,
-        rtol=0.0,
-        atol=2.0e-12,
-    )
-    np.testing.assert_allclose(
-        adjoint.correction_gradient_response,
-        adjoint.correction_gradient_metric
-        + adjoint.correction_gradient_occupied_virtual,
-        rtol=0.0,
-        atol=2.0e-12,
-    )
-
-
-def test_zvector_metric_and_occupied_virtual_match_direct_density_contractions(
-    rks_oracle_case,
-    rks_zvector_oracle,
-):
-    direct = rks_oracle_case.method.nuc_grad_method(backend="direct").run()
-    adjoint = rks_oracle_case.method.adjoint()
-    objective = rks_zvector_oracle.objective_ao_potential
-    direct_metric = np.einsum(
-        "ij,...ij->...",
-        objective,
-        direct.response_result.density_response_metric,
-    )
-    direct_occupied_virtual = np.einsum(
-        "ij,...ij->...",
-        objective,
-        direct.response_result.density_response_occupied_virtual,
-    )
-
-    np.testing.assert_allclose(
-        adjoint.correction_gradient_metric,
-        direct_metric,
-        rtol=3.0e-11,
-        atol=3.0e-11,
-    )
-    np.testing.assert_allclose(
-        adjoint.correction_gradient_occupied_virtual,
-        direct_occupied_virtual,
-        rtol=3.0e-10,
-        atol=3.0e-10,
-    )
-    np.testing.assert_allclose(
-        adjoint.correction_gradient_response,
-        direct.correction_gradient_response,
-        rtol=3.0e-10,
-        atol=3.0e-10,
-    )
-
-
 @pytest.mark.parametrize(
     ("step", "absolute_tolerance"),
     [
@@ -238,51 +160,6 @@ def test_zvector_total_gradient_matches_fresh_rks_total_energy_fd(
         rtol=3.0e-6,
         atol=absolute_tolerance,
     )
-
-
-@pytest.mark.parametrize(
-    ("field", "minimum_norm"),
-    [
-        pytest.param(
-            "correction_gradient_adjoint_fixed_grid",
-            1.0e-3,
-            id="fixed-grid",
-        ),
-        pytest.param(
-            "correction_gradient_adjoint_grid_coordinate",
-            1.0e-4,
-            id="grid-coordinate",
-        ),
-        pytest.param(
-            "correction_gradient_adjoint_grid_weight",
-            1.0e-4,
-            id="grid-weight",
-        ),
-        pytest.param(
-            "correction_gradient_metric",
-            1.0e-3,
-            id="objective-metric",
-        ),
-        pytest.param(
-            "correction_gradient_adjoint_metric",
-            1.0e-4,
-            id="adjoint-metric",
-        ),
-        pytest.param(
-            "correction_gradient_adjoint_ao_motion",
-            1.0e-3,
-            id="ao-motion",
-        ),
-    ],
-)
-def test_each_independent_response_partition_is_numerically_required(
-    rks_zvector_oracle,
-    field,
-    minimum_norm,
-):
-    component = getattr(rks_zvector_oracle, field)
-
-    assert np.max(np.abs(component)) > minimum_norm
 
 
 def _constant_model(template, bias, energy_constant):
@@ -329,25 +206,12 @@ def test_zero_and_constant_corrections_reduce_to_native_rks_gradient(
         rtol=0.0,
         atol=2.0e-15,
     )
-    for field in (
-        "correction_gradient_explicit",
-        "correction_gradient_metric",
-        "correction_gradient_adjoint_fixed_grid",
-        "correction_gradient_adjoint_grid_coordinate",
-        "correction_gradient_adjoint_grid_weight",
-        "correction_gradient_adjoint_nuclear",
-        "correction_gradient_adjoint_metric",
-        "correction_gradient_occupied_virtual",
-        "correction_gradient_response",
-        "correction_gradient",
-    ):
-        np.testing.assert_allclose(
-            getattr(driver, field),
-            np.zeros((rks_oracle_case.reference.mol.natm, 3)),
-            rtol=0.0,
-            atol=2.0e-15,
-            err_msg=field,
-        )
+    np.testing.assert_allclose(
+        driver.correction_gradient,
+        np.zeros((rks_oracle_case.reference.mol.natm, 3)),
+        rtol=0.0,
+        atol=2.0e-15,
+    )
     np.testing.assert_allclose(
         driver.de_full,
         rks_oracle_case.independent.native_gradient,

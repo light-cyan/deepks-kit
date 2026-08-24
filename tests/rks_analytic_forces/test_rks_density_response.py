@@ -1,6 +1,48 @@
 import numpy as np
 import pytest
 
+from deepks.deephf import RKSResponseAdapter
+
+
+def test_selected_response_omits_full_translation_diagnostic(rks_oracle_case):
+    adapter = RKSResponseAdapter(rks_oracle_case.reference)
+    response = adapter.solve(atom_indices=(1,))
+
+    assert response.diagnostics.translation_residual is None
+    assert adapter.audit_response_equations(response) is None
+
+
+def test_compact_direct_gradient_builds_density_partitions_once(
+    rks_oracle_case,
+    monkeypatch,
+):
+    original = RKSResponseAdapter._density_from_mo_response
+    original_solve = RKSResponseAdapter._solve_orbitals
+    coordinate_calls = 0
+    solved = False
+
+    def counted_solve(instance, *args):
+        nonlocal solved
+        result = original_solve(instance, *args)
+        solved = True
+        return result
+
+    def counted(*args):
+        nonlocal coordinate_calls
+        coordinate_calls += solved
+        return original(*args)
+
+    monkeypatch.setattr(RKSResponseAdapter, "_solve_orbitals", counted_solve)
+    monkeypatch.setattr(
+        RKSResponseAdapter,
+        "_density_from_mo_response",
+        staticmethod(counted),
+    )
+    driver = rks_oracle_case.method.nuc_grad_method(retain_details=False)
+    driver.kernel(atmlst=(1,))
+
+    assert coordinate_calls == 2
+
 
 def test_displaced_references_preserve_root_grid_and_descriptor_domain(
     rks_oracle_case,

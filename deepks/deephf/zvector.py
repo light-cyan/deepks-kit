@@ -4,7 +4,6 @@ import numpy as np
 
 from .capabilities import science_state_transaction
 from .gradient import (
-    _compact_driver_results,
     _reset_driver_results,
     _validate_atom_indices,
     _validate_retain_details,
@@ -71,12 +70,40 @@ class RHFDeePHFZVectorGradients:
         """Return the scalar-adjoint diagnostics under the common driver name."""
         return self.adjoint_diagnostics
 
+    def _compact_kernel(self, atom_indices):
+        descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
+            self.response_options,
+            atom_indices=atom_indices,
+        )
+        self.base._assert_science_state("native RHF gradient evaluation")
+        reference_gradient = np.asarray(
+            self.base.reference.nuc_grad_method().kernel(
+                atmlst=None if atom_indices is None else list(atom_indices)
+            )
+        )
+        self.base._validate_science_state("native RHF gradient evaluation")
+        explicit = self.base._correction_gradient_explicit(
+            sensitivity,
+            atom_indices,
+        )
+        total = reference_gradient + explicit + adjoint.correction_gradient_response
+        if total.shape != (len(adjoint.atom_indices), 3) or not np.isfinite(total).all():
+            raise RHFAdjointError("the compact RHF Z-vector gradient is invalid")
+        return descriptor_diagnostics, adjoint.diagnostics, total
+
     @science_state_transaction
     def kernel(self, atmlst=None) -> np.ndarray:
         """Evaluate d(E_base + E_corr)/dR without a coordinate-wise density response."""
         self._reset_results()
         self._validate_driver_binding()
         atom_indices = _validate_atom_indices(self.mol, atmlst)
+        if not self.retain_details:
+            (
+                self.descriptor_diagnostics,
+                self._response_diagnostics,
+                self.de,
+            ) = self._compact_kernel(atom_indices)
+            return self.de
         descriptor_diagnostics, sensitivity, adjoint = self.base._zvector_inputs(
             self.response_options,
             atom_indices=atom_indices,
@@ -184,8 +211,6 @@ class RHFDeePHFZVectorGradients:
         self.correction_gradient = correction_gradient
         self.de_full = de_full
         self.de = de_full
-        if not self.retain_details:
-            _compact_driver_results(self)
         return self.de
 
     def run(self, atmlst=None):

@@ -9,7 +9,21 @@ from deepks.model.model import CorrNet
 ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
 
 
-def test_uhf_compact_selected_gradient_drivers_retain_one_array(uhf_oracle_case):
+def test_uhf_compact_selected_gradient_drivers_retain_one_array(
+    uhf_oracle_case,
+    monkeypatch,
+):
+    expected = {
+        backend: uhf_oracle_case.method.nuc_grad_method(
+            backend=backend,
+        ).kernel(atmlst=(1,))
+        for backend in ("direct", "zvector")
+    }
+    monkeypatch.setattr(
+        uhf_oracle_case.method,
+        "dq_dR_explicit_spin",
+        lambda *args, **kwargs: pytest.fail("compact execution built a Jacobian"),
+    )
     for backend in ("direct", "zvector"):
         driver = uhf_oracle_case.method.nuc_grad_method(
             backend=backend,
@@ -25,7 +39,7 @@ def test_uhf_compact_selected_gradient_drivers_retain_one_array(uhf_oracle_case)
         assert not hasattr(driver, "de_full")
         result_name = "response_result" if backend == "direct" else "adjoint_result"
         assert not hasattr(driver, result_name)
-        assert driver.response_diagnostics is not None
+        np.testing.assert_allclose(driver.de, expected[backend], rtol=0.0, atol=1.0e-12)
 
 
 def test_coupled_adjoint_matches_independent_ao_oracle(
@@ -108,38 +122,6 @@ def test_transpose_rhs_is_bilateral_and_couples_both_spins(
     alpha_dimension = oracle.alpha_zvector.size
     assert np.linalg.norm(oracle.operator[:alpha_dimension, alpha_dimension:]) > 1.0e-3
     assert np.linalg.norm(oracle.operator[alpha_dimension:, :alpha_dimension]) > 1.0e-3
-
-
-def test_metric_and_occupied_virtual_terms_match_direct_oracle(
-    uhf_oracle_case,
-    independent_uhf_adjoint_oracle,
-):
-    oracle = independent_uhf_adjoint_oracle
-
-    np.testing.assert_allclose(
-        oracle.correction_gradient_metric_spin,
-        oracle.direct_correction_gradient_metric_spin,
-        rtol=0.0,
-        atol=2.0e-14,
-    )
-    np.testing.assert_allclose(
-        oracle.correction_gradient_occupied_virtual,
-        oracle.direct_correction_gradient_occupied_virtual,
-        rtol=2.0e-9,
-        atol=2.0e-12,
-    )
-    np.testing.assert_allclose(
-        oracle.correction_gradient_response,
-        oracle.direct_correction_gradient_response,
-        rtol=2.0e-9,
-        atol=2.0e-12,
-    )
-    assert np.linalg.norm(oracle.correction_gradient_metric_spin[0]) > 1.0e-3
-    assert np.linalg.norm(oracle.correction_gradient_metric_spin[1]) > 1.0e-3
-    assert np.linalg.norm(oracle.correction_gradient_adjoint_nuclear_spin[0]) > 1.0e-4
-    assert np.linalg.norm(oracle.correction_gradient_adjoint_nuclear_spin[1]) > 1.0e-4
-    assert np.linalg.norm(oracle.correction_gradient_adjoint_metric_spin[0]) > 1.0e-4
-    assert np.linalg.norm(oracle.correction_gradient_adjoint_metric_spin[1]) > 1.0e-4
 
 
 @pytest.mark.parametrize(

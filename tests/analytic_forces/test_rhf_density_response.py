@@ -1,6 +1,15 @@
 import numpy as np
 import pytest
 
+from deepks.deephf import RHFResponseAdapter
+
+
+def test_selected_response_diagnostics_are_reproducible(rhf_oracle_case):
+    adapter = RHFResponseAdapter(rhf_oracle_case.reference)
+    response = adapter.solve(atom_indices=(1,))
+
+    assert adapter.audit_response_equations(response) is None
+
 
 @pytest.mark.parametrize(
     ("step", "absolute_tolerance"),
@@ -27,30 +36,32 @@ def test_complete_ao_density_response_matches_displaced_rhf(
     )
 
 
-def test_density_partitions_are_built_with_two_ao_transforms(
+def test_compact_direct_gradient_builds_density_partitions_once(
     rhf_oracle_case,
     monkeypatch,
 ):
-    response = rhf_oracle_case.response
-    original = type(response)._density_response
-    calls = []
+    original = RHFResponseAdapter._density_from_mo_response
+    original_solve = RHFResponseAdapter._solve_orbitals
+    coordinate_calls = 0
+    solved = False
 
-    def counted(instance, mo_response):
-        calls.append(True)
-        return original(instance, mo_response)
+    def counted_solve(instance, *args):
+        nonlocal solved
+        result = original_solve(instance, *args)
+        solved = True
+        return result
 
-    monkeypatch.setattr(type(response), "_density_response", counted)
-    complete, metric, occupied_virtual = response.density_partitions()
+    def counted(instance, *args):
+        nonlocal coordinate_calls
+        coordinate_calls += solved
+        return original(instance, *args)
 
-    assert len(calls) == 2
-    np.testing.assert_allclose(
-        complete,
-        occupied_virtual + metric,
-        rtol=0.0,
-        atol=2.0e-15,
-    )
-    assert np.linalg.norm(occupied_virtual) > 0.1
-    assert np.linalg.norm(metric) > 0.1
+    monkeypatch.setattr(RHFResponseAdapter, "_solve_orbitals", counted_solve)
+    monkeypatch.setattr(RHFResponseAdapter, "_density_from_mo_response", counted)
+    driver = rhf_oracle_case.method.nuc_grad_method(retain_details=False)
+    driver.kernel(atmlst=(1,))
+
+    assert coordinate_calls == 2
 
 
 def test_density_response_satisfies_nonorthogonal_ao_invariants(
