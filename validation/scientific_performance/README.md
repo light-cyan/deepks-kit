@@ -29,7 +29,7 @@ Every result must identify one of the following targets rather than using the ge
 
 | ID | Target | Role |
 | --- | --- | --- |
-| `pyscf-native` | Native PySCF reference energy and analytic gradient | Zero-correction energy and gradient oracle |
+| `pyscf-native` | Native PySCF reference energy and analytic gradient, with full grid response enabled for RKS and UKS | Zero-correction energy and gradient oracle on the same energy surface |
 | `fresh-fd` | Central finite differences of complete DeePHF energy with a fresh PySCF SCF calculation at every displacement | Independent nonzero-correction gradient oracle |
 | `direct-compact` | Current direct backend with `retain_details=False` | Production direct-response comparator |
 | `direct-detailed` | Current direct backend with `retain_details=True` | Detailed descriptor and response-partition oracle |

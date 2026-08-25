@@ -23,6 +23,17 @@ METHOD_CLASSES = {
 REFERENCE_FAMILIES = frozenset(("rhf", "uhf", "rks", "uks"))
 
 
+def _canonicalize_final_orbitals(reference) -> None:
+    """Canonicalize the converged final Fock matrix without changing its density."""
+    density = reference.make_rdm1(reference.mo_coeff, reference.mo_occ)
+    fock = reference.get_fock(dm=density)
+    reference.mo_energy, reference.mo_coeff = reference.canonicalize(
+        reference.mo_coeff,
+        reference.mo_occ,
+        fock=fock,
+    )
+
+
 def make_deephf(reference, model, *, projector_basis=None, device="cpu", response_options=None, adjoint_options=None):
     """Construct the exact public DeePHF method matching a native reference."""
     method_class = METHOD_CLASSES.get(type(reference))
@@ -60,7 +71,7 @@ def build_reference(molecule, family, *, scf_args=None, verbose=0):
         raise TypeError(f"the requested {family.upper()} constructor did not produce its exact native reference type")
     reference.verbose = verbose
     controls = {
-        "conv_tol": 1.0e-13,
+        "conv_tol": 1.0e-12,
         "conv_tol_grad": 1.0e-10,
         "conv_tol_cpscf": 1.0e-12,
         "max_cycle": 100,
@@ -91,6 +102,7 @@ def build_reference(molecule, family, *, scf_args=None, verbose=0):
     reference.kernel(dm0=None)
     if not reference.converged:
         raise RuntimeError(f"the native {family.upper()} reference did not converge")
+    _canonicalize_final_orbitals(reference)
     return reference
 
 

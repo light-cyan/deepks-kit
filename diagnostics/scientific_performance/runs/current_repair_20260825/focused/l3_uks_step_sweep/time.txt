@@ -1,0 +1,23 @@
+	Command being timed: "timeout --signal=TERM --kill-after=30s 10800 uv run --active --no-sync python diagnostics/scientific_performance/descriptor_point.py --workload L3-def2-SVP --family uks --atom 2 --axis y --steps 4e-3 3.5e-3 3e-3 2.5e-3 2e-3 1.5e-3 1e-3 5e-4 3e-4 1e-4 --output diagnostics/scientific_performance/runs/current_repair_20260825/focused/l3_uks_step_sweep/result.json"
+	User time (seconds): 866.69
+	System time (seconds): 1.35
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 14:28.11
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 1168784
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 345989
+	Voluntary context switches: 26
+	Involuntary context switches: 1438
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 15920
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

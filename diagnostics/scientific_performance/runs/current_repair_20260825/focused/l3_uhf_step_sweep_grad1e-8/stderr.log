@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/descriptor_point.py", line 145, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/descriptor_point.py", line 79, in main
+    central_reference = fresh_reference(workload, arguments.family)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mwding/WorkSpace/Projects/deepks-kit/validation/scientific_performance/scripts/common.py", line 123, in fresh_reference
+    return build_reference(
+           ^^^^^^^^^^^^^^^^
+  File "/home/mwding/WorkSpace/Projects/deepks-kit/deepks/deephf/workflow.py", line 104, in build_reference
+    raise RuntimeError(f"the native {family.upper()} reference did not converge")
+RuntimeError: the native UHF reference did not converge

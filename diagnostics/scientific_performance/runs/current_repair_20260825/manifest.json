@@ -1,0 +1,19 @@
+{
+  "base_revision": "0b1405fbc556376cfce833986b5cc71bd3c7a3f6",
+  "execution_source": "current_working_tree",
+  "focused_experiments": {
+    "l1_rhf_step_sweep": "focused/l1_rhf_step_sweep/result.json",
+    "l3_uhf_step_sweep": "focused/l3_uhf_step_sweep/result.json",
+    "l3_uhf_step_sweep_grad1e-8": "focused/l3_uhf_step_sweep_grad1e-8/stderr.log",
+    "l3_uks_step_sweep": "focused/l3_uks_step_sweep/result.json",
+    "l3_uks_step_sweep_grad1e-8": "focused/l3_uks_step_sweep_grad1e-8/result.json",
+    "s3_uks_step_sweep": "focused/s3_uks_step_sweep/result.json"
+  },
+  "profile": "deterministic-1t",
+  "scientific_case_count": 14,
+  "scientific_failed_count": 8,
+  "scientific_passed_count": 6,
+  "scientific_results": "scientific/",
+  "tracked_diff_sha256": "f738d92af3e1100f57d9b82cbd0fa9770f108f61c2caa98c9aee9d38d000a46d",
+  "validation_hash": "f0a11922ba8bed1155ae9786f540d75662f3efbf4910e1636ca74fbab64e13a9"
+}

@@ -1,0 +1,23 @@
+	Command being timed: "timeout --signal=TERM --kill-after=30s 5400 uv run --active --no-sync python validation/scientific_performance/scripts/worker.py --action scientific --workload L1-def2-TZVP --family rks --output diagnostics/scientific_performance/runs/current_repair_20260825/scientific/L1-def2-TZVP__rks/result.json"
+	User time (seconds): 3609.57
+	System time (seconds): 8.92
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:00:25
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 3109020
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 478586
+	Voluntary context switches: 71
+	Involuntary context switches: 47335
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 93632
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

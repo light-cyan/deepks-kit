@@ -58,3 +58,4 @@ venv.bak/
 # Private working files
 /draft.md
 /TODO.md
+/diagnostics/scientific_performance/results/
