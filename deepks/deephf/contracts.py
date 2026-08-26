@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from deepks.array_utils import immutable_array
+from deepks.gpu import as_numpy
 
 
 def update_digest(digest, value: Any) -> None:
@@ -107,8 +108,8 @@ def validate_root_overlap_tolerance(value, *, owner="root") -> float:
 
 def occupied_coefficients(mo_coeff, mo_occ) -> tuple[np.ndarray, ...]:
     """Extract restricted or spin-resolved occupied coefficient matrices."""
-    coefficients = np.asarray(mo_coeff)
-    occupations = np.asarray(mo_occ)
+    coefficients = as_numpy(mo_coeff)
+    occupations = as_numpy(mo_occ)
     if np.iscomplexobj(coefficients) or np.iscomplexobj(occupations):
         raise ValueError("root tracking requires real orbital data")
     if coefficients.ndim == 2 and occupations.ndim == 1:

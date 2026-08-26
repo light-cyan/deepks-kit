@@ -12,6 +12,7 @@ from deepks.data.io import build_molecule, dump_data, iter_system
 from deepks.gpu import (
     DEFAULT_CUDA_DEVICE,
     GPU_DIRECT_SCF_TOL,
+    as_numpy,
     require_cuda_device,
 )
 from deepks.model.model import CorrNet
@@ -31,6 +32,11 @@ from .unrestricted_method import UHFDeePHF, UKSDeePHF
 from .unrestricted_reference import (
     uhf_reference_fingerprint,
     uks_reference_fingerprint,
+)
+from .gpu_method import (
+    GPU_METHOD_CLASSES,
+    gpu_reference_family,
+    is_gpu_reference,
 )
 
 
@@ -78,7 +84,12 @@ def make_deephf(
     adjoint_options=None,
 ):
     """Construct the exact public DeePHF method matching a native reference."""
-    method_class = METHOD_CLASSES.get(type(reference))
+    family = gpu_reference_family(reference)
+    method_class = (
+        GPU_METHOD_CLASSES.get(family)
+        if family is not None
+        else METHOD_CLASSES.get(type(reference))
+    )
     if method_class is None:
         raise TypeError("the reference type has no strict DeePHF method")
     if projector_basis is None and model is not None:
@@ -96,6 +107,7 @@ def make_deephf(
 def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
     """Converge one GPU4PySCF reference and return its strict PySCF state."""
     require_cuda_device()
+    import cupy
     from gpu4pyscf import dft as gpu_dft
     from gpu4pyscf import scf as gpu_scf
 
@@ -112,7 +124,8 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         reference = gpu_dft.RKS(molecule)
     else:
         reference = gpu_dft.UKS(molecule)
-    expected_type = {"rhf": scf.hf.RHF, "uhf": scf.uhf.UHF, "rks": dft.rks.RKS, "uks": dft.uks.UKS}[family]
+    if family in {"uhf", "uks"}:
+        reference.init_guess_breaksym = 1
     reference.verbose = verbose
     controls = {
         "conv_tol": 1.0e-12,
@@ -120,14 +133,22 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         "conv_tol_cpscf": 1.0e-12,
         "direct_scf_tol": GPU_DIRECT_SCF_TOL,
         "max_cycle": 100,
+        "newton_max_cycle": 50,
     }
     controls.update({} if scf_args is None else dict(scf_args))
+    newton_max_cycle = controls.pop("newton_max_cycle")
+    if type(newton_max_cycle) is not int or newton_max_cycle < 0:
+        raise ValueError("newton_max_cycle must be a nonnegative integer")
     supported_controls = {
         "conv_tol",
         "conv_tol_grad",
         "conv_tol_cpscf",
         "max_cycle",
         "diis_space",
+        "diis_start_cycle",
+        "damp",
+        "init_guess",
+        "init_guess_breaksym",
         "level_shift",
         "direct_scf",
         "direct_scf_tol",
@@ -140,7 +161,7 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
     if family in {"rks", "uks"}:
         _configure_strict_dft_grid(reference, molecule)
     if dm0 is not None:
-        initial_density = np.asarray(dm0)
+        initial_density = cupy.asarray(dm0)
         expected_shape = (
             (molecule.nao_nr(), molecule.nao_nr())
             if family in {"rhf", "rks"}
@@ -148,30 +169,41 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         )
         if (
             initial_density.shape != expected_shape
-            or np.iscomplexobj(initial_density)
-            or not np.isfinite(initial_density).all()
+            or cupy.iscomplexobj(initial_density)
+            or not bool(cupy.isfinite(initial_density).all().item())
         ):
             raise ValueError(
                 f"the {family.upper()} initial density must be real, finite, "
                 f"and have shape {expected_shape}"
             )
-        initial_density = np.ascontiguousarray(initial_density, dtype=np.float64)
+        initial_density = cupy.ascontiguousarray(
+            initial_density, dtype=cupy.float64
+        )
     else:
         initial_density = None
     reference.kernel(dm0=initial_density)
+    if not reference.converged and newton_max_cycle:
+        second_order = reference.newton()
+        second_order.max_cycle = newton_max_cycle
+        second_order.kernel()
+        if second_order.converged:
+            reference.converged = True
+            reference.e_tot = second_order.e_tot
+            reference.mo_energy = second_order.mo_energy
+            reference.mo_coeff = second_order.mo_coeff
+            reference.mo_occ = second_order.mo_occ
     if not reference.converged:
         raise RuntimeError(f"the GPU4PySCF {family.upper()} reference did not converge")
     _canonicalize_final_orbitals(reference)
-    strict_reference = reference.to_cpu()
-    if type(strict_reference) is not expected_type:
+    if gpu_reference_family(reference) != family:
         raise TypeError(
-            f"the GPU4PySCF {family.upper()} result did not convert to its exact "
-            "strict PySCF reference type"
+            f"the converged reference is not an exact GPU4PySCF {family.upper()} object"
         )
-    if family in {"rks", "uks"}:
-        strict_reference.__dict__.pop("cphf_grids", None)
-        _configure_strict_dft_grid(strict_reference, molecule)
-    return strict_reference
+    reference._deepks_scf_args = {
+        **controls,
+        "newton_max_cycle": newton_max_cycle,
+    }
+    return reference
 
 
 def evaluate_molecule(
@@ -240,6 +272,18 @@ def _evaluate_reference(
 
 
 def _reference_state_fingerprint(reference) -> str:
+    if is_gpu_reference(reference):
+        from .contracts import update_digest
+        import hashlib
+
+        digest = hashlib.sha256()
+        update_digest(digest, gpu_reference_family(reference))
+        update_digest(digest, float(reference.e_tot))
+        update_digest(digest, reference.mol.atom_coords(unit="Bohr"))
+        update_digest(digest, as_numpy(reference.mo_energy))
+        update_digest(digest, as_numpy(reference.mo_coeff))
+        update_digest(digest, as_numpy(reference.mo_occ))
+        return digest.hexdigest()
     fingerprint = {
         scf.hf.RHF: reference_fingerprint,
         scf.uhf.UHF: uhf_reference_fingerprint,
@@ -296,9 +340,9 @@ class _ReferenceSequence:
             dm0=self._previous_density,
             verbose=self.verbose,
         )
-        occupations = np.asarray(reference.mo_occ)
+        occupations = as_numpy(reference.mo_occ)
         candidate_occupied = occupied_coefficients(
-            reference.mo_coeff,
+            as_numpy(reference.mo_coeff),
             occupations,
         )
         state_fingerprint = _reference_state_fingerprint(reference)
@@ -340,14 +384,15 @@ class _ReferenceSequence:
             },
             "minimum_occupied_overlap": minimum_overlap,
         }
-        density = np.asarray(reference.make_rdm1(reference.mo_coeff, occupations))
-        if np.iscomplexobj(density) or not np.isfinite(density).all():
+        density = reference.make_rdm1(reference.mo_coeff, reference.mo_occ)
+        density_array = as_numpy(density)
+        if np.iscomplexobj(density_array) or not np.isfinite(density_array).all():
             raise RootContinuityError(
                 f"the accepted {self.family.upper()} density is invalid"
             )
         self._previous_reference = reference
         self._system_fingerprint = system_fingerprint
-        self._previous_density = np.ascontiguousarray(density, dtype=np.float64)
+        self._previous_density = density.copy()
         self._previous_occupations = np.ascontiguousarray(occupations).copy()
         self._previous_occupied = tuple(value.copy() for value in candidate_occupied)
         self._previous_fingerprint = state_fingerprint

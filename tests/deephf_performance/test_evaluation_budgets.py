@@ -2,8 +2,9 @@ import numpy as np
 import torch
 from pyscf import gto
 
-from deepks.deephf import DeePHF, build_reference
+from deepks.deephf import DeePHF
 from deepks.model.model import CorrNet
+from tests.reference_utils import build_cpu_reference as build_reference
 
 
 PROJECTOR_BASIS = [[0, [0.8, 1.0]]]

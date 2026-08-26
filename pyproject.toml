@@ -17,6 +17,7 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+  "ase>=3.26,<4",
   "cupy-cuda12x==13.4.1",
   "cutensor-cu12==2.2.0",
   "gpu4pyscf-cuda12x>=1.8,<1.9",

@@ -3,9 +3,10 @@ import pytest
 import torch
 from pyscf import gto
 
-from deepks.deephf import build_reference, make_deephf
+from deepks.deephf import make_deephf
 from deepks.deephf.capabilities import DeePHFCapabilityError
 from deepks.model.model import CorrNet
+from tests.reference_utils import build_cpu_reference as build_reference
 
 
 PROJECTOR_BASIS = [[0, [0.8, 1.0]]]

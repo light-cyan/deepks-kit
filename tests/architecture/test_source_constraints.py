@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 PRODUCTION_LIMIT = 1000
 CALCULATION_FUNCTION_LIMIT = 199
-MODULE_COUNT_LIMIT = 41
+MODULE_COUNT_LIMIT = 44
 FACADE_NAMES = {"pyscf_rhf.py", "pyscf_uhf.py", "pyscf_rks.py", "pyscf_uks.py"}
 CONSOLIDATED_MODULES = {
     "gradient.py",
@@ -48,7 +48,7 @@ def test_deephf_package_has_a_bounded_aggregate_topology():
     top_level = tuple(directory.glob("*.py"))
     audits = tuple((directory / "audits").glob("*.py"))
     assert len(modules) <= MODULE_COUNT_LIMIT
-    assert len(top_level) <= 33
+    assert len(top_level) <= 35
     assert len(audits) <= 9
 
 

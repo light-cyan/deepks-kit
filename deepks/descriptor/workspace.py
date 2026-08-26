@@ -24,6 +24,7 @@ class DescriptorDerivativeWorkspace:
         self._projected_blocks = None
         self._eigenvalues = None
         self._eigenvalue_jacobians = None
+        self._dq_dP_tensor = None
         self._dq_dP = None
 
     def _count(self, operation: str) -> None:
@@ -97,8 +98,9 @@ class DescriptorDerivativeWorkspace:
         ]
 
     @property
-    def cached_dq_dP(self) -> np.ndarray:
-        if self._dq_dP is None:
+    def dq_dP_tensor(self) -> torch.Tensor:
+        """Return the cached descriptor Jacobian on the calculation device."""
+        if self._dq_dP_tensor is None:
             ao_jacobians = [
                 torch.einsum("rap,avpq,saq->avrs", overlap, jacobian, overlap)
                 for overlap, jacobian in zip(
@@ -107,7 +109,15 @@ class DescriptorDerivativeWorkspace:
                     strict=True,
                 )
             ]
-            self._dq_dP = torch.cat(ao_jacobians, dim=1).detach().cpu().numpy()
+            self._dq_dP_tensor = torch.cat(ao_jacobians, dim=1)
+        else:
+            self._count("cache_hits")
+        return self._dq_dP_tensor
+
+    @property
+    def cached_dq_dP(self) -> np.ndarray:
+        if self._dq_dP is None:
+            self._dq_dP = self.dq_dP_tensor.detach().cpu().numpy()
         else:
             self._count("cache_hits")
         return self._dq_dP
@@ -143,11 +153,16 @@ class DescriptorDerivativeWorkspace:
         )
         return immutable_array(result.detach().cpu().numpy(), dtype=np.float64)
 
-    def correction_derivatives(self, sensitivity, *, motion_density=None, raw_atom_indices=None):
-        sensitivity = torch.tensor(
-            sensitivity,
-            dtype=self.density.dtype,
-            device=self.density.device,
+    def correction_derivatives_tensor(
+        self,
+        sensitivity,
+        *,
+        motion_density=None,
+        raw_atom_indices=None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Contract explicit motion and the AO potential without leaving CUDA."""
+        sensitivity = torch.as_tensor(
+            sensitivity, dtype=self.density.dtype, device=self.density.device
         )
         expected_shape = (
             len(self.descriptor.descriptor_atom_indices),
@@ -181,6 +196,14 @@ class DescriptorDerivativeWorkspace:
                 torch.einsum("bxapq,apq->bx", coordinate, block_adjoint)
             )
         gradient = torch.stack(gradient_parts, dim=0).sum(dim=0)
+        return gradient, potential
+
+    def correction_derivatives(self, sensitivity, *, motion_density=None, raw_atom_indices=None):
+        gradient, potential = self.correction_derivatives_tensor(
+            sensitivity,
+            motion_density=motion_density,
+            raw_atom_indices=raw_atom_indices,
+        )
         return (
             immutable_array(gradient.detach().cpu().numpy(), dtype=np.float64),
             immutable_array(potential.detach().cpu().numpy(), dtype=np.float64),

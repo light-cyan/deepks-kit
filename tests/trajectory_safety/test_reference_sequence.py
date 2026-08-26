@@ -14,6 +14,7 @@ from deepks.deephf.contracts import (
     occupied_subspace_overlaps,
 )
 from deepks.model.model import CorrNet
+from deepks.gpu import as_numpy
 
 
 PROJECTOR_BASIS = [[0, [0.8, 1.0]]]
@@ -173,7 +174,9 @@ def test_rejected_candidate_does_not_advance_root_anchor(monkeypatch):
 
     def recording_build_reference(*args, **kwargs):
         density = kwargs.get("dm0")
-        density_guesses.append(None if density is None else np.array(density, copy=True))
+        density_guesses.append(
+            None if density is None else np.array(as_numpy(density), copy=True)
+        )
         return original_build_reference(*args, **kwargs)
 
     monkeypatch.setattr(workflow, "build_reference", recording_build_reference)

@@ -8,6 +8,7 @@ from .adjoint import (
     scalar_operator_fingerprint,
     solve_scalar_adjoint,
 )
+from .ase import DeePHFCalculator
 
 from .capabilities import (
     DeePHFCapabilityError,
@@ -20,6 +21,18 @@ from .gradient import (
     RKSDeePHFGradients,
     UHFDeePHFGradients,
     UKSDeePHFGradients,
+)
+from .gpu_method import (
+    GPUDeePHF,
+    GPUDeePHFGradients,
+    GPURKSDeePHF,
+    GPUUHFDeePHF,
+    GPUUKSDeePHF,
+)
+from .gpu_scanner import (
+    GPUDeePHFGradientScanner,
+    GPUDeePHFScannerError,
+    GPUUHFDeePHFGradientScanner,
 )
 from .force_data import (
     RHFForceDataError,
@@ -92,7 +105,16 @@ from .workflow import build_reference, evaluate_molecule, make_deephf
 
 __all__ = [
     "DeePHF",
+    "DeePHFCalculator",
     "DeePHFCapabilityError",
+    "GPUDeePHF",
+    "GPUDeePHFGradients",
+    "GPUDeePHFGradientScanner",
+    "GPUDeePHFScannerError",
+    "GPURKSDeePHF",
+    "GPUUHFDeePHF",
+    "GPUUHFDeePHFGradientScanner",
+    "GPUUKSDeePHF",
     "AdjointDiagnostics",
     "AdjointError",
     "AdjointResult",
