@@ -123,15 +123,41 @@ def fresh_reference(
     return build_reference(
         molecule,
         family,
-        scf_args=effective_scf_controls(workload),
+        scf_args=effective_scf_controls(workload, family),
         verbose=0,
     )
 
 
-def effective_scf_controls(workload: dict[str, Any]) -> dict[str, Any]:
-    """Return the recorded global controls plus workload-specific overrides."""
+def _family_controls(workload: dict[str, Any], family: str) -> dict[str, Any]:
+    """Return validated controls declared for one workload/reference family."""
+    if family not in workload["families"]:
+        raise ValueError(
+            f"family {family!r} is not declared for workload {workload['id']!r}"
+        )
+    all_controls = workload.get("family_controls", {})
+    unknown_families = set(all_controls).difference(workload["families"])
+    if unknown_families:
+        raise ValueError(
+            f"workload {workload['id']!r} has controls for undeclared families: "
+            f"{sorted(unknown_families)}"
+        )
+    controls = all_controls.get(family, {})
+    unknown_keys = set(controls).difference(
+        {"finite_difference_steps_bohr", "scf_overrides"}
+    )
+    if unknown_keys:
+        raise ValueError(
+            f"workload {workload['id']!r} family {family!r} has unknown controls: "
+            f"{sorted(unknown_keys)}"
+        )
+    return controls
+
+
+def effective_scf_controls(workload: dict[str, Any], family: str) -> dict[str, Any]:
+    """Merge global, workload, and reference-family SCF controls."""
     controls = dict(load_config()["scf_controls"])
     controls.update(workload.get("scf_overrides", {}))
+    controls.update(_family_controls(workload, family).get("scf_overrides", {}))
     return controls
 
 
@@ -271,12 +297,15 @@ def validation_hash() -> str:
 def deterministic_directions(workload: dict[str, Any]) -> np.ndarray:
     """Build five normalized full-coordinate directions from the frozen seed."""
     atom_count = len(workload_geometry(workload)[0])
+    direction_count = int(load_config()["finite_difference"]["direction_count"])
+    if direction_count != 5:
+        raise ValueError("the scientific protocol requires exactly five directions")
     seed_material = f"{load_config()['seed']}:{workload['id']}".encode("utf-8")
     seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:8], "little")
     generator = np.random.default_rng(seed)
-    directions = generator.normal(size=(5, atom_count, 3))
+    directions = generator.normal(size=(direction_count, atom_count, 3))
     directions -= directions.mean(axis=1, keepdims=True)
-    norms = np.linalg.norm(directions.reshape(5, -1), axis=1)
+    norms = np.linalg.norm(directions.reshape(direction_count, -1), axis=1)
     directions /= norms[:, None, None]
     return directions
 
@@ -289,16 +318,28 @@ def finite_difference_components(workload: dict[str, Any]) -> tuple[tuple[int, i
     return tuple(tuple(int(value) for value in item) for item in workload.get("components", ()))
 
 
-def finite_difference_steps(workload: dict[str, Any]) -> tuple[float, ...]:
-    """Return the frozen step set for one workload."""
+def finite_difference_steps(
+    workload: dict[str, Any], family: str
+) -> tuple[float, ...]:
+    """Return the predeclared effective step set for one workload and family."""
     section = load_config()["finite_difference"]
-    if workload["finite_difference"] == "all":
+    family_values = _family_controls(workload, family).get(
+        "finite_difference_steps_bohr"
+    )
+    if family_values is not None:
+        values = family_values
+    elif workload["finite_difference"] == "all":
         values = section["small_steps_bohr"]
     elif workload["finite_difference"] == "selected":
         values = section["long_steps_bohr"]
     else:
         values = []
-    return tuple(float(value) for value in values)
+    steps = tuple(float(value) for value in values)
+    if any(not math.isfinite(step) or step <= 0.0 for step in steps):
+        raise ValueError("finite-difference steps must be finite and positive")
+    if len(steps) != len(set(steps)):
+        raise ValueError("finite-difference steps must be unique")
+    return steps
 
 
 def response_dimensions(reference) -> dict[str, Any]:
@@ -499,17 +540,59 @@ def command_output(command: list[str], cwd: Path | None = None) -> str:
         return f"unavailable: {error}"
 
 
+def tracked_diff_sha256(source_root: Path) -> str:
+    """Hash the complete tracked patch relative to the source base revision."""
+    try:
+        patch = subprocess.check_output(
+            ["git", "diff", "--binary", "HEAD", "--"], cwd=source_root
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        return f"unavailable: {error}"
+    return sha256_bytes(patch)
+
+
 def source_metadata() -> dict[str, Any]:
-    """Record the exact clean source worktree selected by the orchestrator."""
+    """Record the exact source snapshot selected by the orchestrator."""
     source_root = Path(os.environ.get("DEEPKS_SOURCE_ROOT", REPOSITORY_DIR)).resolve()
-    status = command_output(
+    tracked_status = command_output(
         ["git", "status", "--porcelain", "--untracked-files=no"], source_root
     )
+    working_tree_status = command_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal"], source_root
+    )
+    tracked_status = os.environ.get(
+        "VALIDATION_TRACKED_DIFF_STATUS", tracked_status
+    )
+    working_tree_status = os.environ.get(
+        "VALIDATION_WORKING_TREE_STATUS", working_tree_status
+    )
+    base_revision = os.environ.get(
+        "VALIDATION_BASE_REVISION",
+        command_output(["git", "rev-parse", "HEAD"], source_root),
+    )
+    diff_hash = os.environ.get(
+        "VALIDATION_TRACKED_DIFF_SHA256", tracked_diff_sha256(source_root)
+    )
+    source_clean = os.environ.get("VALIDATION_SOURCE_CLEAN")
+    if source_clean is None:
+        source_clean_value = working_tree_status == ""
+    else:
+        source_clean_value = source_clean == "1"
     return {
         "source_root": source_root,
-        "revision": command_output(["git", "rev-parse", "HEAD"], source_root),
-        "tracked_diff_status": status,
-        "tracked_source_clean": status == "",
+        "base_revision": base_revision,
+        "revision": base_revision,
+        "source_clean": source_clean_value,
+        "working_tree_status": working_tree_status,
+        "tracked_diff_status": tracked_status,
+        "tracked_source_clean": tracked_status == "",
+        "tracked_diff_sha256": diff_hash,
+        "config_hash": os.environ.get(
+            "VALIDATION_CONFIG_HASH", sha256_file(CONFIG_PATH)
+        ),
+        "validation_hash": os.environ.get(
+            "VALIDATION_INPUT_HASH", validation_hash()
+        ),
         "source_uv_lock_hash": sha256_file(source_root / "uv.lock"),
         "execution_environment_uv_lock_hash": os.environ.get(
             "VALIDATION_ENV_LOCK_HASH"
@@ -543,7 +626,6 @@ def environment_metadata(profile: str, threads: int) -> dict[str, Any]:
                 break
     return {
         **source_metadata(),
-        "validation_hash": validation_hash(),
         "python": sys.version,
         "numpy": np.__version__,
         "scipy": scipy.__version__,
@@ -610,7 +692,15 @@ def base_result(
         result["model_hash"] = model_hash(deterministic_model())
         result["direction_hash"] = hash_array(deterministic_directions(workload))
         result["numerical_controls"] = {
-            "scf": effective_scf_controls(workload),
+            "scf": effective_scf_controls(workload, family),
+            "finite_difference": {
+                "mode": workload["finite_difference"],
+                "steps_bohr": finite_difference_steps(workload, family),
+                "components": finite_difference_components(workload),
+                "direction_count": load_config()["finite_difference"][
+                    "direction_count"
+                ],
+            },
             "response": load_config()["response_controls"],
             "adjoint": load_config()["adjoint_controls"],
             "dft": load_config()["dft"] if family in {"rks", "uks"} else None,

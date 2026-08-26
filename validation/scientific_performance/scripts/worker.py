@@ -322,8 +322,12 @@ def _complete_finite_differences(
     components = finite_difference_components(workload)
     directions = deterministic_directions(workload)
     result: dict[str, Any] = {"steps": {}}
-    for step in finite_difference_steps(workload):
-        step_record: dict[str, Any] = {"components": [], "directions": []}
+    for step in finite_difference_steps(workload, family):
+        step_record: dict[str, Any] = {
+            "step_bohr": step,
+            "components": [],
+            "directions": [],
+        }
         for atom, axis in components:
             points = []
             for sign in (-1, 1):
@@ -392,6 +396,151 @@ def _complete_finite_differences(
             )
         result["steps"][f"{step:.1e}"] = step_record
     return result
+
+
+def _assess_finite_differences(
+    finite_difference: dict[str, Any],
+    analytic_gradient: np.ndarray,
+    explicit_only_gradient: np.ndarray,
+    relaxed_descriptor: np.ndarray,
+) -> dict[str, Any]:
+    """Annotate and summarize every predeclared finite-difference step."""
+    per_step: dict[str, Any] = {}
+    for step_label, step_record in finite_difference["steps"].items():
+        component_errors = []
+        descriptor_errors = []
+        explicit_errors = []
+        directional_errors = []
+        worst_component = None
+        worst_descriptor = None
+        worst_direction = None
+        for item in step_record["components"]:
+            atom = item["atom"]
+            axis = item["axis"]
+            item["analytic_gradient"] = analytic_gradient[atom, axis]
+            item["gradient_error"] = float(
+                item["analytic_gradient"] - item["energy_derivative"]
+            )
+            item["explicit_only_gradient"] = float(
+                explicit_only_gradient[atom, axis]
+            )
+            item["explicit_only_error"] = float(
+                item["explicit_only_gradient"] - item["energy_derivative"]
+            )
+            descriptor_delta = np.asarray(relaxed_descriptor[atom, axis]) - np.asarray(
+                item["descriptor_derivative"]
+            )
+            item["relaxed_descriptor_error"] = error_norms(
+                relaxed_descriptor[atom, axis], item["descriptor_derivative"]
+            )
+            component_error = abs(item["gradient_error"])
+            descriptor_error = item["relaxed_descriptor_error"]["max_abs"]
+            component_errors.append(component_error)
+            descriptor_errors.append(descriptor_error)
+            explicit_errors.append(abs(item["explicit_only_error"]))
+            if worst_component is None or component_error > worst_component["absolute_error"]:
+                worst_component = {
+                    "atom": atom,
+                    "axis": axis,
+                    "axis_name": item["axis_name"],
+                    "signed_error": item["gradient_error"],
+                    "absolute_error": component_error,
+                }
+            flat_index = int(np.argmax(np.abs(descriptor_delta)))
+            descriptor_index = tuple(
+                int(value)
+                for value in np.unravel_index(flat_index, descriptor_delta.shape)
+            )
+            descriptor_signed_error = float(descriptor_delta[descriptor_index])
+            if worst_descriptor is None or descriptor_error > worst_descriptor["absolute_error"]:
+                worst_descriptor = {
+                    "atom": atom,
+                    "axis": axis,
+                    "axis_name": item["axis_name"],
+                    "descriptor_index": descriptor_index,
+                    "signed_error": descriptor_signed_error,
+                    "absolute_error": descriptor_error,
+                }
+        for item in step_record["directions"]:
+            analytic = float(
+                np.einsum("ax,ax->", analytic_gradient, item["direction"])
+            )
+            item["analytic_derivative"] = analytic
+            item["error"] = analytic - item["energy_derivative"]
+            directional_error = abs(item["error"])
+            directional_errors.append(directional_error)
+            if worst_direction is None or directional_error > worst_direction["absolute_error"]:
+                worst_direction = {
+                    "direction_index": item["index"],
+                    "signed_error": item["error"],
+                    "absolute_error": directional_error,
+                }
+        maximum_component_error = max(component_errors, default=0.0)
+        maximum_explicit_only_error = max(explicit_errors, default=0.0)
+        step_summary = {
+            "step_bohr": step_record["step_bohr"],
+            "component_count": len(step_record["components"]),
+            "direction_count": len(step_record["directions"]),
+            "maximum_component_error": maximum_component_error,
+            "maximum_directional_error": max(directional_errors, default=0.0),
+            "maximum_relaxed_descriptor_error": max(descriptor_errors, default=0.0),
+            "maximum_explicit_only_error": maximum_explicit_only_error,
+            "explicit_to_complete_error_ratio": (
+                maximum_explicit_only_error
+                / max(maximum_component_error, np.finfo(float).tiny)
+            ),
+            "worst_component": worst_component,
+            "worst_descriptor": worst_descriptor,
+            "worst_direction": worst_direction,
+        }
+        step_record["summary"] = step_summary
+        per_step[step_label] = step_summary
+
+    def aggregate_worst(metric: str, record: str):
+        if not per_step:
+            return None
+        _, summary = max(per_step.items(), key=lambda item: item[1][metric])
+        worst = summary[record]
+        if worst is None:
+            return None
+        return {"step_bohr": summary["step_bohr"], **worst}
+
+    maximum_component_error = max(
+        (item["maximum_component_error"] for item in per_step.values()), default=0.0
+    )
+    maximum_explicit_only_error = max(
+        (item["maximum_explicit_only_error"] for item in per_step.values()),
+        default=0.0,
+    )
+    return {
+        "per_step": per_step,
+        "maximum_component_error": maximum_component_error,
+        "maximum_directional_error": max(
+            (item["maximum_directional_error"] for item in per_step.values()),
+            default=0.0,
+        ),
+        "maximum_relaxed_descriptor_error": max(
+            (
+                item["maximum_relaxed_descriptor_error"]
+                for item in per_step.values()
+            ),
+            default=0.0,
+        ),
+        "maximum_explicit_only_error": maximum_explicit_only_error,
+        "explicit_to_complete_error_ratio": (
+            maximum_explicit_only_error
+            / max(maximum_component_error, np.finfo(float).tiny)
+        ),
+        "worst_component": aggregate_worst(
+            "maximum_component_error", "worst_component"
+        ),
+        "worst_descriptor": aggregate_worst(
+            "maximum_relaxed_descriptor_error", "worst_descriptor"
+        ),
+        "worst_direction": aggregate_worst(
+            "maximum_directional_error", "worst_direction"
+        ),
+    }
 
 
 def action_scientific(output: Path, workload_id: str, family: str) -> dict[str, Any]:
@@ -473,47 +622,28 @@ def action_scientific(output: Path, workload_id: str, family: str) -> dict[str, 
     finite_difference = _complete_finite_differences(
         workload, family, reference, model
     )
-    component_errors = []
-    descriptor_errors = []
-    explicit_errors = []
-    directional_errors = []
-    for step_record in finite_difference["steps"].values():
-        for item in step_record["components"]:
-            atom = item["atom"]
-            axis = item["axis"]
-            item["analytic_gradient"] = direct_detailed_gradient[atom, axis]
-            item["gradient_error"] = float(item["analytic_gradient"] - item["energy_derivative"])
-            item["explicit_only_gradient"] = float(
-                native_gradient[atom, axis]
-                + direct_detailed.correction_gradient_explicit[atom, axis]
-            )
-            item["explicit_only_error"] = float(
-                item["explicit_only_gradient"] - item["energy_derivative"]
-            )
-            item["relaxed_descriptor_error"] = error_norms(
-                direct_detailed.dq_dR_relaxed[atom, axis],
-                item["descriptor_derivative"],
-            )
-            component_errors.append(abs(item["gradient_error"]))
-            explicit_errors.append(abs(item["explicit_only_error"]))
-            descriptor_errors.append(item["relaxed_descriptor_error"]["max_abs"])
-        for item in step_record["directions"]:
-            analytic = float(np.einsum("ax,ax->", direct_detailed_gradient, item["direction"]))
-            item["analytic_derivative"] = analytic
-            item["error"] = analytic - item["energy_derivative"]
-            directional_errors.append(abs(item["error"]))
     result["finite_difference"] = finite_difference
-    result["finite_difference_summary"] = {
-        "maximum_component_error": max(component_errors, default=0.0),
-        "maximum_directional_error": max(directional_errors, default=0.0),
-        "maximum_relaxed_descriptor_error": max(descriptor_errors, default=0.0),
-        "maximum_explicit_only_error": max(explicit_errors, default=0.0),
-        "explicit_to_complete_error_ratio": (
-            max(explicit_errors, default=0.0)
-            / max(max(component_errors, default=0.0), np.finfo(float).tiny)
-        ),
-    }
+    result["finite_difference_summary"] = _assess_finite_differences(
+        finite_difference,
+        direct_detailed_gradient,
+        native_gradient + direct_detailed.correction_gradient_explicit,
+        direct_detailed.dq_dR_relaxed,
+    )
     acceptance = load_config()["acceptance"]
+    finite_difference_step_checks = {}
+    for step_label, summary in result["finite_difference_summary"]["per_step"].items():
+        step_checks = {
+            "component": summary["maximum_component_error"]
+            <= acceptance["finite_difference_gradient_max_abs_hartree_per_bohr"],
+            "direction": summary["maximum_directional_error"]
+            <= acceptance["finite_difference_gradient_max_abs_hartree_per_bohr"],
+            "descriptor": summary["maximum_relaxed_descriptor_error"]
+            <= acceptance["finite_difference_descriptor_max_abs_per_bohr"],
+        }
+        summary["acceptance_checks"] = step_checks
+        summary["passed"] = all(step_checks.values())
+        finite_difference_step_checks[step_label] = step_checks
+    result["finite_difference_step_checks"] = finite_difference_step_checks
     reasons = []
     zero_gradient_tolerance = (
         acceptance["zero_hf_gradient_max_abs_hartree_per_bohr"]
@@ -526,9 +656,15 @@ def action_scientific(output: Path, workload_id: str, family: str) -> dict[str, 
         "direct_zvector": result["central"]["errors"]["direct_zvector_detailed"]["max_abs"] <= acceptance["direct_zvector_max_abs_hartree_per_bohr"],
         "direct_compact": result["central"]["errors"]["direct_compact_detailed"]["max_abs"] <= acceptance["compact_detailed_max_abs_hartree_per_bohr"],
         "zvector_compact": result["central"]["errors"]["zvector_compact_detailed"]["max_abs"] <= acceptance["compact_detailed_max_abs_hartree_per_bohr"],
-        "finite_difference_component": result["finite_difference_summary"]["maximum_component_error"] <= acceptance["finite_difference_gradient_max_abs_hartree_per_bohr"],
-        "finite_difference_direction": result["finite_difference_summary"]["maximum_directional_error"] <= acceptance["finite_difference_gradient_max_abs_hartree_per_bohr"],
-        "finite_difference_descriptor": result["finite_difference_summary"]["maximum_relaxed_descriptor_error"] <= acceptance["finite_difference_descriptor_max_abs_per_bohr"],
+        "finite_difference_component": all(
+            item["component"] for item in finite_difference_step_checks.values()
+        ),
+        "finite_difference_direction": all(
+            item["direction"] for item in finite_difference_step_checks.values()
+        ),
+        "finite_difference_descriptor": all(
+            item["descriptor"] for item in finite_difference_step_checks.values()
+        ),
         "anti_vacuity_response": max_abs(direct_detailed.correction_gradient_response) >= acceptance["response_signal_min_hartree_per_bohr"],
         "anti_vacuity_descriptor": max_abs(direct_detailed.dq_dR_response) >= acceptance["descriptor_response_signal_min_per_bohr"],
         "anti_vacuity_explicit_error": result["finite_difference_summary"]["explicit_to_complete_error_ratio"] >= acceptance["explicit_error_ratio_min"],
@@ -1106,7 +1242,10 @@ def _fresh_energy_gradient_angstrom(workload, family, atoms, coordinates_bohr):
         verbose=0,
     )
     reference = build_reference(
-        molecule, family, scf_args=effective_scf_controls(workload), verbose=0
+        molecule,
+        family,
+        scf_args=effective_scf_controls(workload, family),
+        verbose=0,
     )
     method = make_method(reference, deterministic_model())
     return float(method.kernel()), np.asarray(method.gradient(backend="zvector"))

@@ -647,10 +647,27 @@ def _campaign_integrity(results: list[dict[str, Any]]) -> dict[str, Any]:
             if result.get("environment", {}).get("validation_hash")
         }
     )
-    source_clean = all(
-        result.get("environment", {}).get("tracked_source_clean") is True
+    source_snapshots = {
+        (
+            environment.get("source_root"),
+            environment.get("base_revision"),
+            environment.get("tracked_diff_sha256"),
+            environment.get("config_hash"),
+            environment.get("validation_hash"),
+        )
         for result in results
-        if "environment" in result
+        if (environment := result.get("environment")) is not None
+    }
+    source_provenance_complete = bool(source_snapshots) and all(
+        all(value is not None for value in snapshot) for snapshot in source_snapshots
+    )
+    source_clean_states = sorted(
+        {
+            result.get("environment", {}).get("source_clean")
+            for result in results
+            if "environment" in result
+        },
+        key=str,
     )
     profile_controls = []
     config = load_config()
@@ -676,7 +693,8 @@ def _campaign_integrity(results: list[dict[str, Any]]) -> dict[str, Any]:
         )
     checks = {
         "one_validation_hash": len(validation_hashes) == 1,
-        "clean_source_worktrees": source_clean,
+        "one_source_snapshot": len(source_snapshots) == 1,
+        "source_provenance_complete": source_provenance_complete,
         "profile_affinity_and_threads": bool(profile_controls)
         and all(item["affinity_passed"] and item["threads_passed"] for item in profile_controls),
     }
@@ -684,6 +702,17 @@ def _campaign_integrity(results: list[dict[str, Any]]) -> dict[str, Any]:
         "passed": all(checks.values()),
         "checks": checks,
         "validation_hashes": validation_hashes,
+        "source_snapshots": [
+            {
+                "source_root": snapshot[0],
+                "base_revision": snapshot[1],
+                "tracked_diff_sha256": snapshot[2],
+                "config_hash": snapshot[3],
+                "validation_hash": snapshot[4],
+            }
+            for snapshot in sorted(source_snapshots, key=str)
+        ],
+        "source_clean_states": source_clean_states,
         "profile_controls": profile_controls,
     }
 
@@ -739,6 +768,25 @@ def _format_number(value: Any) -> str:
     return str(value)
 
 
+def _format_coordinate(record: dict[str, Any] | None) -> str:
+    if not record:
+        return "—"
+    return f"atom {record['atom']} {record['axis_name']}"
+
+
+def _format_descriptor_location(record: dict[str, Any] | None) -> str:
+    if not record:
+        return "—"
+    index = ",".join(str(value) for value in record["descriptor_index"])
+    return f"{_format_coordinate(record)}; q[{index}]"
+
+
+def _format_direction(record: dict[str, Any] | None) -> str:
+    if not record:
+        return "—"
+    return str(record["direction_index"])
+
+
 def write_markdown(aggregate_result: dict[str, Any], path: Path) -> None:
     categories = aggregate_result["category_summary"]
     lines = [
@@ -775,6 +823,39 @@ def write_markdown(aggregate_result: dict[str, Any], path: Path) -> None:
                 **{key: _format_number(value) for key, value in row.items()}
             )
         )
+    lines.extend(
+        [
+            "",
+            "## Finite-difference accuracy by predeclared step",
+            "",
+            "| Workload | Family | Step (Bohr) | Force max abs | Worst coordinate | Descriptor max abs | Worst descriptor | Direction max abs | Worst direction | Passed |",
+            "| --- | --- | ---: | ---: | --- | ---: | --- | ---: | ---: | --- |",
+        ]
+    )
+    for row in aggregate_result["accuracy"]:
+        for step_summary in row.get("per_step", {}).values():
+            lines.append(
+                "| {workload} | {family} | {step} | {force} | {coordinate} | {descriptor} | {descriptor_location} | {direction} | {direction_index} | {passed} |".format(
+                    workload=row["workload_id"],
+                    family=row["family"],
+                    step=_format_number(step_summary["step_bohr"]),
+                    force=_format_number(step_summary["maximum_component_error"]),
+                    coordinate=_format_coordinate(step_summary["worst_component"]),
+                    descriptor=_format_number(
+                        step_summary["maximum_relaxed_descriptor_error"]
+                    ),
+                    descriptor_location=_format_descriptor_location(
+                        step_summary["worst_descriptor"]
+                    ),
+                    direction=_format_number(
+                        step_summary["maximum_directional_error"]
+                    ),
+                    direction_index=_format_direction(
+                        step_summary["worst_direction"]
+                    ),
+                    passed=step_summary.get("passed"),
+                )
+            )
     lines.extend(
         [
             "",
@@ -857,7 +938,7 @@ def write_markdown(aggregate_result: dict[str, Any], path: Path) -> None:
             "",
             "```bash",
             "uv sync --locked --python 3.11",
-            f"uv run python validation/scientific_performance/scripts/run_campaign.py --run-id {aggregate_result['run_manifest']['run_id']}",
+            f"uv run python validation/scientific_performance/scripts/run_campaign.py --run-root {aggregate_result['run_root']}",
             f"uv run python validation/scientific_performance/scripts/aggregate.py {aggregate_result['run_root']}",
             "```",
             "",

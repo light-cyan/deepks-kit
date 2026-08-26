@@ -1,0 +1,332 @@
+{
+  "accuracy": [
+    {
+      "direct_compact_detailed_max_abs": 1.1102230246251565e-16,
+      "direct_zvector_max_abs": 2.5533394842902624e-14,
+      "explicit_to_complete_error_ratio": 69917.66586814397,
+      "family": "rhf",
+      "maximum_component_error": 1.5262690599739115e-07,
+      "maximum_directional_error": 7.8817417096394e-08,
+      "maximum_explicit_only_error": 0.010671317016014214,
+      "maximum_relaxed_descriptor_error": 7.753415457500967e-06,
+      "passed": true,
+      "per_step": {
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 440613.65892173134,
+          "maximum_component_error": 2.4219215178505893e-08,
+          "maximum_directional_error": 9.776347936057972e-09,
+          "maximum_explicit_only_error": 0.010671317016014214,
+          "maximum_relaxed_descriptor_error": 1.0901828529363833e-06,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.4219215178505893e-08,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "signed_error": -2.4219215178505893e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.0901828529363833e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 1.0901828529363833e-06
+          },
+          "worst_direction": {
+            "absolute_error": 9.776347936057972e-09,
+            "direction_index": 2,
+            "signed_error": 9.776347936057972e-09
+          }
+        },
+        "8.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 69916.8555918539,
+          "maximum_component_error": 1.5262690599739115e-07,
+          "maximum_directional_error": 7.8817417096394e-08,
+          "maximum_explicit_only_error": 0.010671193346051058,
+          "maximum_relaxed_descriptor_error": 7.753415457500967e-06,
+          "passed": true,
+          "step_bohr": 0.0008,
+          "worst_component": {
+            "absolute_error": 1.5262690599739115e-07,
+            "atom": 6,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 1.5262690599739115e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 7.753415457500967e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 7.753415457500967e-06
+          },
+          "worst_direction": {
+            "absolute_error": 7.8817417096394e-08,
+            "direction_index": 2,
+            "signed_error": 7.8817417096394e-08
+          }
+        }
+      },
+      "workload_id": "L1-def2-TZVP",
+      "worst_component": {
+        "absolute_error": 1.5262690599739115e-07,
+        "atom": 6,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 1.5262690599739115e-07,
+        "step_bohr": 0.0008
+      },
+      "worst_descriptor": {
+        "absolute_error": 7.753415457500967e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          0,
+          2
+        ],
+        "signed_error": 7.753415457500967e-06,
+        "step_bohr": 0.0008
+      },
+      "worst_direction": {
+        "absolute_error": 7.8817417096394e-08,
+        "direction_index": 2,
+        "signed_error": 7.8817417096394e-08,
+        "step_bohr": 0.0008
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 1.9081958235744878e-17
+    }
+  ],
+  "artifacts": [
+    {
+      "bytes": 29816,
+      "path": "README.md",
+      "sha256": "c21108e18ea08dc50fead21e19b2e852859b88fec0b7851ad0aa01c2dc4210dd"
+    },
+    {
+      "bytes": 6462,
+      "path": "configs/campaign.json",
+      "sha256": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002"
+    },
+    {
+      "bytes": 546,
+      "path": "geometries/benzene.xyz",
+      "sha256": "fd4dd7aed2ba2b2871abd30bdfc6be083caa1ff26303900068be9b0da2113a4c"
+    },
+    {
+      "bytes": 211,
+      "path": "geometries/formaldehyde.xyz",
+      "sha256": "4df0ad4c78cb4bbbcd9b7e1cb298bc9c813a765e36a76925e83cc6abb67eaa3f"
+    },
+    {
+      "bytes": 251,
+      "path": "geometries/hydroxymethyl.xyz",
+      "sha256": "b1dac5af19787018b1046d131498c9bac43c14486c2415af0985d2ff67be9ae1"
+    },
+    {
+      "bytes": 554,
+      "path": "geometries/phenoxy.xyz",
+      "sha256": "1501afb0e4a7fbffa79a5c68dd31f52f5e79aea3933b29b84db9faa64a82e0b8"
+    },
+    {
+      "bytes": 788,
+      "path": "geometries/water_hexamer.xyz",
+      "sha256": "f3c81ac0c29496ec2880f39abf0699f5e01305e65787435a05cc648e7c3f59bb"
+    },
+    {
+      "bytes": 543,
+      "path": "geometries/water_tetramer.xyz",
+      "sha256": "7a833c507d5549ee3634e5d289c29ae40613b84100d537cdcb184da3cb771ee2"
+    },
+    {
+      "bytes": 40260,
+      "path": "scripts/aggregate.py",
+      "sha256": "773faa4a0b197c157b68978a208827e19940e0d2866031c713ae73502b0fb508"
+    },
+    {
+      "bytes": 27265,
+      "path": "scripts/common.py",
+      "sha256": "de1bb0b520c7b594d03496311ae5706ab3ba040f746ee92c4e066c805a382ace"
+    },
+    {
+      "bytes": 27015,
+      "path": "scripts/run_campaign.py",
+      "sha256": "9809b9ae1548bb510f65f3563fe27ca43d8742bd48127a40edd202e7613c67f0"
+    },
+    {
+      "bytes": 86782,
+      "path": "scripts/worker.py",
+      "sha256": "a410010c193f6a276ac6e710dab821832d23de95ff9634cac9a42617df9705a5"
+    },
+    {
+      "bytes": 4789,
+      "path": "checkpoints/frozen_corrnet.pth",
+      "sha256": "3bdff279fb056534d30352192999d49f12a64a5e3a1515bfc9215b6831357f78"
+    }
+  ],
+  "backend_ratios": [],
+  "benchmarks": [],
+  "campaign_integrity": {
+    "checks": {
+      "one_source_snapshot": true,
+      "one_validation_hash": true,
+      "profile_affinity_and_threads": true,
+      "source_provenance_complete": true
+    },
+    "passed": true,
+    "profile_controls": [
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_l1_tzvp_rhf_20260825/scientific/deterministic-1t/current/scientific__L1-def2-TZVP__rhf/result.json",
+        "threads_passed": true
+      }
+    ],
+    "source_clean_states": [
+      false
+    ],
+    "source_snapshots": [
+      {
+        "base_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+        "config_hash": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002",
+        "source_root": "/home/mwding/WorkSpace/Projects/deepks-kit",
+        "tracked_diff_sha256": "8af57b2788928c8d4ca7756441d1c36d14cccd7a5bd086623e3a9245b6e21efb",
+        "validation_hash": "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484"
+      }
+    ],
+    "validation_hashes": [
+      "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484"
+    ]
+  },
+  "category_summary": {
+    "integrity": {
+      "counts": {
+        "true": 1
+      },
+      "failures": []
+    },
+    "performance": {
+      "counts": {
+        "none": 1
+      },
+      "failures": []
+    },
+    "resource": {
+      "counts": {
+        "true": 1
+      },
+      "failures": []
+    },
+    "scientific": {
+      "counts": {
+        "true": 1
+      },
+      "failures": []
+    }
+  },
+  "conditioning": [],
+  "coordinate_blocking": [],
+  "cross_revision_ratios": [],
+  "dense_replay": [],
+  "dft": [],
+  "force_data": [],
+  "native_benchmarks": [],
+  "performance_acceptance": {
+    "checks": {
+      "all_large_compact_rss": false,
+      "all_large_compact_time": false,
+      "largest_common_case_memory": false,
+      "no_unattributed_historical_slowdown": true,
+      "two_large_closed_shell_speedups": false,
+      "zvector_scalar_gmres_structure": false
+    },
+    "compact_checks": [],
+    "historical_slowdowns_over_20_percent": [],
+    "large_closed_shell_speedups": [],
+    "largest_common_case_memory_comparison": null,
+    "passed": false,
+    "zvector_structure": []
+  },
+  "preserved_retry_attempts": [],
+  "production_historical_ratios": [],
+  "result_count": 1,
+  "run_manifest": {
+    "base_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+    "config_hash": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002",
+    "created_utc": "2026-08-25T15:27:12.082302+00:00",
+    "current_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+    "environment_lock_hash": "62d6409e684747b95d1593e538961f758b2d89b7cb88dfcd4584d469735f4ee8",
+    "phases": [
+      "scientific",
+      "aggregate"
+    ],
+    "run_id": "protocol_repair_l1_tzvp_rhf_20260825",
+    "scientific_cases": [
+      "L1-def2-TZVP:rhf"
+    ],
+    "source_clean": false,
+    "source_mode": "current-worktree",
+    "source_roots": {
+      "current": "/home/mwding/WorkSpace/Projects/deepks-kit"
+    },
+    "source_snapshots": {
+      "current": {
+        "base_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+        "config_hash": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002",
+        "source_clean": false,
+        "source_root": "/home/mwding/WorkSpace/Projects/deepks-kit",
+        "tracked_diff_sha256": "8af57b2788928c8d4ca7756441d1c36d14cccd7a5bd086623e3a9245b6e21efb",
+        "tracked_diff_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py",
+        "tracked_source_clean": false,
+        "validation_hash": "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484",
+        "working_tree_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py\n?? diagnostics/scientific_performance/runs/protocol_repair_failed8_20260825/\n?? tests/scientific_performance/test_campaign_protocol.py"
+      }
+    },
+    "tracked_diff_sha256": "8af57b2788928c8d4ca7756441d1c36d14cccd7a5bd086623e3a9245b6e21efb",
+    "tracked_diff_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py",
+    "tracked_source_clean": false,
+    "validation_driver_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+    "validation_driver_tracked_diff": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py",
+    "validation_hash": "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484",
+    "working_tree_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py\n?? diagnostics/scientific_performance/runs/protocol_repair_failed8_20260825/\n?? tests/scientific_performance/test_campaign_protocol.py"
+  },
+  "run_root": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_l1_tzvp_rhf_20260825",
+  "scaling_fits": [],
+  "scanner": [],
+  "schema_version": 1,
+  "selection": [],
+  "selection_acceptance": {
+    "checks": {
+      "coordinate_blocks": false,
+      "selected_rows": false,
+      "x1_coordinate_memory_reduction": false
+    },
+    "memory_checks": [],
+    "passed": false
+  }
+}

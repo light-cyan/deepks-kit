@@ -6,6 +6,7 @@ import argparse
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ from common import (
     RUN_DIR,
     VALIDATION_DIR,
     load_config,
+    sha256_bytes,
     sha256_file,
     workload_by_id,
     write_json,
@@ -102,6 +104,54 @@ def ensure_worktree(revision: str, label: str) -> Path:
         check=True,
     )
     return target
+
+
+def _validation_hash_at(source_root: Path) -> str:
+    """Hash validation inputs and executable scripts in one source tree."""
+    validation_dir = source_root / "validation" / "scientific_performance"
+    paths = [validation_dir / "configs" / "campaign.json"]
+    paths.extend(sorted((validation_dir / "geometries").glob("*.xyz")))
+    paths.extend(sorted((validation_dir / "scripts").glob("*.py")))
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(str(path.relative_to(validation_dir)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def source_snapshot(source_root: Path) -> dict[str, Any]:
+    """Capture a stable source snapshot before campaign outputs are created."""
+    tracked_status = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=source_root,
+        text=True,
+    ).strip()
+    working_tree_status = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        cwd=source_root,
+        text=True,
+    ).strip()
+    tracked_patch = subprocess.check_output(
+        ["git", "diff", "--binary", "HEAD", "--"], cwd=source_root
+    )
+    config_path = (
+        source_root
+        / "validation"
+        / "scientific_performance"
+        / "configs"
+        / "campaign.json"
+    )
+    return {
+        "source_root": source_root.resolve(),
+        "base_revision": _revision(source_root),
+        "source_clean": working_tree_status == "",
+        "working_tree_status": working_tree_status,
+        "tracked_source_clean": tracked_status == "",
+        "tracked_diff_status": tracked_status,
+        "tracked_diff_sha256": sha256_bytes(tracked_patch),
+        "config_hash": sha256_file(config_path),
+        "validation_hash": _validation_hash_at(source_root),
+    }
 
 
 def _parse_time(path: Path) -> dict[str, Any]:
@@ -195,6 +245,7 @@ def run_child(
     case: ChildCase,
     run_root: Path,
     source_roots: dict[str, Path],
+    source_snapshots: dict[str, dict[str, Any]],
     rerun: bool,
 ) -> dict[str, Any]:
     """Run one timed child and preserve every exit mode and resource counter."""
@@ -211,6 +262,7 @@ def run_child(
             return existing
     case_root.mkdir(parents=True, exist_ok=True)
     source_root = source_roots[case.source]
+    snapshot = source_snapshots[case.source]
     profile_config = load_config()["profiles"][case.profile]
     threads = str(profile_config["threads"])
     environment = os.environ.copy()
@@ -218,6 +270,13 @@ def run_child(
         {
             "PYTHONPATH": str(source_root),
             "DEEPKS_SOURCE_ROOT": str(source_root),
+            "VALIDATION_BASE_REVISION": snapshot["base_revision"],
+            "VALIDATION_SOURCE_CLEAN": "1" if snapshot["source_clean"] else "0",
+            "VALIDATION_WORKING_TREE_STATUS": snapshot["working_tree_status"],
+            "VALIDATION_TRACKED_DIFF_STATUS": snapshot["tracked_diff_status"],
+            "VALIDATION_TRACKED_DIFF_SHA256": snapshot["tracked_diff_sha256"],
+            "VALIDATION_CONFIG_HASH": snapshot["config_hash"],
+            "VALIDATION_INPUT_HASH": snapshot["validation_hash"],
             "VALIDATION_PROFILE": case.profile,
             "VALIDATION_ENV_LOCK_HASH": sha256_file(REPOSITORY_DIR / "uv.lock"),
             "VIRTUAL_ENV": str(REPOSITORY_DIR / ".venv"),
@@ -248,7 +307,13 @@ def run_child(
         "--active",
         "--no-sync",
         "python",
-        str(WORKER),
+        str(
+            source_root
+            / "validation"
+            / "scientific_performance"
+            / "scripts"
+            / "worker.py"
+        ),
         "--action",
         case.action,
         "--output",
@@ -274,6 +339,7 @@ def run_child(
         "profile": case.profile,
         "source": case.source,
         "source_revision": _revision(source_root),
+        "source_snapshot": snapshot,
         "command": command,
     }
     write_json(controller_path, controller)
@@ -316,6 +382,7 @@ def run_child(
         "command": command,
         "source_root": source_root,
         "source_revision": _revision(source_root),
+        "source_snapshot": snapshot,
         "stdout_path": stdout_path,
         "stderr_path": stderr_path,
         "time_path": time_path,
@@ -497,44 +564,107 @@ def main() -> int:
     parser.add_argument("--phases", nargs="+", choices=PHASES, default=list(PHASES))
     parser.add_argument("--run-id")
     parser.add_argument(
+        "--run-root",
+        type=Path,
+        help="Exact output directory; defaults to validation/scientific_performance/runs/<run-id>",
+    )
+    parser.add_argument(
+        "--source-mode",
+        choices=("current-worktree", "detached-worktree"),
+        default="current-worktree",
+        help="Execute the current working tree by default; detached mode must be explicit",
+    )
+    parser.add_argument(
         "--current-revision",
-        default="HEAD",
-        help="Git revision to test without changing the validation driver worktree",
+        help="Revision for explicit detached-worktree mode, or an assertion for current-worktree mode",
+    )
+    parser.add_argument(
+        "--scientific-case",
+        action="append",
+        default=[],
+        metavar="WORKLOAD:FAMILY",
+        help="Run only a predeclared scientific case; repeat for multiple cases",
     )
     parser.add_argument("--rerun", action="store_true")
     arguments = parser.parse_args()
     validation_driver_revision = _revision(REPOSITORY_DIR)
-    current_revision = _revision(REPOSITORY_DIR, arguments.current_revision)
+    if arguments.source_mode == "current-worktree":
+        current_revision = validation_driver_revision
+        if (
+            arguments.current_revision is not None
+            and _revision(REPOSITORY_DIR, arguments.current_revision)
+            != current_revision
+        ):
+            parser.error(
+                "--current-revision does not match the current worktree HEAD; "
+                "use --source-mode detached-worktree to test another revision"
+            )
+        current_source_root = REPOSITORY_DIR
+    else:
+        current_revision = _revision(
+            REPOSITORY_DIR, arguments.current_revision or "HEAD"
+        )
+        current_source_root = ensure_worktree(
+            current_revision, f"current-{current_revision[:12]}"
+        )
     run_id = arguments.run_id or (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         + "-"
         + current_revision[:12]
     )
-    run_root = RUN_DIR / run_id
-    run_root.mkdir(parents=True, exist_ok=True)
-    source_roots = {
-        "current": ensure_worktree(current_revision, f"current-{current_revision[:12]}")
-    }
+    run_root = (
+        arguments.run_root.resolve()
+        if arguments.run_root is not None
+        else RUN_DIR / run_id
+    )
+    if arguments.run_root is not None and arguments.run_id is None:
+        run_id = run_root.name
+    source_roots = {"current": current_source_root}
     if "cross-revision" in arguments.phases:
         historical_revision = load_config()["historical_revision"]
         historical_full = _revision(REPOSITORY_DIR, historical_revision)
         source_roots["historical"] = ensure_worktree(
             historical_full, f"historical-{historical_full[:12]}"
         )
+    source_snapshots = {
+        name: source_snapshot(root) for name, root in source_roots.items()
+    }
+    available_scientific_cases = {
+        f"{case.workload}:{case.family}"
+        for case in phase_cases("scientific")
+    }
+    unknown_scientific_cases = set(arguments.scientific_case).difference(
+        available_scientific_cases
+    )
+    if unknown_scientific_cases:
+        parser.error(
+            "unknown --scientific-case values: "
+            + ", ".join(sorted(unknown_scientific_cases))
+        )
+    run_root.mkdir(parents=True, exist_ok=True)
+    current_snapshot = source_snapshots["current"]
     manifest = {
         "run_id": run_id,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "current_revision": current_revision,
+        "base_revision": current_snapshot["base_revision"],
+        "source_clean": current_snapshot["source_clean"],
+        "working_tree_status": current_snapshot["working_tree_status"],
+        "tracked_source_clean": current_snapshot["tracked_source_clean"],
+        "tracked_diff_status": current_snapshot["tracked_diff_status"],
+        "tracked_diff_sha256": current_snapshot["tracked_diff_sha256"],
+        "validation_hash": current_snapshot["validation_hash"],
         "validation_driver_revision": validation_driver_revision,
-        "validation_driver_tracked_diff": subprocess.check_output(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
-            cwd=REPOSITORY_DIR,
-            text=True,
-        ).strip(),
-        "config_hash": sha256_file(VALIDATION_DIR / "configs" / "campaign.json"),
+        "validation_driver_tracked_diff": current_snapshot[
+            "tracked_diff_status"
+        ],
+        "config_hash": current_snapshot["config_hash"],
         "environment_lock_hash": sha256_file(REPOSITORY_DIR / "uv.lock"),
         "phases": arguments.phases,
+        "source_mode": arguments.source_mode,
         "source_roots": source_roots,
+        "source_snapshots": source_snapshots,
+        "scientific_cases": arguments.scientific_case,
     }
     write_json(run_root / "manifest.json", manifest)
     recorded_results = []
@@ -542,7 +672,20 @@ def main() -> int:
         if phase == "aggregate":
             continue
         for case in phase_cases(phase):
-            result = run_child(case, run_root, source_roots, arguments.rerun)
+            selector = f"{case.workload}:{case.family}"
+            if (
+                phase == "scientific"
+                and arguments.scientific_case
+                and selector not in arguments.scientific_case
+            ):
+                continue
+            result = run_child(
+                case,
+                run_root,
+                source_roots,
+                source_snapshots,
+                arguments.rerun,
+            )
             process = result.get("process", {})
             performance_failed = (
                 case.action in {"benchmark", "native-benchmark", "atom-subset", "coordinate-block", "dft-sequence"}
@@ -551,7 +694,9 @@ def main() -> int:
             process_failed = process.get("exit_status") != 0 or process.get("timeout")
             if case.action in {"benchmark", "native-benchmark", "atom-subset", "coordinate-block", "dft-sequence"} and (performance_failed or process_failed):
                 archived = archive_attempt(case, run_root, 1)
-                result = run_child(case, run_root, source_roots, True)
+                result = run_child(
+                    case, run_root, source_roots, source_snapshots, True
+                )
                 result["previous_attempt_artifacts"] = archived
                 result_path = (
                     run_root
@@ -570,6 +715,10 @@ def main() -> int:
                 str(PYTHON),
                 str(Path(__file__).with_name("aggregate.py")),
                 str(run_root),
+                "--output",
+                str(run_root / "aggregate.json"),
+                "--markdown",
+                str(run_root / "SUMMARY.md"),
             ],
             cwd=REPOSITORY_DIR,
             check=True,

@@ -1,0 +1,2059 @@
+{
+  "accuracy": [
+    {
+      "direct_compact_detailed_max_abs": 4.163336342344337e-17,
+      "direct_zvector_max_abs": 2.9119068267746684e-14,
+      "explicit_to_complete_error_ratio": 30616.466772127056,
+      "family": "rhf",
+      "maximum_component_error": 3.533817458135913e-07,
+      "maximum_directional_error": 8.562751898505416e-08,
+      "maximum_explicit_only_error": 0.010819300478578067,
+      "maximum_relaxed_descriptor_error": 5.267371743028493e-06,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 30615.551048229307,
+          "maximum_component_error": 3.533817458135913e-07,
+          "maximum_directional_error": 8.562751898505416e-08,
+          "maximum_explicit_only_error": 0.010818976878468396,
+          "maximum_relaxed_descriptor_error": 5.267371743028493e-06,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 3.533817458135913e-07,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "signed_error": -3.533817458135913e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 5.267371743028493e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 5.267371743028493e-06
+          },
+          "worst_direction": {
+            "absolute_error": 8.562751898505416e-08,
+            "direction_index": 2,
+            "signed_error": 8.562751898505416e-08
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 363287.64566576795,
+          "maximum_component_error": 2.9781636143311196e-08,
+          "maximum_directional_error": 7.373079019936182e-09,
+          "maximum_explicit_only_error": 0.010819300478578067,
+          "maximum_relaxed_descriptor_error": 4.7407224496726075e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.9781636143311196e-08,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "signed_error": -2.9781636143311196e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 4.7407224496726075e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 4.7407224496726075e-07
+          },
+          "worst_direction": {
+            "absolute_error": 7.373079019936182e-09,
+            "direction_index": 2,
+            "signed_error": 7.373079019936182e-09
+          }
+        }
+      },
+      "workload_id": "L1-def2-SVP",
+      "worst_component": {
+        "absolute_error": 3.533817458135913e-07,
+        "atom": 0,
+        "axis": 1,
+        "axis_name": "y",
+        "signed_error": -3.533817458135913e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 5.267371743028493e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          0,
+          2
+        ],
+        "signed_error": 5.267371743028493e-06,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 8.562751898505416e-08,
+        "direction_index": 2,
+        "signed_error": 8.562751898505416e-08,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 2.0816681711721685e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 3.122502256758253e-17,
+      "direct_zvector_max_abs": 1.8446355554146976e-13,
+      "explicit_to_complete_error_ratio": 27927.04231648011,
+      "family": "rks",
+      "maximum_component_error": 3.285624861765202e-07,
+      "maximum_directional_error": 8.193496395247912e-08,
+      "maximum_explicit_only_error": 0.00917577845505959,
+      "maximum_relaxed_descriptor_error": 8.991476982966873e-07,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 27926.19369116485,
+          "maximum_component_error": 3.285624861765202e-07,
+          "maximum_directional_error": 8.193496395247912e-08,
+          "maximum_explicit_only_error": 0.009175499628616177,
+          "maximum_relaxed_descriptor_error": 8.991476982966873e-07,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 3.285624861765202e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -3.285624861765202e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 8.991476982966873e-07,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": -8.991476982966873e-07
+          },
+          "worst_direction": {
+            "absolute_error": 8.193496395247912e-08,
+            "direction_index": 2,
+            "signed_error": 8.193496395247912e-08
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 312450.41281482566,
+          "maximum_component_error": 2.9367151006126635e-08,
+          "maximum_directional_error": 6.4563776096260295e-09,
+          "maximum_explicit_only_error": 0.00917577845505959,
+          "maximum_relaxed_descriptor_error": 8.066911708765057e-08,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.9367151006126635e-08,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -2.9367151006126635e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 8.066911708765057e-08,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": -8.066911708765057e-08
+          },
+          "worst_direction": {
+            "absolute_error": 6.4563776096260295e-09,
+            "direction_index": 2,
+            "signed_error": 6.4563776096260295e-09
+          }
+        }
+      },
+      "workload_id": "L1-def2-SVP",
+      "worst_component": {
+        "absolute_error": 3.285624861765202e-07,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": -3.285624861765202e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 8.991476982966873e-07,
+        "atom": 0,
+        "axis": 1,
+        "axis_name": "y",
+        "descriptor_index": [
+          0,
+          2
+        ],
+        "signed_error": -8.991476982966873e-07,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 8.193496395247912e-08,
+        "direction_index": 2,
+        "signed_error": 8.193496395247912e-08,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 5.551115123125783e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 1.1102230246251565e-16,
+      "direct_zvector_max_abs": 2.5533394842902624e-14,
+      "explicit_to_complete_error_ratio": 69917.66586814397,
+      "family": "rhf",
+      "maximum_component_error": 1.5262690599739115e-07,
+      "maximum_directional_error": 7.8817417096394e-08,
+      "maximum_explicit_only_error": 0.010671317016014214,
+      "maximum_relaxed_descriptor_error": 7.753415457500967e-06,
+      "passed": true,
+      "per_step": {
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 440613.65892173134,
+          "maximum_component_error": 2.4219215178505893e-08,
+          "maximum_directional_error": 9.776347936057972e-09,
+          "maximum_explicit_only_error": 0.010671317016014214,
+          "maximum_relaxed_descriptor_error": 1.0901828529363833e-06,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.4219215178505893e-08,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "signed_error": -2.4219215178505893e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.0901828529363833e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 1.0901828529363833e-06
+          },
+          "worst_direction": {
+            "absolute_error": 9.776347936057972e-09,
+            "direction_index": 2,
+            "signed_error": 9.776347936057972e-09
+          }
+        },
+        "8.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 69916.8555918539,
+          "maximum_component_error": 1.5262690599739115e-07,
+          "maximum_directional_error": 7.8817417096394e-08,
+          "maximum_explicit_only_error": 0.010671193346051058,
+          "maximum_relaxed_descriptor_error": 7.753415457500967e-06,
+          "passed": true,
+          "step_bohr": 0.0008,
+          "worst_component": {
+            "absolute_error": 1.5262690599739115e-07,
+            "atom": 6,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 1.5262690599739115e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 7.753415457500967e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 7.753415457500967e-06
+          },
+          "worst_direction": {
+            "absolute_error": 7.8817417096394e-08,
+            "direction_index": 2,
+            "signed_error": 7.8817417096394e-08
+          }
+        }
+      },
+      "workload_id": "L1-def2-TZVP",
+      "worst_component": {
+        "absolute_error": 1.5262690599739115e-07,
+        "atom": 6,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 1.5262690599739115e-07,
+        "step_bohr": 0.0008
+      },
+      "worst_descriptor": {
+        "absolute_error": 7.753415457500967e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          0,
+          2
+        ],
+        "signed_error": 7.753415457500967e-06,
+        "step_bohr": 0.0008
+      },
+      "worst_direction": {
+        "absolute_error": 7.8817417096394e-08,
+        "direction_index": 2,
+        "signed_error": 7.8817417096394e-08,
+        "step_bohr": 0.0008
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 1.9081958235744878e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 6.591949208711867e-17,
+      "direct_zvector_max_abs": 1.1268763699945339e-14,
+      "explicit_to_complete_error_ratio": 33584.95540291353,
+      "family": "rks",
+      "maximum_component_error": 2.602419818809043e-07,
+      "maximum_directional_error": 8.89152952914668e-08,
+      "maximum_explicit_only_error": 0.008740215355436003,
+      "maximum_relaxed_descriptor_error": 1.699213384255549e-06,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 33584.1610995072,
+          "maximum_component_error": 2.602419818809043e-07,
+          "maximum_directional_error": 8.89152952914668e-08,
+          "maximum_explicit_only_error": 0.008740008644343322,
+          "maximum_relaxed_descriptor_error": 1.699213384255549e-06,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 2.602419818809043e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -2.602419818809043e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.699213384255549e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 1.699213384255549e-06
+          },
+          "worst_direction": {
+            "absolute_error": 8.89152952914668e-08,
+            "direction_index": 2,
+            "signed_error": 8.89152952914668e-08
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 349142.3201360202,
+          "maximum_component_error": 2.503338853918069e-08,
+          "maximum_directional_error": 6.482864040729952e-09,
+          "maximum_explicit_only_error": 0.008740215355436003,
+          "maximum_relaxed_descriptor_error": 1.5294486362116277e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.503338853918069e-08,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -2.503338853918069e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.5294486362116277e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              2
+            ],
+            "signed_error": 1.5294486362116277e-07
+          },
+          "worst_direction": {
+            "absolute_error": 6.482864040729952e-09,
+            "direction_index": 2,
+            "signed_error": 6.482864040729952e-09
+          }
+        }
+      },
+      "workload_id": "L1-def2-TZVP",
+      "worst_component": {
+        "absolute_error": 2.602419818809043e-07,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": -2.602419818809043e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 1.699213384255549e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          0,
+          2
+        ],
+        "signed_error": 1.699213384255549e-06,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 8.89152952914668e-08,
+        "direction_index": 2,
+        "signed_error": 8.89152952914668e-08,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 4.163336342344337e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 6.245004513516506e-17,
+      "direct_zvector_max_abs": 1.1526543608475492e-12,
+      "explicit_to_complete_error_ratio": 10817.626829492401,
+      "family": "rhf",
+      "maximum_component_error": 2.1516805001793593e-07,
+      "maximum_directional_error": 3.5179117539169136e-08,
+      "maximum_explicit_only_error": 0.0023276076707235867,
+      "maximum_relaxed_descriptor_error": 1.925125819507434e-06,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 10817.11596851089,
+          "maximum_component_error": 2.1516805001793593e-07,
+          "maximum_directional_error": 3.5179117539169136e-08,
+          "maximum_explicit_only_error": 0.0023274977497623646,
+          "maximum_relaxed_descriptor_error": 1.925125819507434e-06,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 2.1516805001793593e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -2.1516805001793593e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.925125819507434e-06,
+            "atom": 2,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              2,
+              3
+            ],
+            "signed_error": -1.925125819507434e-06
+          },
+          "worst_direction": {
+            "absolute_error": 3.5179117539169136e-08,
+            "direction_index": 3,
+            "signed_error": 3.5179117539169136e-08
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 117040.36553283165,
+          "maximum_component_error": 1.988722147377997e-08,
+          "maximum_directional_error": 2.844686109934602e-09,
+          "maximum_explicit_only_error": 0.0023276076707235867,
+          "maximum_relaxed_descriptor_error": 1.730548867262538e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 1.988722147377997e-08,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -1.988722147377997e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.730548867262538e-07,
+            "atom": 2,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              2,
+              3
+            ],
+            "signed_error": -1.730548867262538e-07
+          },
+          "worst_direction": {
+            "absolute_error": 2.844686109934602e-09,
+            "direction_index": 3,
+            "signed_error": 2.844686109934602e-09
+          }
+        }
+      },
+      "workload_id": "L2-def2-SVP",
+      "worst_component": {
+        "absolute_error": 2.1516805001793593e-07,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": -2.1516805001793593e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 1.925125819507434e-06,
+        "atom": 2,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          2,
+          3
+        ],
+        "signed_error": -1.925125819507434e-06,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 3.5179117539169136e-08,
+        "direction_index": 3,
+        "signed_error": 3.5179117539169136e-08,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 2.42861286636753e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 3.469446951953614e-17,
+      "direct_zvector_max_abs": 6.241535066564552e-14,
+      "explicit_to_complete_error_ratio": 17873.129820397036,
+      "family": "rks",
+      "maximum_component_error": 2.2184687708398654e-07,
+      "maximum_directional_error": 3.524741793922703e-08,
+      "maximum_explicit_only_error": 0.003965098034371756,
+      "maximum_relaxed_descriptor_error": 1.8860327596903481e-06,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 17873.086475131968,
+          "maximum_component_error": 2.2184687708398654e-07,
+          "maximum_directional_error": 3.524741793922703e-08,
+          "maximum_explicit_only_error": 0.003965088418360064,
+          "maximum_relaxed_descriptor_error": 1.8860327596903481e-06,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 2.2184687708398654e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -2.2184687708398654e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.8860327596903481e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              3
+            ],
+            "signed_error": 1.8860327596903481e-06
+          },
+          "worst_direction": {
+            "absolute_error": 3.524741793922703e-08,
+            "direction_index": 3,
+            "signed_error": 3.524741793922703e-08
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 193617.13460537727,
+          "maximum_component_error": 2.0479065773043592e-08,
+          "maximum_directional_error": 5.470940359596221e-09,
+          "maximum_explicit_only_error": 0.003965098034371756,
+          "maximum_relaxed_descriptor_error": 2.3808871442421425e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.0479065773043592e-08,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": -2.0479065773043592e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 2.3808871442421425e-07,
+            "atom": 1,
+            "axis": 2,
+            "axis_name": "z",
+            "descriptor_index": [
+              5,
+              1
+            ],
+            "signed_error": 2.3808871442421425e-07
+          },
+          "worst_direction": {
+            "absolute_error": 5.470940359596221e-09,
+            "direction_index": 3,
+            "signed_error": 5.470940359596221e-09
+          }
+        }
+      },
+      "workload_id": "L2-def2-SVP",
+      "worst_component": {
+        "absolute_error": 2.2184687708398654e-07,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": -2.2184687708398654e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 1.8860327596903481e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          0,
+          3
+        ],
+        "signed_error": 1.8860327596903481e-06,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 3.524741793922703e-08,
+        "direction_index": 3,
+        "signed_error": 3.524741793922703e-08,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 7.632783294297951e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 3.2959746043559335e-17,
+      "direct_zvector_max_abs": 5.516680862127643e-14,
+      "explicit_to_complete_error_ratio": 4648.656493336743,
+      "family": "uhf",
+      "maximum_component_error": 1.769819094546085e-06,
+      "maximum_directional_error": 2.864757317824762e-07,
+      "maximum_explicit_only_error": 0.008227281025893013,
+      "maximum_relaxed_descriptor_error": 9.230047660402363e-06,
+      "passed": true,
+      "per_step": {
+        "2.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 7332.15241242426,
+          "maximum_component_error": 1.1220826522852917e-06,
+          "maximum_directional_error": 1.7949925965737856e-07,
+          "maximum_explicit_only_error": 0.008227281025893013,
+          "maximum_relaxed_descriptor_error": 7.956627441079063e-06,
+          "passed": true,
+          "step_bohr": 0.002,
+          "worst_component": {
+            "absolute_error": 1.1220826522852917e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 1.1220826522852917e-06
+          },
+          "worst_descriptor": {
+            "absolute_error": 7.956627441079063e-06,
+            "atom": 11,
+            "axis": 2,
+            "axis_name": "z",
+            "descriptor_index": [
+              0,
+              1
+            ],
+            "signed_error": -7.956627441079063e-06
+          },
+          "worst_direction": {
+            "absolute_error": 1.7949925965737856e-07,
+            "direction_index": 1,
+            "signed_error": 1.7949925965737856e-07
+          }
+        },
+        "2.5e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 4648.483952714239,
+          "maximum_component_error": 1.769819094546085e-06,
+          "maximum_directional_error": 2.864757317824762e-07,
+          "maximum_explicit_only_error": 0.008226975660204722,
+          "maximum_relaxed_descriptor_error": 9.230047660402363e-06,
+          "passed": true,
+          "step_bohr": 0.0025,
+          "worst_component": {
+            "absolute_error": 1.769819094546085e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 1.769819094546085e-06
+          },
+          "worst_descriptor": {
+            "absolute_error": 9.230047660402363e-06,
+            "atom": 7,
+            "axis": 1,
+            "axis_name": "y",
+            "descriptor_index": [
+              7,
+              2
+            ],
+            "signed_error": 9.230047660402363e-06
+          },
+          "worst_direction": {
+            "absolute_error": 2.864757317824762e-07,
+            "direction_index": 1,
+            "signed_error": 2.864757317824762e-07
+          }
+        }
+      },
+      "workload_id": "L3-def2-SVP",
+      "worst_component": {
+        "absolute_error": 1.769819094546085e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 1.769819094546085e-06,
+        "step_bohr": 0.0025
+      },
+      "worst_descriptor": {
+        "absolute_error": 9.230047660402363e-06,
+        "atom": 7,
+        "axis": 1,
+        "axis_name": "y",
+        "descriptor_index": [
+          7,
+          2
+        ],
+        "signed_error": 9.230047660402363e-06,
+        "step_bohr": 0.0025
+      },
+      "worst_direction": {
+        "absolute_error": 2.864757317824762e-07,
+        "direction_index": 1,
+        "signed_error": 2.864757317824762e-07,
+        "step_bohr": 0.0025
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 3.2959746043559335e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 4.85722573273506e-17,
+      "direct_zvector_max_abs": 2.2725432646808486e-12,
+      "explicit_to_complete_error_ratio": 2831.964834917226,
+      "family": "uks",
+      "maximum_component_error": 2.8153624536501887e-06,
+      "maximum_directional_error": 4.0105254080907704e-07,
+      "maximum_explicit_only_error": 0.007973007466283613,
+      "maximum_relaxed_descriptor_error": 7.130503282076761e-06,
+      "passed": true,
+      "per_step": {
+        "2.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 6288.122515162149,
+          "maximum_component_error": 1.2679472206622577e-06,
+          "maximum_directional_error": 1.8116324884687174e-07,
+          "maximum_explicit_only_error": 0.007973007466283613,
+          "maximum_relaxed_descriptor_error": 5.0258295920331715e-06,
+          "passed": true,
+          "step_bohr": 0.002,
+          "worst_component": {
+            "absolute_error": 1.2679472206622577e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 1.2679472206622577e-06
+          },
+          "worst_descriptor": {
+            "absolute_error": 5.0258295920331715e-06,
+            "atom": 11,
+            "axis": 2,
+            "axis_name": "z",
+            "descriptor_index": [
+              4,
+              1
+            ],
+            "signed_error": -5.0258295920331715e-06
+          },
+          "worst_direction": {
+            "absolute_error": 1.8116324884687174e-07,
+            "direction_index": 1,
+            "signed_error": 1.8116324884687174e-07
+          }
+        },
+        "3.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 2831.536079054335,
+          "maximum_component_error": 2.8153624536501887e-06,
+          "maximum_directional_error": 4.0105254080907704e-07,
+          "maximum_explicit_only_error": 0.007971800363125447,
+          "maximum_relaxed_descriptor_error": 7.130503282076761e-06,
+          "passed": true,
+          "step_bohr": 0.003,
+          "worst_component": {
+            "absolute_error": 2.8153624536501887e-06,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 2.8153624536501887e-06
+          },
+          "worst_descriptor": {
+            "absolute_error": 7.130503282076761e-06,
+            "atom": 6,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              6,
+              2
+            ],
+            "signed_error": -7.130503282076761e-06
+          },
+          "worst_direction": {
+            "absolute_error": 4.0105254080907704e-07,
+            "direction_index": 1,
+            "signed_error": 4.0105254080907704e-07
+          }
+        }
+      },
+      "workload_id": "L3-def2-SVP",
+      "worst_component": {
+        "absolute_error": 2.8153624536501887e-06,
+        "atom": 0,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 2.8153624536501887e-06,
+        "step_bohr": 0.003
+      },
+      "worst_descriptor": {
+        "absolute_error": 7.130503282076761e-06,
+        "atom": 6,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          6,
+          2
+        ],
+        "signed_error": -7.130503282076761e-06,
+        "step_bohr": 0.003
+      },
+      "worst_direction": {
+        "absolute_error": 4.0105254080907704e-07,
+        "direction_index": 1,
+        "signed_error": 4.0105254080907704e-07,
+        "step_bohr": 0.003
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 8.326672684688674e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 8.673617379884035e-19,
+      "direct_zvector_max_abs": 9.06739960893077e-15,
+      "explicit_to_complete_error_ratio": 9551.920173469638,
+      "family": "rhf",
+      "maximum_component_error": 4.1448769455554313e-07,
+      "maximum_directional_error": 2.459672698434945e-07,
+      "maximum_explicit_only_error": 0.003959153371280014,
+      "maximum_relaxed_descriptor_error": 1.9932996997429342e-07,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 9551.854499886165,
+          "maximum_component_error": 4.1448769455554313e-07,
+          "maximum_directional_error": 2.459672698434945e-07,
+          "maximum_explicit_only_error": 0.003959126150387807,
+          "maximum_relaxed_descriptor_error": 1.9932996997429342e-07,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 4.1448769455554313e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 4.1448769455554313e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.9932996997429342e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              3
+            ],
+            "signed_error": 1.9932996997429342e-07
+          },
+          "worst_direction": {
+            "absolute_error": 2.459672698434945e-07,
+            "direction_index": 3,
+            "signed_error": -2.459672698434945e-07
+          }
+        },
+        "1.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 897326.5852119795,
+          "maximum_component_error": 4.412165466316509e-09,
+          "maximum_directional_error": 2.8905999399642113e-09,
+          "maximum_explicit_only_error": 0.003959153371280014,
+          "maximum_relaxed_descriptor_error": 2.446567215486084e-08,
+          "passed": true,
+          "step_bohr": 0.0001,
+          "worst_component": {
+            "absolute_error": 4.412165466316509e-09,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 4.412165466316509e-09
+          },
+          "worst_descriptor": {
+            "absolute_error": 2.446567215486084e-08,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              0,
+              1
+            ],
+            "signed_error": -2.446567215486084e-08
+          },
+          "worst_direction": {
+            "absolute_error": 2.8905999399642113e-09,
+            "direction_index": 3,
+            "signed_error": -2.8905999399642113e-09
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 105311.95946289111,
+          "maximum_component_error": 3.759451122631319e-08,
+          "maximum_directional_error": 2.2359470899790956e-08,
+          "maximum_explicit_only_error": 0.003959151642292699,
+          "maximum_relaxed_descriptor_error": 1.7923117462403937e-08,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 3.759451122631319e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.759451122631319e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.7923117462403937e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              3
+            ],
+            "signed_error": 1.7923117462403937e-08
+          },
+          "worst_direction": {
+            "absolute_error": 2.2359470899790956e-08,
+            "direction_index": 3,
+            "signed_error": -2.2359470899790956e-08
+          }
+        }
+      },
+      "workload_id": "S1-6-31G",
+      "worst_component": {
+        "absolute_error": 4.1448769455554313e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 4.1448769455554313e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 1.9932996997429342e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          1,
+          3
+        ],
+        "signed_error": 1.9932996997429342e-07,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 2.459672698434945e-07,
+        "direction_index": 3,
+        "signed_error": -2.459672698434945e-07,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 1.3877787807814457e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 6.938893903907228e-18,
+      "direct_zvector_max_abs": 1.8540724511240114e-14,
+      "explicit_to_complete_error_ratio": 11402.677701008735,
+      "family": "rks",
+      "maximum_component_error": 3.49241810946449e-07,
+      "maximum_directional_error": 2.519866236089241e-07,
+      "maximum_explicit_only_error": 0.003982291809938983,
+      "maximum_relaxed_descriptor_error": 2.3284362214628235e-07,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 11401.688024522275,
+          "maximum_component_error": 3.49241810946449e-07,
+          "maximum_directional_error": 2.519866236089241e-07,
+          "maximum_explicit_only_error": 0.0039819461735306,
+          "maximum_relaxed_descriptor_error": 1.7372587851616217e-07,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 3.49241810946449e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.49241810946449e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.7372587851616217e-07,
+            "atom": 0,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              1
+            ],
+            "signed_error": 1.7372587851616217e-07
+          },
+          "worst_direction": {
+            "absolute_error": 2.519866236089241e-07,
+            "direction_index": 3,
+            "signed_error": -2.519866236089241e-07
+          }
+        },
+        "1.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 1104534.5810947453,
+          "maximum_component_error": 3.6054025633058817e-09,
+          "maximum_directional_error": 2.358749681685701e-09,
+          "maximum_explicit_only_error": 0.003982291809938983,
+          "maximum_relaxed_descriptor_error": 8.096237951935037e-08,
+          "passed": true,
+          "step_bohr": 0.0001,
+          "worst_component": {
+            "absolute_error": 3.6054025633058817e-09,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.6054025633058817e-09
+          },
+          "worst_descriptor": {
+            "absolute_error": 8.096237951935037e-08,
+            "atom": 2,
+            "axis": 1,
+            "axis_name": "y",
+            "descriptor_index": [
+              0,
+              1
+            ],
+            "signed_error": -8.096237951935037e-08
+          },
+          "worst_direction": {
+            "absolute_error": 2.358749681685701e-09,
+            "direction_index": 3,
+            "signed_error": -2.358749681685701e-09
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 132576.05116895685,
+          "maximum_component_error": 3.003759233011216e-08,
+          "maximum_directional_error": 2.1496034036116995e-08,
+          "maximum_explicit_only_error": 0.003982265377749216,
+          "maximum_relaxed_descriptor_error": 2.3284362214628235e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 3.003759233011216e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.003759233011216e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 2.3284362214628235e-07,
+            "atom": 0,
+            "axis": 1,
+            "axis_name": "y",
+            "descriptor_index": [
+              0,
+              1
+            ],
+            "signed_error": -2.3284362214628235e-07
+          },
+          "worst_direction": {
+            "absolute_error": 2.1496034036116995e-08,
+            "direction_index": 3,
+            "signed_error": -2.1496034036116995e-08
+          }
+        }
+      },
+      "workload_id": "S1-6-31G",
+      "worst_component": {
+        "absolute_error": 3.49241810946449e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 3.49241810946449e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 2.3284362214628235e-07,
+        "atom": 0,
+        "axis": 1,
+        "axis_name": "y",
+        "descriptor_index": [
+          0,
+          1
+        ],
+        "signed_error": -2.3284362214628235e-07,
+        "step_bohr": 0.0003
+      },
+      "worst_direction": {
+        "absolute_error": 2.519866236089241e-07,
+        "direction_index": 3,
+        "signed_error": -2.519866236089241e-07,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 6.938893903907228e-18
+    },
+    {
+      "direct_compact_detailed_max_abs": 1.3877787807814457e-17,
+      "direct_zvector_max_abs": 8.18789480661053e-15,
+      "explicit_to_complete_error_ratio": 10419.161553504406,
+      "family": "rhf",
+      "maximum_component_error": 3.8845892103012147e-07,
+      "maximum_directional_error": 3.2249274836693154e-07,
+      "maximum_explicit_only_error": 0.004047416255112846,
+      "maximum_relaxed_descriptor_error": 1.6159632088008635e-07,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 10418.253114978155,
+          "maximum_component_error": 3.8845892103012147e-07,
+          "maximum_directional_error": 3.2249274836693154e-07,
+          "maximum_explicit_only_error": 0.0040470633640631165,
+          "maximum_relaxed_descriptor_error": 1.6159632088008635e-07,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 3.8845892103012147e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.8845892103012147e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.6159632088008635e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              1
+            ],
+            "signed_error": -1.6159632088008635e-07
+          },
+          "worst_direction": {
+            "absolute_error": 3.2249274836693154e-07,
+            "direction_index": 1,
+            "signed_error": -3.2249274836693154e-07
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 113794.16611306164,
+          "maximum_component_error": 3.556787130098993e-08,
+          "maximum_directional_error": 2.884675197323272e-08,
+          "maximum_explicit_only_error": 0.004047416255112846,
+          "maximum_relaxed_descriptor_error": 1.4421875901837744e-08,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 3.556787130098993e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.556787130098993e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.4421875901837744e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              3
+            ],
+            "signed_error": 1.4421875901837744e-08
+          },
+          "worst_direction": {
+            "absolute_error": 2.884675197323272e-08,
+            "direction_index": 1,
+            "signed_error": -2.884675197323272e-08
+          }
+        }
+      },
+      "workload_id": "S2-def2-TZVP",
+      "worst_component": {
+        "absolute_error": 3.8845892103012147e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 3.8845892103012147e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 1.6159632088008635e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          1,
+          1
+        ],
+        "signed_error": -1.6159632088008635e-07,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 3.2249274836693154e-07,
+        "direction_index": 1,
+        "signed_error": -3.2249274836693154e-07,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 1.3877787807814457e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 1.3877787807814457e-17,
+      "direct_zvector_max_abs": 1.2129186544029835e-13,
+      "explicit_to_complete_error_ratio": 10374.367874106008,
+      "family": "rks",
+      "maximum_component_error": 3.2993766084510323e-07,
+      "maximum_directional_error": 3.3921466689734725e-07,
+      "maximum_explicit_only_error": 0.003422894669129123,
+      "maximum_relaxed_descriptor_error": 2.802877351812394e-07,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 10373.457058993403,
+          "maximum_component_error": 3.2993766084510323e-07,
+          "maximum_directional_error": 3.3921466689734725e-07,
+          "maximum_explicit_only_error": 0.0034225941569214074,
+          "maximum_relaxed_descriptor_error": 1.596664399305947e-07,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 3.2993766084510323e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 3.2993766084510323e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 1.596664399305947e-07,
+            "atom": 3,
+            "axis": 1,
+            "axis_name": "y",
+            "descriptor_index": [
+              3,
+              3
+            ],
+            "signed_error": -1.596664399305947e-07
+          },
+          "worst_direction": {
+            "absolute_error": 3.3921466689734725e-07,
+            "direction_index": 1,
+            "signed_error": -3.3921466689734725e-07
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 116324.28068465386,
+          "maximum_component_error": 2.9425453129672263e-08,
+          "maximum_directional_error": 3.097175423072418e-08,
+          "maximum_explicit_only_error": 0.003422894669129123,
+          "maximum_relaxed_descriptor_error": 2.802877351812394e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.9425453129672263e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 2.9425453129672263e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 2.802877351812394e-07,
+            "atom": 2,
+            "axis": 2,
+            "axis_name": "z",
+            "descriptor_index": [
+              0,
+              1
+            ],
+            "signed_error": 2.802877351812394e-07
+          },
+          "worst_direction": {
+            "absolute_error": 3.097175423072418e-08,
+            "direction_index": 1,
+            "signed_error": -3.097175423072418e-08
+          }
+        }
+      },
+      "workload_id": "S2-def2-TZVP",
+      "worst_component": {
+        "absolute_error": 3.2993766084510323e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 3.2993766084510323e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 2.802877351812394e-07,
+        "atom": 2,
+        "axis": 2,
+        "axis_name": "z",
+        "descriptor_index": [
+          0,
+          1
+        ],
+        "signed_error": 2.802877351812394e-07,
+        "step_bohr": 0.0003
+      },
+      "worst_direction": {
+        "absolute_error": 3.3921466689734725e-07,
+        "direction_index": 1,
+        "signed_error": -3.3921466689734725e-07,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 2.7755575615628914e-17
+    },
+    {
+      "direct_compact_detailed_max_abs": 6.938893903907228e-18,
+      "direct_zvector_max_abs": 3.730349362740526e-14,
+      "explicit_to_complete_error_ratio": 9883.401127032284,
+      "family": "uhf",
+      "maximum_component_error": 2.707246099862941e-07,
+      "maximum_directional_error": 1.484321281962353e-07,
+      "maximum_explicit_only_error": 0.0026756799154539143,
+      "maximum_relaxed_descriptor_error": 3.917628234317849e-07,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 9883.01910833192,
+          "maximum_component_error": 2.707246099862941e-07,
+          "maximum_directional_error": 1.484321281962353e-07,
+          "maximum_explicit_only_error": 0.002675576493590251,
+          "maximum_relaxed_descriptor_error": 3.917628234317849e-07,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 2.707246099862941e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 2.707246099862941e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 3.917628234317849e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              3
+            ],
+            "signed_error": -3.917628234317849e-07
+          },
+          "worst_direction": {
+            "absolute_error": 1.484321281962353e-07,
+            "direction_index": 3,
+            "signed_error": 1.484321281962353e-07
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 111374.48986311765,
+          "maximum_component_error": 2.4024172130820975e-08,
+          "maximum_directional_error": 1.3360322605182606e-08,
+          "maximum_explicit_only_error": 0.0026756799154539143,
+          "maximum_relaxed_descriptor_error": 3.527509520595551e-08,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.4024172130820975e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 2.4024172130820975e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 3.527509520595551e-08,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "descriptor_index": [
+              1,
+              3
+            ],
+            "signed_error": -3.527509520595551e-08
+          },
+          "worst_direction": {
+            "absolute_error": 1.3360322605182606e-08,
+            "direction_index": 3,
+            "signed_error": 1.3360322605182606e-08
+          }
+        }
+      },
+      "workload_id": "S3-def2-SVP",
+      "worst_component": {
+        "absolute_error": 2.707246099862941e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 2.707246099862941e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 3.917628234317849e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "descriptor_index": [
+          1,
+          3
+        ],
+        "signed_error": -3.917628234317849e-07,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 1.484321281962353e-07,
+        "direction_index": 3,
+        "signed_error": 1.484321281962353e-07,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 6.938893903907228e-18
+    },
+    {
+      "direct_compact_detailed_max_abs": 2.7755575615628914e-17,
+      "direct_zvector_max_abs": 4.416952914532146e-14,
+      "explicit_to_complete_error_ratio": 11471.253159106944,
+      "family": "uks",
+      "maximum_component_error": 2.819869225935412e-07,
+      "maximum_directional_error": 1.6810358431651462e-07,
+      "maximum_explicit_only_error": 0.003234743376628005,
+      "maximum_relaxed_descriptor_error": 5.066116191221326e-06,
+      "passed": true,
+      "per_step": {
+        "1.0e-03": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 11470.46108559522,
+          "maximum_component_error": 2.819869225935412e-07,
+          "maximum_directional_error": 1.6810358431651462e-07,
+          "maximum_explicit_only_error": 0.0032345200222559656,
+          "maximum_relaxed_descriptor_error": 5.066116191221326e-06,
+          "passed": true,
+          "step_bohr": 0.001,
+          "worst_component": {
+            "absolute_error": 2.819869225935412e-07,
+            "atom": 1,
+            "axis": 0,
+            "axis_name": "x",
+            "signed_error": 2.819869225935412e-07
+          },
+          "worst_descriptor": {
+            "absolute_error": 5.066116191221326e-06,
+            "atom": 1,
+            "axis": 2,
+            "axis_name": "z",
+            "descriptor_index": [
+              4,
+              1
+            ],
+            "signed_error": 5.066116191221326e-06
+          },
+          "worst_direction": {
+            "absolute_error": 1.6810358431651462e-07,
+            "direction_index": 3,
+            "signed_error": 1.6810358431651462e-07
+          }
+        },
+        "3.0e-04": {
+          "acceptance_checks": {
+            "component": true,
+            "descriptor": true,
+            "direction": true
+          },
+          "component_count": 12,
+          "direction_count": 5,
+          "explicit_to_complete_error_ratio": 127986.85088411733,
+          "maximum_component_error": 2.5274028966904005e-08,
+          "maximum_directional_error": 1.4574246927356871e-08,
+          "maximum_explicit_only_error": 0.003234743376628005,
+          "maximum_relaxed_descriptor_error": 4.5079279070714406e-07,
+          "passed": true,
+          "step_bohr": 0.0003,
+          "worst_component": {
+            "absolute_error": 2.5274028966904005e-08,
+            "atom": 1,
+            "axis": 2,
+            "axis_name": "z",
+            "signed_error": -2.5274028966904005e-08
+          },
+          "worst_descriptor": {
+            "absolute_error": 4.5079279070714406e-07,
+            "atom": 1,
+            "axis": 2,
+            "axis_name": "z",
+            "descriptor_index": [
+              4,
+              2
+            ],
+            "signed_error": -4.5079279070714406e-07
+          },
+          "worst_direction": {
+            "absolute_error": 1.4574246927356871e-08,
+            "direction_index": 3,
+            "signed_error": 1.4574246927356871e-08
+          }
+        }
+      },
+      "workload_id": "S3-def2-SVP",
+      "worst_component": {
+        "absolute_error": 2.819869225935412e-07,
+        "atom": 1,
+        "axis": 0,
+        "axis_name": "x",
+        "signed_error": 2.819869225935412e-07,
+        "step_bohr": 0.001
+      },
+      "worst_descriptor": {
+        "absolute_error": 5.066116191221326e-06,
+        "atom": 1,
+        "axis": 2,
+        "axis_name": "z",
+        "descriptor_index": [
+          4,
+          1
+        ],
+        "signed_error": 5.066116191221326e-06,
+        "step_bohr": 0.001
+      },
+      "worst_direction": {
+        "absolute_error": 1.6810358431651462e-07,
+        "direction_index": 3,
+        "signed_error": 1.6810358431651462e-07,
+        "step_bohr": 0.001
+      },
+      "zero_energy_max_abs": 0.0,
+      "zero_gradient_max_abs": 0.0,
+      "zvector_compact_detailed_max_abs": 6.938893903907228e-18
+    }
+  ],
+  "artifacts": [
+    {
+      "bytes": 29816,
+      "path": "README.md",
+      "sha256": "c21108e18ea08dc50fead21e19b2e852859b88fec0b7851ad0aa01c2dc4210dd"
+    },
+    {
+      "bytes": 6462,
+      "path": "configs/campaign.json",
+      "sha256": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002"
+    },
+    {
+      "bytes": 546,
+      "path": "geometries/benzene.xyz",
+      "sha256": "fd4dd7aed2ba2b2871abd30bdfc6be083caa1ff26303900068be9b0da2113a4c"
+    },
+    {
+      "bytes": 211,
+      "path": "geometries/formaldehyde.xyz",
+      "sha256": "4df0ad4c78cb4bbbcd9b7e1cb298bc9c813a765e36a76925e83cc6abb67eaa3f"
+    },
+    {
+      "bytes": 251,
+      "path": "geometries/hydroxymethyl.xyz",
+      "sha256": "b1dac5af19787018b1046d131498c9bac43c14486c2415af0985d2ff67be9ae1"
+    },
+    {
+      "bytes": 554,
+      "path": "geometries/phenoxy.xyz",
+      "sha256": "1501afb0e4a7fbffa79a5c68dd31f52f5e79aea3933b29b84db9faa64a82e0b8"
+    },
+    {
+      "bytes": 788,
+      "path": "geometries/water_hexamer.xyz",
+      "sha256": "f3c81ac0c29496ec2880f39abf0699f5e01305e65787435a05cc648e7c3f59bb"
+    },
+    {
+      "bytes": 543,
+      "path": "geometries/water_tetramer.xyz",
+      "sha256": "7a833c507d5549ee3634e5d289c29ae40613b84100d537cdcb184da3cb771ee2"
+    },
+    {
+      "bytes": 40260,
+      "path": "scripts/aggregate.py",
+      "sha256": "773faa4a0b197c157b68978a208827e19940e0d2866031c713ae73502b0fb508"
+    },
+    {
+      "bytes": 27265,
+      "path": "scripts/common.py",
+      "sha256": "de1bb0b520c7b594d03496311ae5706ab3ba040f746ee92c4e066c805a382ace"
+    },
+    {
+      "bytes": 27015,
+      "path": "scripts/run_campaign.py",
+      "sha256": "9809b9ae1548bb510f65f3563fe27ca43d8742bd48127a40edd202e7613c67f0"
+    },
+    {
+      "bytes": 86782,
+      "path": "scripts/worker.py",
+      "sha256": "a410010c193f6a276ac6e710dab821832d23de95ff9634cac9a42617df9705a5"
+    },
+    {
+      "bytes": 4789,
+      "path": "checkpoints/frozen_corrnet.pth",
+      "sha256": "3bdff279fb056534d30352192999d49f12a64a5e3a1515bfc9215b6831357f78"
+    }
+  ],
+  "backend_ratios": [],
+  "benchmarks": [],
+  "campaign_integrity": {
+    "checks": {
+      "one_source_snapshot": true,
+      "one_validation_hash": true,
+      "profile_affinity_and_threads": true,
+      "source_provenance_complete": true
+    },
+    "passed": true,
+    "profile_controls": [
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L1-def2-SVP__rhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L1-def2-SVP__rks/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L1-def2-TZVP__rhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L1-def2-TZVP__rks/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L2-def2-SVP__rhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L2-def2-SVP__rks/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L3-def2-SVP__uhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__L3-def2-SVP__uks/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__S1-6-31G__rhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__S1-6-31G__rks/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__S2-def2-TZVP__rhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__S2-def2-TZVP__rks/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__S3-def2-SVP__uhf/result.json",
+        "threads_passed": true
+      },
+      {
+        "affinity_passed": true,
+        "profile": "deterministic-1t",
+        "result_path": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826/scientific/deterministic-1t/current/scientific__S3-def2-SVP__uks/result.json",
+        "threads_passed": true
+      }
+    ],
+    "source_clean_states": [
+      false
+    ],
+    "source_snapshots": [
+      {
+        "base_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+        "config_hash": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002",
+        "source_root": "/home/mwding/WorkSpace/Projects/deepks-kit",
+        "tracked_diff_sha256": "8af57b2788928c8d4ca7756441d1c36d14cccd7a5bd086623e3a9245b6e21efb",
+        "validation_hash": "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484"
+      }
+    ],
+    "validation_hashes": [
+      "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484"
+    ]
+  },
+  "category_summary": {
+    "integrity": {
+      "counts": {
+        "true": 14
+      },
+      "failures": []
+    },
+    "performance": {
+      "counts": {
+        "none": 14
+      },
+      "failures": []
+    },
+    "resource": {
+      "counts": {
+        "true": 14
+      },
+      "failures": []
+    },
+    "scientific": {
+      "counts": {
+        "true": 14
+      },
+      "failures": []
+    }
+  },
+  "conditioning": [],
+  "coordinate_blocking": [],
+  "cross_revision_ratios": [],
+  "dense_replay": [],
+  "dft": [],
+  "force_data": [],
+  "native_benchmarks": [],
+  "performance_acceptance": {
+    "checks": {
+      "all_large_compact_rss": false,
+      "all_large_compact_time": false,
+      "largest_common_case_memory": false,
+      "no_unattributed_historical_slowdown": true,
+      "two_large_closed_shell_speedups": false,
+      "zvector_scalar_gmres_structure": false
+    },
+    "compact_checks": [],
+    "historical_slowdowns_over_20_percent": [],
+    "large_closed_shell_speedups": [],
+    "largest_common_case_memory_comparison": null,
+    "passed": false,
+    "zvector_structure": []
+  },
+  "preserved_retry_attempts": [],
+  "production_historical_ratios": [],
+  "result_count": 14,
+  "run_manifest": {
+    "base_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+    "config_hash": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002",
+    "created_utc": "2026-08-25T16:44:58.925521+00:00",
+    "current_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+    "environment_lock_hash": "62d6409e684747b95d1593e538961f758b2d89b7cb88dfcd4584d469735f4ee8",
+    "phases": [
+      "scientific",
+      "aggregate"
+    ],
+    "run_id": "protocol_repair_full14_20260826",
+    "scientific_cases": [],
+    "source_clean": false,
+    "source_mode": "current-worktree",
+    "source_roots": {
+      "current": "/home/mwding/WorkSpace/Projects/deepks-kit"
+    },
+    "source_snapshots": {
+      "current": {
+        "base_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+        "config_hash": "1cf16c2be363bd49b3692a8f986b2d46e3ff52f4de90a49c02d434e51b196002",
+        "source_clean": false,
+        "source_root": "/home/mwding/WorkSpace/Projects/deepks-kit",
+        "tracked_diff_sha256": "8af57b2788928c8d4ca7756441d1c36d14cccd7a5bd086623e3a9245b6e21efb",
+        "tracked_diff_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py",
+        "tracked_source_clean": false,
+        "validation_hash": "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484",
+        "working_tree_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py\n?? diagnostics/scientific_performance/runs/protocol_repair_failed8_20260825/\n?? diagnostics/scientific_performance/runs/protocol_repair_l1_tzvp_rhf_20260825/\n?? tests/scientific_performance/test_campaign_protocol.py"
+      }
+    },
+    "tracked_diff_sha256": "8af57b2788928c8d4ca7756441d1c36d14cccd7a5bd086623e3a9245b6e21efb",
+    "tracked_diff_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py",
+    "tracked_source_clean": false,
+    "validation_driver_revision": "802a40c15bc5be7075028d66c9e0011a98dfc0ab",
+    "validation_driver_tracked_diff": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py",
+    "validation_hash": "8dd9ad6bf10b4aca7c10d2d9c1f4481529f5b6e1a187bd3f710a7de621a32484",
+    "working_tree_status": "M validation/scientific_performance/configs/campaign.json\n M validation/scientific_performance/scripts/aggregate.py\n M validation/scientific_performance/scripts/common.py\n M validation/scientific_performance/scripts/run_campaign.py\n M validation/scientific_performance/scripts/worker.py\n?? diagnostics/scientific_performance/runs/protocol_repair_failed8_20260825/\n?? diagnostics/scientific_performance/runs/protocol_repair_l1_tzvp_rhf_20260825/\n?? tests/scientific_performance/test_campaign_protocol.py"
+  },
+  "run_root": "/home/mwding/WorkSpace/Projects/deepks-kit/diagnostics/scientific_performance/runs/protocol_repair_full14_20260826",
+  "scaling_fits": [],
+  "scanner": [],
+  "schema_version": 1,
+  "selection": [],
+  "selection_acceptance": {
+    "checks": {
+      "coordinate_blocks": false,
+      "selected_rows": false,
+      "x1_coordinate_memory_reduction": false
+    },
+    "memory_checks": [],
+    "passed": false
+  }
+}
