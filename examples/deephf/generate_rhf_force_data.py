@@ -24,6 +24,20 @@ VALIDATION_COORDINATES = np.array(
     dtype=np.float64,
 )
 TEACHER_WEIGHTS = np.array([0.037, -0.021, 0.013, 0.029], dtype=np.float64)
+TARGET_IDENTITY = {
+    "method": "deterministic DeePHF CorrNet teacher",
+    "basis": "sto-3g",
+    "software": "deepks-kit example",
+    "version": "1",
+    "frozen_core": False,
+    "relativistic": "none",
+    "state": "closed-shell singlet ground state",
+    "energy_force_consistent": True,
+    "settings": {
+        "teacher_weights": TEACHER_WEIGHTS.tolist(),
+        "teacher_bias": 0.011,
+    },
+}
 
 
 def make_reference(coordinates: np.ndarray):
@@ -81,6 +95,7 @@ def write_example_dataset(directory: Path, coordinates: np.ndarray, teacher: Cor
         projector_basis=PROJECTOR_BASIS,
         e_target=energy,
         f_target=force,
+        target=TARGET_IDENTITY,
     )
 
 

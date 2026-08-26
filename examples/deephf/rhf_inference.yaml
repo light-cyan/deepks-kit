@@ -6,6 +6,7 @@ basis: sto-3g
 projector_basis:
   - [0, [0.8, 1.0]]
 backend: direct
+root_overlap_tolerance: 0.5
 dump_dir: examples/deephf/inference_output
 mol_args:
   unit: Angstrom

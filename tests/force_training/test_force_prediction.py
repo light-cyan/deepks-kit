@@ -16,7 +16,7 @@ from deepks.model.train import (
     Evaluator,
     ForceTrainingError,
 )
-from force_contract_helpers import write_force_contract_sample
+from force_contract_helpers import make_target_identity, write_force_contract_sample
 
 
 CONTRACT_FINGERPRINT = bytes(range(32)).hex()
@@ -81,7 +81,7 @@ def _force_case():
 def _force_checkpoint_metadata():
     return {
         "schema_id": "deepks.deephf.rhf-force-data",
-        "schema_version": 1,
+        "schema_version": 2,
         "compatibility_fingerprint": CONTRACT_FINGERPRINT,
         "jacobian_semantics": "dq_dR_relaxed",
         "n_feature": 2,
@@ -91,6 +91,8 @@ def _force_checkpoint_metadata():
         "projector_sha256": _canonical_digest(TEST_PROJECTOR_BASIS),
         "reference_family": "RHF",
         "response_backend": "rhf_direct",
+        "target": make_target_identity(),
+        "target_fingerprint": _canonical_digest(make_target_identity()),
     }
 
 
@@ -619,7 +621,7 @@ def test_force_checkpoint_requires_matching_metadata_and_strict_state(tmp_path):
     ("field", "replacement"),
     [
         ("schema_id", "foreign.schema"),
-        ("schema_version", 2),
+        ("schema_version", 1),
         ("jacobian_semantics", "dq_dR_explicit"),
         ("descriptor_definition", "unordered_descriptor"),
         ("descriptor_spin_semantics", "alpha_only"),
@@ -714,6 +716,7 @@ def test_real_contract_reader_prediction_and_checkpoint_reload(
         projector_basis=ORACLE_PROJECTOR_BASIS,
         e_target=case.target_energy,
         f_target=case.target_force,
+        target=make_target_identity(),
     )
     reader = GroupReader(
         [data_path],

@@ -9,6 +9,21 @@ from deepks.data.force_schema import _write_force_dataset
 from deepks.model.reader import Reader
 
 
+def make_target_identity():
+    """Return one canonical target identity for strict force-data tests."""
+    return {
+        "method": "deterministic DeePHF teacher",
+        "basis": "sto-3g",
+        "software": "deepks-kit",
+        "version": "test",
+        "frozen_core": False,
+        "relativistic": "none",
+        "state": "closed-shell singlet ground state",
+        "energy_force_consistent": True,
+        "settings": {"teacher": "fixed CorrNet"},
+    }
+
+
 def _as_float64_numpy(value):
     if isinstance(value, torch.Tensor):
         value = value.detach().cpu().numpy()
@@ -141,6 +156,7 @@ def write_force_contract_sample(
             "adapter": "deepks.deephf.pyscf_rhf.RHFResponseAdapter",
             "controls": response_controls,
         },
+        "target": make_target_identity(),
         "frames": frames,
         "generation": {
             "deepks_version": "0.1.dev-test",
@@ -150,7 +166,7 @@ def write_force_contract_sample(
             "numpy_version": np.__version__,
             "python_version": "3.11.test",
             "producer": "deepks.deephf.force_data.rhf_direct",
-            "producer_version": 1,
+            "producer_version": 2,
         },
     }
     contract = _write_force_dataset(

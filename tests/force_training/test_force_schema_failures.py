@@ -54,6 +54,18 @@ def test_writer_rejects_explicit_jacobian_even_when_shape_matches(tmp_path):
         write_force_dataset(tmp_path / "explicit", arrays=arrays, provenance=provenance)
 
 
+def test_writer_rejects_missing_or_inconsistent_target_identity(tmp_path):
+    arrays, provenance = make_schema_inputs()
+    provenance.pop("target")
+    with pytest.raises(ForceDataError, match="missing required keys: target"):
+        write_force_dataset(tmp_path / "missing-target", arrays=arrays, provenance=provenance)
+
+    arrays, provenance = make_schema_inputs()
+    provenance["target"]["energy_force_consistent"] = False
+    with pytest.raises(ForceDataError, match="energy_force_consistent must be true"):
+        write_force_dataset(tmp_path / "inconsistent-target", arrays=arrays, provenance=provenance)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [("coordinate_block_size", 0), ("response_block_count", True)],

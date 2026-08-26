@@ -207,6 +207,8 @@ def deephf_cli(args=None):
     parser.add_argument("-P", "--projector-basis", help="projector basis")
     parser.add_argument("-D", "--device", help="model device")
     parser.add_argument("-o", "--dump-dir", help="output directory")
+    parser.add_argument("--root-overlap-tolerance", type=float,
+                        help="minimum occupied-subspace overlap between frames")
     parser.add_argument("-v", "--verbose", type=int, choices=range(0, 6))
     parsed = parser.parse_args(args)
     if hasattr(parsed, "input"):

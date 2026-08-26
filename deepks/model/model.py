@@ -14,7 +14,7 @@ SCALE_EPS = 1e-8
 CHECKPOINT_FORMAT_VERSION = 1
 FORCE_JACOBIAN_SEMANTICS = "dq_dR_relaxed"
 FORCE_SCHEMA_ID = "deepks.deephf.rhf-force-data"
-FORCE_SCHEMA_VERSION = 1
+FORCE_SCHEMA_VERSION = 2
 FORCE_DESCRIPTOR_DEFINITION = "ordered_projected_density_eigenvalues"
 FORCE_DESCRIPTOR_SPIN_SEMANTICS = "spin_summed"
 FORCE_REFERENCE_FAMILY = "RHF"
@@ -31,6 +31,8 @@ FORCE_CHECKPOINT_METADATA_KEYS = {
     "projector_sha256",
     "reference_family",
     "response_backend",
+    "target",
+    "target_fingerprint",
 }
 
 
@@ -183,6 +185,33 @@ def _validate_checkpoint_force_metadata(
             raise ValueError(
                 "force-training checkpoint contract fingerprint does not match the data"
             )
+    from deepks.data.force_schema import (
+        normalize_target_identity,
+        target_identity_fingerprint,
+    )
+
+    try:
+        target = normalize_target_identity(metadata["target"])
+    except ValueError as error:
+        raise ValueError(
+            "force-training checkpoint target identity is invalid"
+        ) from error
+    if metadata["target"] != target:
+        raise ValueError(
+            "force-training checkpoint target identity must be canonical"
+        )
+    target_fingerprint = normalize_force_contract_fingerprint(
+        metadata["target_fingerprint"]
+    )
+    if metadata["target_fingerprint"] != target_fingerprint:
+        raise ValueError(
+            "force-training checkpoint target_fingerprint must be a lowercase "
+            "64-digit hexadecimal string"
+        )
+    if target_fingerprint != target_identity_fingerprint(target):
+        raise ValueError(
+            "force-training checkpoint target_fingerprint does not match target"
+        )
     if expected_contract is not None:
         from deepks.data.force_schema import validate_force_checkpoint_metadata
 

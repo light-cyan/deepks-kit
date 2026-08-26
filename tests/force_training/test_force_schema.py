@@ -11,6 +11,7 @@ from deepks.data.force_schema import (
     validate_force_checkpoint_metadata,
     _write_force_dataset as write_force_dataset,
 )
+from force_contract_helpers import make_target_identity
 
 
 def make_schema_inputs(frame_count=2):
@@ -101,6 +102,7 @@ def make_schema_inputs(frame_count=2):
                 "level_shift": 0.0,
             },
         },
+        "target": make_target_identity(),
         "frames": [
             {
                 "reference_state_fingerprint": f"{index + 1:064x}",
@@ -143,7 +145,7 @@ def make_schema_inputs(frame_count=2):
             "numpy_version": np.__version__,
             "python_version": "3.11.test",
             "producer": "deepks.deephf.force_data.rhf_direct",
-            "producer_version": 1,
+            "producer_version": 2,
         },
     }
     return arrays, provenance
@@ -181,7 +183,7 @@ def test_force_schema_round_trip_is_complete_and_canonical(tmp_path):
     manifest = loaded.manifest
     assert manifest["schema"] == {
         "id": "deepks.deephf.rhf-force-data",
-        "version": 1,
+        "version": 2,
     }
     assert manifest["conventions"] == {
         "cartesian_order": ["x", "y", "z"],
@@ -280,6 +282,8 @@ def test_force_checkpoint_metadata_round_trip_and_ignores_system_size(tmp_path):
     assert metadata["projector_sha256"] == contract.manifest["descriptor"][
         "projector_sha256"
     ]
+    assert metadata["target"] == make_target_identity()
+    assert len(metadata["target_fingerprint"]) == 64
 
     single_arrays, single_provenance = make_schema_inputs(frame_count=1)
     single_contract = write_force_dataset(
@@ -326,6 +330,7 @@ def test_compatibility_fingerprint_binds_scientific_controls(tmp_path):
         "generation": lambda value: value["generation"].update(
             deepks_version="0.2.dev-test"
         ),
+        "target": lambda value: value["target"].update(method="CCSD(T)"),
     }
     for name, mutate in mutations.items():
         changed_arrays = copy.deepcopy(arrays)
@@ -335,6 +340,34 @@ def test_compatibility_fingerprint_binds_scientific_controls(tmp_path):
         changed = write_force_dataset(
             tmp_path / name,
             arrays=changed_arrays,
+            provenance=changed_provenance,
+        )
+        assert changed.compatibility_fingerprint != baseline.compatibility_fingerprint
+
+
+def test_compatibility_fingerprint_binds_every_variable_target_field(tmp_path):
+    arrays, provenance = make_schema_inputs(frame_count=1)
+    baseline = write_force_dataset(
+        tmp_path / "target-baseline",
+        arrays=arrays,
+        provenance=provenance,
+    )
+    mutations = {
+        "method": "CCSD(T)",
+        "basis": "cc-pVQZ",
+        "software": "another-code",
+        "version": "2",
+        "frozen_core": True,
+        "relativistic": "scalar X2C",
+        "state": "first excited singlet",
+        "settings": {"convergence_tolerance": 1.0e-12},
+    }
+    for field, replacement in mutations.items():
+        changed_provenance = copy.deepcopy(provenance)
+        changed_provenance["target"][field] = replacement
+        changed = write_force_dataset(
+            tmp_path / f"target-{field}",
+            arrays=copy.deepcopy(arrays),
             provenance=changed_provenance,
         )
         assert changed.compatibility_fingerprint != baseline.compatibility_fingerprint

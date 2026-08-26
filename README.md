@@ -205,6 +205,8 @@ result = evaluate_molecule(
 
 The concrete method classes are `DeePHF`, `UHFDeePHF`, `RKSDeePHF`, and `UKSDeePHF`. Their direct response objects and scalar-adjoint objects expose immutable diagnostic partitions for scientific validation.
 
+For a multi-frame system, `deepks deephf` carries the preceding accepted density into the next SCF calculation and rejects a frame whose occupied-subspace overlap falls below `root_overlap_tolerance` (default `0.5`). Each successful system output contains `deephf_provenance.json` with the state lineage and spin-resolved overlap diagnostics; a force-trained checkpoint also contributes its target identity.
+
 ## Quick start: RHF energy-and-force training
 
 Generate the deterministic example datasets and train the model:
@@ -227,10 +229,21 @@ contract = write_rhf_force_dataset(
     projector_basis=projector_basis,
     e_target=target_energies,
     f_target=target_forces,
+    target={
+        "method": "CCSD(T)",
+        "basis": "cc-pVTZ",
+        "software": "target-code",
+        "version": "1.0",
+        "frozen_core": True,
+        "relativistic": "none",
+        "state": "closed-shell singlet ground state",
+        "energy_force_consistent": True,
+        "settings": {"energy_tolerance": 1.0e-10},
+    },
 )
 ```
 
-Target energies use `Eh`, target forces use `Eh/Bohr`, coordinates use `Bohr` internally, and `dq_dR_relaxed` uses `Bohr^-1` with the positive `dq/dR` convention.
+Target energies use `Eh`, target forces use `Eh/Bohr`, coordinates use `Bohr` internally, and `dq_dR_relaxed` uses `Bohr^-1` with the positive `dq/dR` convention. The required target identity is part of dataset compatibility and force-training checkpoint metadata, so grouped training rejects labels produced by a different target calculation.
 
 ## Self-consistent and iterative workflows
 

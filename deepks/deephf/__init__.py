@@ -44,6 +44,7 @@ from .pyscf_rhf import (
     validate_reference,
 )
 from .scanner import RHFDeePHFGradientScanner, RHFDeePHFScannerError
+from .contracts import RootContinuityError
 from .unrestricted_method import UHFDeePHF, UKSDeePHF
 from .pyscf_uhf import (
     UHFAdjoint,
@@ -113,6 +114,7 @@ __all__ = [
     "RHFRootSnapshot",
     "RHFScannerReferenceError",
     "RHFScannerReferenceFactory",
+    "RootContinuityError",
     "RKSDeePHF",
     "RKSDeePHFGradients",
     "RKSDeePHFZVectorGradients",

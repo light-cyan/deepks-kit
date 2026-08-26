@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from functools import partial
-import math
 from types import MappingProxyType
 from typing import Any
 import weakref
@@ -20,10 +19,14 @@ from .capabilities import (
     validate_force_model,
 )
 from .contracts import (
+    RootContinuityError,
     dataclass_fingerprint,
     immutable_array,
     integer_control,
+    occupied_coefficients,
+    occupied_subspace_overlaps,
     real_control,
+    validate_root_overlap_tolerance,
     validated_float64_array,
 )
 from .driver import validate_atom_indices
@@ -50,24 +53,10 @@ class RHFScannerReferenceFactory:
     def __init__(self, reference, *, root_overlap_tolerance: float = 0.5):
         validate_pyscf_version()
         reference = validate_reference(reference)
-        if isinstance(root_overlap_tolerance, (bool, np.bool_)):
-            raise TypeError(
-                "scanner root_overlap_tolerance must be a real number"
-            )
-        try:
-            root_overlap_tolerance = float(root_overlap_tolerance)
-        except (TypeError, ValueError) as error:
-            raise TypeError(
-                "scanner root_overlap_tolerance must be a real number"
-            ) from error
-        if (
-            not np.isfinite(root_overlap_tolerance)
-            or root_overlap_tolerance <= 0.0
-            or root_overlap_tolerance > 1.0
-        ):
-            raise ValueError(
-                "scanner root_overlap_tolerance must be finite and in (0, 1]"
-            )
+        root_overlap_tolerance = validate_root_overlap_tolerance(
+            root_overlap_tolerance,
+            owner="scanner",
+        )
         try:
             template = deepcopy(reference.mol)
         except Exception as error:
@@ -352,47 +341,22 @@ class RHFScannerReferenceFactory:
             raise RHFScannerReferenceError(
                 "the fresh scanner RHF occupations changed from the root anchor"
             )
-        candidate_occupied = np.asarray(candidate_reference.mo_coeff)[
-            :, candidate_occupations > 0
-        ]
         try:
-            cross_overlap = gto.intor_cross(
-                "int1e_ovlp",
+            candidate_occupied = occupied_coefficients(
+                candidate_reference.mo_coeff,
+                candidate_occupations,
+            )[0]
+            minimum_overlap = occupied_subspace_overlaps(
                 previous_root._molecule,
+                (previous_root.occupied_coefficients,),
                 candidate_reference.mol,
-            )
-        except Exception as error:
+                (candidate_occupied,),
+            )[0]
+        except (RootContinuityError, ValueError) as error:
             raise RHFScannerReferenceError(
-                f"scanner cross-AO overlap construction failed: {error}"
+                f"scanner occupied-subspace comparison failed: {error}"
             ) from error
-        cross_overlap = _validated_float64_array(
-            cross_overlap,
-            (self._ao_count, self._ao_count),
-            "scanner cross-AO overlap",
-        )
-        occupied_overlap = (
-            previous_root.occupied_coefficients.T
-            @ cross_overlap
-            @ candidate_occupied
-        )
-        if not np.isfinite(occupied_overlap).all():
-            raise RHFScannerReferenceError(
-                "scanner occupied-subspace overlap is nonfinite"
-            )
-        try:
-            singular_values = np.linalg.svd(
-                occupied_overlap,
-                compute_uv=False,
-            )
-        except np.linalg.LinAlgError as error:
-            raise RHFScannerReferenceError(
-                f"scanner occupied-subspace overlap SVD failed: {error}"
-            ) from error
-        minimum_overlap = float(np.min(singular_values))
-        if (
-            not np.isfinite(minimum_overlap)
-            or minimum_overlap < self.root_overlap_tolerance
-        ):
+        if minimum_overlap < self.root_overlap_tolerance:
             raise RHFScannerReferenceError(
                 "fresh scanner RHF occupied subspace is discontinuous: "
                 f"minimum overlap {minimum_overlap:.6f} < "
@@ -487,19 +451,7 @@ def _validate_model_inference_preflight(model) -> None:
 
 
 def _validated_root_overlap_tolerance(value) -> float:
-    if isinstance(value, (bool, np.bool_)):
-        raise TypeError("scanner root_overlap_tolerance must be a real number")
-    try:
-        tolerance = float(value)
-    except (TypeError, ValueError) as error:
-        raise TypeError(
-            "scanner root_overlap_tolerance must be a real number"
-        ) from error
-    if not math.isfinite(tolerance) or tolerance <= 0.0 or tolerance > 1.0:
-        raise ValueError(
-            "scanner root_overlap_tolerance must be finite and in (0, 1]"
-        )
-    return tolerance
+    return validate_root_overlap_tolerance(value, owner="scanner")
 
 
 def _immutable_float64_array(value, expected_shape) -> np.ndarray:

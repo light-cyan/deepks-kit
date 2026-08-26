@@ -15,6 +15,7 @@ from deepks.deephf import (
 from deepks.data.force_schema import load_force_dataset
 from deepks.deephf.pyscf_rhf import reference_provenance_snapshot
 from deepks.descriptor import DescriptorDifferentiabilityError
+from force_contract_helpers import make_target_identity
 
 FINITE_DIFFERENCE_ATOM = 0
 FINITE_DIFFERENCE_COORDINATE = 0
@@ -219,6 +220,7 @@ def test_multiframe_failure_does_not_create_a_partial_dataset(
                 [case.target_force, case.target_force],
                 axis=0,
             ),
+            target=make_target_identity(),
         )
 
     assert not output.exists()
@@ -248,6 +250,7 @@ def test_exit_state_failure_does_not_create_a_force_dataset(
             projector_basis=ORACLE_PROJECTOR_BASIS,
             e_target=case.target_energy,
             f_target=case.target_force,
+            target=make_target_identity(),
         )
     assert not output.exists()
 
@@ -266,6 +269,7 @@ def test_response_failure_does_not_fall_back_or_create_dataset(
             projector_basis=ORACLE_PROJECTOR_BASIS,
             e_target=case.target_energy,
             f_target=case.target_force,
+            target=make_target_identity(),
             response_options={
                 "residual_tolerance": 1.0e-30,
                 "max_refinement_cycles": 0,
@@ -297,6 +301,7 @@ def test_multiframe_direct_dataset_round_trip(
         projector_basis=ORACLE_PROJECTOR_BASIS,
         e_target=np.array([case.target_energy, forward_energy], dtype=np.float64),
         f_target=np.stack([case.target_force, forward_force], axis=0),
+        target=make_target_identity(),
     )
     loaded_contract, arrays = load_force_dataset(output)
 

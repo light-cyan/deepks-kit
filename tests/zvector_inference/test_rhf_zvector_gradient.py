@@ -9,6 +9,7 @@ import torch
 import deepks.deephf.adjoint as adjoint_module
 from deepks.deephf import DeePHF
 from deepks.deephf.gradient import RHFDeePHFGradients
+from deepks.data.force_schema import target_identity_fingerprint
 from deepks.model.model import CorrNet
 
 
@@ -43,9 +44,20 @@ def _force_checkpoint_metadata(model):
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+    target = {
+        "method": "deterministic DeePHF teacher",
+        "basis": "sto-3g",
+        "software": "deepks-kit",
+        "version": "test",
+        "frozen_core": False,
+        "relativistic": "none",
+        "state": "closed-shell singlet ground state",
+        "energy_force_consistent": True,
+        "settings": {"purpose": "Z-vector objective test"},
+    }
     return {
         "schema_id": "deepks.deephf.rhf-force-data",
-        "schema_version": 1,
+        "schema_version": 2,
         "compatibility_fingerprint": hashlib.sha256(
             b"deterministic P3A force-training contract"
         ).hexdigest(),
@@ -57,6 +69,8 @@ def _force_checkpoint_metadata(model):
         "projector_sha256": hashlib.sha256(encoded_projector).hexdigest(),
         "reference_family": "RHF",
         "response_backend": "rhf_direct",
+        "target": target,
+        "target_fingerprint": target_identity_fingerprint(target),
     }
 
 

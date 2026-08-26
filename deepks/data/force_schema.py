@@ -22,7 +22,7 @@ import numpy as np
 
 SCHEMA_FILENAME = "force_data.json"
 SCHEMA_ID = "deepks.deephf.rhf-force-data"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 JACOBIAN_NAME = "dq_dR_relaxed"
 JACOBIAN_SEMANTICS = "complete_relaxed_reference_response"
 TARGET_IDENTITY_TOLERANCE = 1.0e-12
@@ -61,7 +61,7 @@ _RESPONSE_DIAGNOSTIC_NAMES = {
 
 
 class ForceDataError(ValueError):
-    """Raised when persisted force data violate the strict v1 contract."""
+    """Raised when persisted force data violate the strict force contract."""
 
 
 @dataclass(frozen=True)
@@ -158,10 +158,23 @@ _TOP_LEVEL_KEYS = {
     "descriptor",
     "reference",
     "response",
+    "target",
     "frames",
     "generation",
     "compatibility_fingerprint",
     "manifest_fingerprint",
+}
+
+_TARGET_IDENTITY_KEYS = {
+    "method",
+    "basis",
+    "software",
+    "version",
+    "frozen_core",
+    "relativistic",
+    "state",
+    "energy_force_consistent",
+    "settings",
 }
 
 
@@ -241,6 +254,40 @@ def _require_bool(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise _error(f"{name} must be boolean")
     return value
+
+
+def normalize_target_identity(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the canonical identity of the supervised target calculation."""
+    target = _require_mapping(value, "target")
+    _require_exact_keys(target, _TARGET_IDENTITY_KEYS, "target")
+    for name in (
+        "method",
+        "basis",
+        "software",
+        "version",
+        "relativistic",
+        "state",
+    ):
+        if not isinstance(target[name], str) or not target[name].strip():
+            raise _error(f"target.{name} must be a nonempty string")
+        target[name] = target[name].strip()
+    target["frozen_core"] = _require_bool(
+        target["frozen_core"],
+        "target.frozen_core",
+    )
+    target["energy_force_consistent"] = _require_bool(
+        target["energy_force_consistent"],
+        "target.energy_force_consistent",
+    )
+    if not target["energy_force_consistent"]:
+        raise _error("target.energy_force_consistent must be true")
+    target["settings"] = _require_mapping(target["settings"], "target.settings")
+    return target
+
+
+def target_identity_fingerprint(value: Mapping[str, Any]) -> str:
+    """Return the SHA-256 fingerprint of a normalized target identity."""
+    return _json_fingerprint(normalize_target_identity(value))
 
 
 def _finite_float(value: Any, name: str) -> float:
@@ -426,6 +473,7 @@ def _compatibility_seed(
     descriptor: Mapping[str, Any],
     reference: Mapping[str, Any],
     response: Mapping[str, Any],
+    target: Mapping[str, Any],
     generation: Mapping[str, Any],
     feature_count: int,
 ) -> dict[str, Any]:
@@ -451,6 +499,7 @@ def _compatibility_seed(
             "scf_controls": reference["scf_controls"],
         },
         "response": scientific_response,
+        "target": target,
         "generation": generation,
         "dtype": "float64",
         "dimensions": {"n_feature": feature_count},
@@ -477,6 +526,7 @@ def _normalize_provenance(
         "descriptor",
         "reference",
         "response",
+        "target",
         "frames",
         "generation",
     }
@@ -513,9 +563,9 @@ def _normalize_provenance(
     if not isinstance(nuclear_charges, list) or len(nuclear_charges) != raw_atom:
         raise _error("atom_mapping.nuclear_charges has the wrong length")
     if mapping["ghost_policy"] != "rejected":
-        raise _error("v1 RHF force data require ghost_policy='rejected'")
+        raise _error("strict RHF force data require ghost_policy='rejected'")
     if raw_atom != descriptor_atom:
-        raise _error("v1 RHF force data require every raw atom to be a descriptor atom")
+        raise _error("strict RHF force data require every raw atom to be a descriptor atom")
     if any(isinstance(index, bool) or not isinstance(index, int) for index in descriptor_to_raw):
         raise _error("descriptor_to_raw indices must be integers")
     if any(isinstance(index, bool) or not isinstance(index, int) for index in raw_to_descriptor):
@@ -531,7 +581,7 @@ def _normalize_provenance(
         isinstance(charge, bool) or not isinstance(charge, int) or charge <= 0
         for charge in nuclear_charges
     ):
-        raise _error("v1 RHF nuclear charges must be positive integers")
+        raise _error("strict RHF nuclear charges must be positive integers")
     stored_charges = arrays["atom"][..., 0]
     expected_charges = np.asarray(nuclear_charges, dtype=np.float64)
     if not np.array_equal(
@@ -554,7 +604,7 @@ def _normalize_provenance(
     if descriptor["definition"] != "ordered_projected_density_eigenvalues":
         raise _error("descriptor definition is not the canonical ordered spectrum")
     if descriptor["spin_semantics"] != "spin_summed":
-        raise _error("v1 RHF force data require spin_summed descriptor semantics")
+        raise _error("strict RHF force data require spin_summed descriptor semantics")
     shell_sizes = descriptor["shell_sizes"]
     if (
         not isinstance(shell_sizes, list)
@@ -618,9 +668,9 @@ def _normalize_provenance(
         reference_keys.add("basis_sha256")
     _require_exact_keys(reference, reference_keys, "reference")
     if reference["family"] != "RHF" or reference["python_class"] != "pyscf.scf.hf.RHF":
-        raise _error("v1 force data require an exact native pyscf.scf.hf.RHF reference")
+        raise _error("strict force data require an exact native pyscf.scf.hf.RHF reference")
     if reference["ecp"] not in (None, {}):
-        raise _error("v1 RHF force data require an all-electron reference")
+        raise _error("strict RHF force data require an all-electron reference")
     reference["ecp"] = None
     if isinstance(reference["charge"], bool) or not isinstance(reference["charge"], int):
         raise _error("reference charge must be an integer")
@@ -629,7 +679,7 @@ def _normalize_provenance(
         or not isinstance(reference["spin"], int)
         or reference["spin"] != 0
     ):
-        raise _error("v1 RHF force data require spin zero")
+        raise _error("strict RHF force data require spin zero")
     occupations = reference["occupations"]
     if (
         not isinstance(occupations, list)
@@ -749,7 +799,7 @@ def _normalize_provenance(
                 "coordinate_block_size"
             )
     if response["backend"] != "rhf_direct":
-        raise _error("v1 force data require the rhf_direct response backend")
+        raise _error("strict force data require the rhf_direct response backend")
     if response["adapter"] != "deepks.deephf.pyscf_rhf.RHFResponseAdapter":
         raise _error("response adapter identity is not the accepted RHF adapter")
     if not isinstance(response["controls"], dict):
@@ -790,6 +840,8 @@ def _normalize_provenance(
                 f"response.controls.{control_name} must be an integer >= {minimum}"
             )
 
+    target = normalize_target_identity(provenance["target"])
+
     generation = _require_mapping(provenance["generation"], "generation")
     generation_keys = {
         "deepks_version",
@@ -817,7 +869,7 @@ def _normalize_provenance(
         raise _error("generation.deepks_commit must be a string or null")
     if generation["producer"] != "deepks.deephf.force_data.rhf_direct":
         raise _error("generation producer is not the accepted RHF direct producer")
-    if generation["producer_version"] != 1:
+    if generation["producer_version"] != 2:
         raise _error("generation producer_version is not supported")
     version_parts = generation["pyscf_version"].split(".")
     try:
@@ -825,7 +877,7 @@ def _normalize_provenance(
     except ValueError as error:
         raise _error("generation.pyscf_version is not a version string") from error
     if pyscf_series != SUPPORTED_PYSCF_SERIES:
-        raise _error("v1 RHF force data require the PySCF 2.14 series")
+        raise _error("strict RHF force data require the PySCF 2.14 series")
 
     frames = provenance["frames"]
     if not isinstance(frames, list) or len(frames) != dimensions["n_frame"]:
@@ -836,6 +888,7 @@ def _normalize_provenance(
         descriptor,
         reference,
         response,
+        target,
         generation,
         feature,
     )
@@ -1078,6 +1131,7 @@ def _normalize_provenance(
         "descriptor": descriptor,
         "reference": reference,
         "response": response,
+        "target": target,
         "frames": normalized_frames,
         "generation": generation,
         "compatibility_fingerprint": compatibility_fingerprint,
@@ -1111,6 +1165,7 @@ def _build_manifest(
         "descriptor": provenance["descriptor"],
         "reference": provenance["reference"],
         "response": provenance["response"],
+        "target": provenance["target"],
         "frames": provenance["frames"],
         "generation": provenance["generation"],
         "compatibility_fingerprint": provenance["compatibility_fingerprint"],
@@ -1168,7 +1223,7 @@ def _validate_manifest_header(manifest: Mapping[str, Any]) -> dict[str, int]:
             f"unsupported schema identity/version {manifest.get('schema')!r}"
         )
     if manifest["conventions"] != _CONVENTIONS:
-        raise _error("manifest axes, units, signs, or relaxed-Jacobian semantics differ from v1")
+        raise _error("manifest axes, units, signs, or relaxed-Jacobian semantics differ from the strict contract")
     dimensions = manifest["dimensions"]
     if not isinstance(dimensions, dict) or set(dimensions) != {
         "n_frame",
@@ -1210,7 +1265,7 @@ def _validate_field_manifest(
         }
         if fields[name] != expected:
             raise _error(
-                f"manifest contract or content hash for field {name} does not match v1 data"
+                f"manifest contract or content hash for field {name} does not match strict data"
             )
 
 
@@ -1321,12 +1376,16 @@ def _validate_contract_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
                 "force contract response block count is inconsistent"
             )
     generation = manifest["generation"]
+    target = normalize_target_identity(manifest["target"])
+    if target != manifest["target"]:
+        raise _error("force contract target identity is not canonical")
     compatibility = _json_fingerprint(
         _compatibility_seed(
             mapping,
             descriptor,
             reference,
             response,
+            target,
             generation,
             dimensions["n_feature"],
         )
@@ -1482,7 +1541,7 @@ def _write_force_dataset(
     arrays: Mapping[str, np.ndarray],
     provenance: Mapping[str, Any],
 ) -> ForceDataContract:
-    """Validate and write one complete strict v1 force dataset.
+    """Validate and write one complete strict force dataset.
 
     Existing nonempty directories are rejected so an interrupted or unrelated
     dataset cannot be silently overwritten.
@@ -1545,7 +1604,7 @@ def _write_force_dataset(
 
 
 def load_force_dataset(directory) -> tuple[ForceDataContract, dict[str, np.ndarray]]:
-    """Load and strictly validate one complete v1 force dataset."""
+    """Load and strictly validate one complete strict force dataset."""
     path = Path(directory)
     if not path.is_dir():
         raise _error(f"dataset path {path} is not a directory")
@@ -1579,6 +1638,7 @@ def load_force_dataset(directory) -> tuple[ForceDataContract, dict[str, np.ndarr
             "descriptor",
             "reference",
             "response",
+            "target",
             "frames",
             "generation",
         )
@@ -1615,6 +1675,8 @@ def force_checkpoint_metadata(contract: ForceDataContract) -> dict[str, Any]:
         "projector_sha256": descriptor["projector_sha256"],
         "reference_family": manifest["reference"]["family"],
         "response_backend": manifest["response"]["backend"],
+        "target": manifest["target"],
+        "target_fingerprint": target_identity_fingerprint(manifest["target"]),
     }
 
 
@@ -1652,6 +1714,8 @@ __all__ = [
     "SCHEMA_VERSION",
     "force_checkpoint_metadata",
     "load_force_dataset",
+    "normalize_target_identity",
+    "target_identity_fingerprint",
     "validate_force_data_contract",
     "validate_force_checkpoint_metadata",
     "validate_force_sample_arrays",

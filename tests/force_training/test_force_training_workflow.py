@@ -9,6 +9,7 @@ from deepks.model.model import CorrNet
 from deepks.model.reader import FORCE_MODE_DEEPHF_RELAXED, GroupReader
 from deepks.model.test import main as saved_data_main
 from deepks.model.train import Evaluator, main as train_main, train
+from force_contract_helpers import make_target_identity
 ORACLE_PROJECTOR_BASIS = [[0, [0.8, 1.0]], [1, [0.3, 1.0]]]
 
 
@@ -73,6 +74,7 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
             dtype=np.float64,
         ),
         f_target=np.stack([case.target_force, second_force], axis=0),
+        target=make_target_identity(),
     )
 
     reader_args = {

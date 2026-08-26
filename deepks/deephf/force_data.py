@@ -33,7 +33,7 @@ from .contracts import immutable_array
 
 
 GENERATOR_NAME = "deepks.deephf.force_data"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 DESCRIPTOR_DIFFERENTIABILITY_CONTROLS = {
     "gap_atol": 1.0e-9,
     "gap_rtol": 1.0e-7,
@@ -407,15 +407,20 @@ def write_rhf_force_dataset(
     projector_basis,
     e_target,
     f_target,
+    target: Mapping[str, Any],
     response_options: Mapping[str, Any] | None = None,
 ):
     """Generate and atomically persist one or more strict RHF force frames.
 
     All references are validated and all direct responses are completed before
     the method-neutral writer is invoked.  Frames in one dataset must describe
-    the same ordered atoms, AO basis, projector, and tensor dimensions.
+    the same ordered atoms, AO basis, projector, and tensor dimensions.  The
+    target mapping identifies the calculation that supplied both label arrays.
     """
 
+    from deepks.data.force_schema import normalize_target_identity
+
+    target = normalize_target_identity(target)
     references = tuple(
         validate_reference(reference)
         for reference in _as_references(references_or_reference)
@@ -530,6 +535,7 @@ def write_rhf_force_dataset(
             "scf_controls": first_reference["scf_controls"],
         },
         "response": response_metadata,
+        "target": target,
         "frames": frame_provenance,
         "generation": {
             "producer": f"{GENERATOR_NAME}.rhf_direct",

@@ -22,11 +22,20 @@ from deepks.model.reader import (
 from test_force_schema import make_schema_inputs
 
 
-def _write_schema_dataset(path, *, frame_count=2, projector_basis=None):
+def _write_schema_dataset(
+    path,
+    *,
+    frame_count=2,
+    projector_basis=None,
+    target_method=None,
+):
     arrays, provenance = make_schema_inputs(frame_count=frame_count)
-    if projector_basis is not None:
+    if projector_basis is not None or target_method is not None:
         provenance = copy.deepcopy(provenance)
+    if projector_basis is not None:
         provenance["descriptor"]["projector_basis"] = projector_basis
+    if target_method is not None:
+        provenance["target"]["method"] = target_method
     contract = write_force_dataset(path, arrays=arrays, provenance=provenance)
     return contract, arrays
 
@@ -160,6 +169,20 @@ def test_group_reader_requires_one_compatible_force_contract(tmp_path):
     with pytest.raises(ForceDataError, match="incompatible provenance"):
         GroupReader(
             [first, foreign],
+            batch_size=1,
+            force_mode="deephf_relaxed",
+        )
+
+
+def test_group_reader_rejects_different_target_identity(tmp_path):
+    first = tmp_path / "first-target"
+    second = tmp_path / "second-target"
+    _write_schema_dataset(first, frame_count=1)
+    _write_schema_dataset(second, frame_count=1, target_method="CCSD(T)")
+
+    with pytest.raises(ForceDataError, match="incompatible provenance"):
+        GroupReader(
+            [first, second],
             batch_size=1,
             force_mode="deephf_relaxed",
         )

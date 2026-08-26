@@ -18,6 +18,7 @@ from typing import Any
 from unittest import mock
 
 import numpy as np
+import pyscf
 import torch
 from pyscf import dft, gto, mp, scf
 
@@ -1649,7 +1650,14 @@ def _expand_force_dataset(base_directory: Path, target_directory: Path, frame_co
     }
     provenance = {
         name: manifest[name]
-        for name in ("atom_mapping", "descriptor", "reference", "response", "generation")
+        for name in (
+            "atom_mapping",
+            "descriptor",
+            "reference",
+            "response",
+            "target",
+            "generation",
+        )
     }
     provenance["frames"] = [frame for _ in range(frame_count)]
     start = time.perf_counter()
@@ -1789,6 +1797,17 @@ def action_force_data(output: Path, _workload_id: str | None, _family: str | Non
         projector_basis=load_config()["projector_basis"],
         e_target=target_energy,
         f_target=target_force,
+        target={
+            "method": "deterministic DeePHF CorrNet teacher",
+            "basis": "sto-3g",
+            "software": "deepks-kit scientific-performance validation",
+            "version": "1",
+            "frozen_core": False,
+            "relativistic": "none",
+            "state": "closed-shell singlet ground state",
+            "energy_force_consistent": True,
+            "settings": {"model": "frozen deterministic tanh CorrNet"},
+        },
         response_options=load_config()["response_controls"],
     )
     generation_seconds = time.perf_counter() - generation_start
@@ -1935,6 +1954,17 @@ def action_force_data_physical(output: Path, _workload_id: str | None, _family: 
         projector_basis=load_config()["projector_basis"],
         e_target=np.asarray(energies),
         f_target=np.asarray(forces),
+        target={
+            "method": "RMP2",
+            "basis": "6-31G",
+            "software": "PySCF",
+            "version": pyscf.__version__,
+            "frozen_core": False,
+            "relativistic": "none",
+            "state": "closed-shell singlet ground state",
+            "energy_force_consistent": True,
+            "settings": {"frozen": None},
+        },
         response_options=load_config()["response_controls"],
     )
     generation_seconds = time.perf_counter() - generation_start
