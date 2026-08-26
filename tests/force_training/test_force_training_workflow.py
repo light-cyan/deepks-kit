@@ -32,10 +32,11 @@ def _zero_linear_model():
 
 def _prediction(model, reader):
     sample = reader.sample_all(0)
+    device = next(model.parameters()).device
     return predict_correction(
         model,
-        sample["descriptor"],
-        dq_dR_relaxed=sample["dq_dR_relaxed"],
+        sample["descriptor"].to(device),
+        dq_dR_relaxed=sample["dq_dR_relaxed"].to(device),
         require_force=True,
     )
 
@@ -91,7 +92,7 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
         contract.compatibility_fingerprint
     )
 
-    model = _zero_linear_model()
+    model = _zero_linear_model().to("cuda")
     evaluator = Evaluator(
         energy_factor=1.0,
         force_factor=1.0,
@@ -120,7 +121,7 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
         decay_rate=0.5,
         display_epoch=160,
         ckpt_file=checkpoint,
-        device="cpu",
+        device="cuda",
         force_contract=contract,
     )
     _assert_finite_metrics(training_result.training_metrics)
@@ -135,7 +136,7 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
         checkpoint,
         require_force_metadata=True,
         expected_force_contract=contract,
-    ).double().eval()
+    ).double().to("cuda").eval()
     after_reload = _prediction(loaded, validation_reader)
     torch.testing.assert_close(
         after_reload.energy,
@@ -193,7 +194,7 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
             "display_epoch": 1,
         },
         seed=20260820,
-        device="cpu",
+        device="cuda",
     )
     _assert_finite_metrics(restart_result.training_metrics)
     _assert_finite_metrics(restart_result.validation_metrics)
@@ -213,9 +214,13 @@ def test_rhf_force_training_checkpoint_and_fresh_deephf_workflow(
     fresh_gradient = fresh_method.nuc_grad_method().run()
     fresh_prediction = predict_correction(
         loaded,
-        torch.tensor(fresh_method.descriptor()).unsqueeze(0),
+        torch.tensor(
+            fresh_method.descriptor(),
+            device=fresh_method.device,
+        ).unsqueeze(0),
         dq_dR_relaxed=torch.tensor(
             fresh_gradient.dq_dR_relaxed,
+            device=fresh_method.device,
         ).unsqueeze(0),
         require_force=True,
     )

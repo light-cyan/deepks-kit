@@ -111,16 +111,17 @@ def test_deepks_scf_export_keeps_explicit_force_fields(tmp_path):
     assert set(sample) == {"descriptor", "energy"}
     assert sample["descriptor"].shape == (1, 2, 1)
     assert sample["energy"].shape == (1, 1)
+    device = next(model.parameters()).device
     explicit_jacobian = torch.from_numpy(
         np.load(data_directory / "dq_dR_explicit.npy")
-    )
+    ).to(device)
     explicit_force = torch.from_numpy(
         np.load(data_directory / "f_corr_explicit_target.npy")
-    )
+    ).to(device)
     assert explicit_jacobian.shape == (1, 2, 3, 2, 1)
     assert explicit_force.shape == (1, 2, 3)
 
-    descriptors = sample["descriptor"].clone().requires_grad_(True)
+    descriptors = sample["descriptor"].to(device).requires_grad_(True)
     predicted_energy = model(descriptors)
     (energy_descriptor_gradient,) = torch.autograd.grad(
         predicted_energy,
@@ -133,7 +134,12 @@ def test_deepks_scf_export_keeps_explicit_force_fields(tmp_path):
         energy_descriptor_gradient,
     )
 
-    torch.testing.assert_close(predicted_energy, sample["energy"], atol=1.0e-10, rtol=0.0)
+    torch.testing.assert_close(
+        predicted_energy,
+        sample["energy"].to(device),
+        atol=1.0e-10,
+        rtol=0.0,
+    )
     torch.testing.assert_close(predicted_force, explicit_force, atol=1.0e-10, rtol=0.0)
 
 
@@ -163,7 +169,7 @@ def test_energy_training_checkpoint_can_be_reloaded_for_deepks_scf(tmp_path):
             "start_lr": 1.0e-4,
         },
         seed=11,
-        device="cpu",
+        device="cuda",
     )
 
     loaded = CorrNet.load(checkpoint).double().eval()

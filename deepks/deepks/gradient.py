@@ -5,13 +5,16 @@ import time
 
 import numpy as np
 import torch
-from pyscf import gto, scf
-from pyscf.grad import rks as rks_grad
-from pyscf.grad import uks as uks_grad
-from pyscf.lib import logger
+from gpu4pyscf.grad import rks as rks_grad
+from gpu4pyscf.grad import uhf as uhf_grad
+from gpu4pyscf.grad import uks as uks_grad
+from gpu4pyscf.lib import logger
+from gpu4pyscf.scf import uhf as gpu_uhf
+from pyscf import gto
 
 from deepks.descriptor import dD_dR_explicit, dq_dR_explicit
 from deepks.descriptor import spin_summed_ao_density
+from deepks.gpu import torch_from_array
 from deepks.model.evaluate import correction_projected_density_gradients
 
 
@@ -56,7 +59,12 @@ class CorrectionGradientMixin(abc.ABC):
         self.explicit_correction_gradient = None
 
     def grad_elec(self, mo_energy=None, mo_coeff=None, mo_occ=None, atmlst=None):
-        gradient = super().grad_elec(mo_energy, mo_coeff, mo_occ, atmlst)
+        gradient = self.reference_electronic_gradient(
+            mo_energy,
+            mo_coeff,
+            mo_occ,
+            atmlst,
+        )
         timer = (time.process_time(), time.perf_counter())
         correction_gradient = self.correction_gradient(
             self.base.make_rdm1(mo_coeff, mo_occ),
@@ -69,6 +77,16 @@ class CorrectionGradientMixin(abc.ABC):
             else correction_gradient
         )
         return gradient + correction_gradient
+
+    def reference_electronic_gradient(
+        self,
+        mo_energy=None,
+        mo_coeff=None,
+        mo_occ=None,
+        atmlst=None,
+    ):
+        """Return the native electronic gradient at the converged GPU state."""
+        return super().grad_elec(mo_energy, mo_coeff, mo_occ, atmlst)
 
     def reference_gradient(self):
         """Return the native-reference part at the converged DeePKS density."""
@@ -105,9 +123,10 @@ class ModelGradientMixin(CorrectionGradientMixin):
             return np.zeros((len(atom_indices), 3))
         if ao_density is None:
             ao_density = self.base.make_rdm1()
-        tensor_density = torch.from_numpy(
-            spin_summed_ao_density(ao_density)
-        ).double()
+        tensor_density = torch_from_array(
+            spin_summed_ao_density(ao_density),
+            device=self.base.model_device,
+        )
         result = correction_explicit_gradient(
             self.mol,
             self.base.model,
@@ -122,9 +141,10 @@ class ModelGradientMixin(CorrectionGradientMixin):
     def dD_dR_explicit(self, ao_density=None, flatten=False):
         if ao_density is None:
             ao_density = self.base.make_rdm1()
-        tensor_density = torch.from_numpy(
-            spin_summed_ao_density(ao_density)
-        ).double()
+        tensor_density = torch_from_array(
+            spin_summed_ao_density(ao_density),
+            device=self.base.model_device,
+        )
         blocks = dD_dR_explicit(
             self.mol,
             tensor_density,
@@ -142,9 +162,10 @@ class ModelGradientMixin(CorrectionGradientMixin):
     def dq_dR_explicit(self, ao_density=None):
         if ao_density is None:
             ao_density = self.base.make_rdm1()
-        tensor_density = torch.from_numpy(
-            spin_summed_ao_density(ao_density)
-        ).double()
+        tensor_density = torch_from_array(
+            spin_summed_ao_density(ao_density),
+            device=self.base.model_device,
+        )
         result = dq_dR_explicit(
             self.mol,
             tensor_density,
@@ -186,7 +207,9 @@ class ModelGradientMixin(CorrectionGradientMixin):
 
 
 def build_gradient(mean_field):
-    if isinstance(mean_field, scf.uhf.UHF):
+    if isinstance(mean_field, gpu_uhf.UHF):
+        if str(mean_field.xc).strip().upper() == "HF":
+            return UHFDeePKSGradients(mean_field)
         return UDeePKSGradients(mean_field)
     return RDeePKSGradients(mean_field)
 
@@ -205,5 +228,14 @@ class UDeePKSGradients(ModelGradientMixin, uks_grad.Gradients):
 
     def __init__(self, mean_field):
         uks_grad.Gradients.__init__(self, mean_field)
+        ModelGradientMixin.__init__(self)
+        self._keys.update(self.__dict__.keys())
+
+
+class UHFDeePKSGradients(ModelGradientMixin, uhf_grad.Gradients):
+    """Unrestricted Hartree-Fock DeePKS analytic nuclear gradient."""
+
+    def __init__(self, mean_field):
+        uhf_grad.Gradients.__init__(self, mean_field)
         ModelGradientMixin.__init__(self)
         self._keys.update(self.__dict__.keys())

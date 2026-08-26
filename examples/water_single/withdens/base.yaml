@@ -31,14 +31,14 @@ scf_input: # can also be specified by a separete file
 scf_machine: 
   # every system will be run as a separate command (a task)
   sub_size: 1 
-  # 4 tasks will be gathered into one group and submitted together as a shell script
+  # 4 tasks will be gathered into one Slurm job
   group_size: 4
   dispatcher: 
     context: local
-    batch: shell # set to shell to run on local machine, you can also use `slurm`
-    remote_profile: null # not needed in local case
-  # resources are no longer needed, other than the envs can still be set here
+    batch: slurm
+    remote_profile: null # use lazy local staging
   resources:
+    numb_gpu: 1
     envs:
       PYSCF_MAX_MEMORY: 8000 # increase from 4G to 8G
   python: "python" # use python in path
@@ -68,10 +68,11 @@ train_input:
 train_machine: 
   dispatcher: 
     context: local
-    batch: shell # same as above, use shell to run on local machine
-    remote_profile: null # use lazy local
+    batch: slurm
+    remote_profile: null # use lazy local staging
+  resources:
+    numb_gpu: 1
   python: "python" # use python in path
-  # resources are no longer needed, and the task will use gpu automatically if there is one
 
 # init settings
 init_model: false # do not use existing model in share_folder/init/model.pth

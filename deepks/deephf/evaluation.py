@@ -111,7 +111,11 @@ class EvaluationContext:
     def model_output(self) -> torch.Tensor:
         if self._model_output is None:
             if self.method.model is None:
-                self._model_output = torch.zeros((), dtype=torch.float64)
+                self._model_output = torch.zeros(
+                    (),
+                    dtype=torch.float64,
+                    device=self.method.device,
+                )
             else:
                 self.count("model_forwards")
                 with torch.enable_grad():

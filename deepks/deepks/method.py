@@ -5,17 +5,26 @@ import time
 
 import numpy as np
 import torch
-from pyscf import dft, lib
-from pyscf.lib import logger
+from gpu4pyscf.dft import rks as gpu_rks
+from gpu4pyscf.dft import uks as gpu_uks
+from gpu4pyscf.lib import logger
+from gpu4pyscf.lib.cupy_helper import tag_array
 
 from deepks.descriptor import AtomicDensityDescriptor, spin_summed_ao_density
+from deepks.gpu import (
+    DEFAULT_CUDA_DEVICE,
+    GPU_DIRECT_SCF_TOL,
+    cupy_from_torch,
+    require_cuda_device,
+    torch_from_array,
+)
 from deepks.model.evaluate import correction as evaluate_correction
 from deepks.model.model import CorrNet
 
 from .penalty import PenaltyMixin
 
 
-DEFAULT_DEVICE = "cpu"
+DEFAULT_DEVICE = DEFAULT_CUDA_DEVICE
 
 
 class CorrectionMixin(abc.ABC):
@@ -41,6 +50,13 @@ class CorrectionMixin(abc.ABC):
         return super().energy_elec(dm, h1e, vhf)
 
     def reference_energy(self, dm=None, h1e=None, vhf=None):
+        if (
+            dm is None
+            and h1e is None
+            and vhf is None
+            and getattr(self, "e_base", None) is not None
+        ):
+            return self.e_base
         return self.reference_electronic_energy(dm, h1e, vhf)[0] + self.energy_nuc()
 
     def reference_nuclear_gradient_method(self):
@@ -65,7 +81,7 @@ class CorrectionMixin(abc.ABC):
         correction_energy, correction_potential = self.correction(dm)
         logger.timer(self, "correction potential", *timer)
         total = reference + correction_potential
-        return lib.tag_array(
+        return tag_array(
             total,
             correction_energy=correction_energy,
             reference=reference,
@@ -85,6 +101,7 @@ class CorrectionMixin(abc.ABC):
             vhf.reference,
         )
         correction_energy = vhf.correction_energy
+        self.e_base = total.real + self.energy_nuc()
         logger.debug(self, "E_corr = %s", correction_energy)
         return (
             (total + correction_energy).real,
@@ -107,15 +124,20 @@ class ModelCorrectionMixin(CorrectionMixin):
     """Bind a neural correction and shared descriptor to a mean-field method."""
 
     def __init__(self, model, projector_basis=None, device=DEFAULT_DEVICE):
-        self.device = device or DEFAULT_DEVICE
+        self.model_device = require_cuda_device(device)
+        self.e_base = None
         if isinstance(model, str):
             model = CorrNet.load(model).double()
         if isinstance(model, torch.nn.Module):
-            model = model.to(self.device).eval()
+            model = model.to(self.model_device).eval()
         self.model = model
         if projector_basis is None:
             projector_basis = getattr(model, "_pbas", None)
-        self._descriptor = AtomicDensityDescriptor(self.mol, projector_basis)
+        self._descriptor = AtomicDensityDescriptor(
+            self.mol,
+            projector_basis,
+            device=self.model_device,
+        )
 
     @property
     def projector_basis(self):
@@ -139,8 +161,11 @@ class ModelCorrectionMixin(CorrectionMixin):
             dm = self.make_rdm1()
         ao_density = spin_summed_ao_density(dm)
         if self.model is None:
-            return 0.0, np.zeros_like(ao_density)
-        tensor_density = torch.from_numpy(ao_density).double()
+            return 0.0, ao_density * 0
+        tensor_density = torch_from_array(
+            ao_density,
+            device=self.model_device,
+        )
         tensor_energy, tensor_potential = evaluate_correction(
             self.model,
             tensor_density,
@@ -152,7 +177,7 @@ class ModelCorrectionMixin(CorrectionMixin):
             if tensor_energy.numel() == 1
             else tensor_energy.detach().cpu().numpy()
         )
-        potential = tensor_potential.detach().cpu().numpy()
+        potential = cupy_from_torch(tensor_potential)
         real_charges = [
             int(charge) for charge in self.mol.atom_charges() if charge > 0
         ]
@@ -170,6 +195,7 @@ class ModelCorrectionMixin(CorrectionMixin):
 
     def reset(self, mol=None):
         super().reset(mol)
+        self.e_base = None
         self._descriptor.reset(self.mol)
         return self
 
@@ -217,7 +243,7 @@ class ModelCorrectionMixin(CorrectionMixin):
         return optimize_descriptor_potential(self, target_density, **kwargs)
 
 
-class RDeePKS(ModelCorrectionMixin, PenaltyMixin, dft.rks.RKS):
+class RDeePKS(ModelCorrectionMixin, PenaltyMixin, gpu_rks.RKS):
     """Restricted self-consistent DeePKS method."""
 
     def __init__(
@@ -229,7 +255,8 @@ class RDeePKS(ModelCorrectionMixin, PenaltyMixin, dft.rks.RKS):
         penalties=None,
         device=DEFAULT_DEVICE,
     ):
-        dft.rks.RKS.__init__(self, mol, xc=xc)
+        gpu_rks.RKS.__init__(self, mol, xc=xc)
+        self.direct_scf_tol = GPU_DIRECT_SCF_TOL
         ModelCorrectionMixin.__init__(
             self,
             model,
@@ -240,7 +267,7 @@ class RDeePKS(ModelCorrectionMixin, PenaltyMixin, dft.rks.RKS):
         self._keys.update(self.__dict__.keys())
 
 
-class UDeePKS(ModelCorrectionMixin, PenaltyMixin, dft.uks.UKS):
+class UDeePKS(ModelCorrectionMixin, PenaltyMixin, gpu_uks.UKS):
     """Unrestricted self-consistent DeePKS method."""
 
     def __init__(
@@ -252,7 +279,8 @@ class UDeePKS(ModelCorrectionMixin, PenaltyMixin, dft.uks.UKS):
         penalties=None,
         device=DEFAULT_DEVICE,
     ):
-        dft.uks.UKS.__init__(self, mol, xc=xc)
+        gpu_uks.UKS.__init__(self, mol, xc=xc)
+        self.direct_scf_tol = GPU_DIRECT_SCF_TOL
         ModelCorrectionMixin.__init__(
             self,
             model,
@@ -261,3 +289,25 @@ class UDeePKS(ModelCorrectionMixin, PenaltyMixin, dft.uks.UKS):
         )
         PenaltyMixin.__init__(self, penalties=penalties)
         self._keys.update(self.__dict__.keys())
+
+    def kernel(self, dm0=None, **kwargs):
+        """Run GPU SCF and synchronize the unrestricted final state."""
+        total_energy = super().kernel(dm0=dm0, **kwargs)
+        if self.converged and str(self.xc).strip().upper() == "HF":
+            total_energy = super().kernel(dm0=self.make_rdm1(), **kwargs)
+        if self.mo_coeff is not None:
+            fock = self.get_fock(dm=self.make_rdm1())
+            transformed = torch_from_array(
+                self.mo_coeff,
+                device=self.model_device,
+            ).conj().transpose(-2, -1) @ torch_from_array(
+                fock,
+                device=self.model_device,
+            ) @ torch_from_array(
+                self.mo_coeff,
+                device=self.model_device,
+            )
+            self.mo_energy = cupy_from_torch(
+                transformed.diagonal(dim1=-2, dim2=-1).real
+            )
+        return total_energy

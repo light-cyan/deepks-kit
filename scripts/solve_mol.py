@@ -3,10 +3,13 @@
 #SBATCH -c 10
 #SBATCH -t 24:00:00
 #SBATCH --mem=32G
+#SBATCH --gres=gpu:1
 
 import time
 import numpy as np
-from pyscf import gto, scf
+from pyscf import gto
+
+from deepks.gpu import GPU_DIRECT_SCF_TOL, as_numpy, require_cuda_device
 
 BOHR = 0.52917721092
 
@@ -48,14 +51,17 @@ def get_method(name: str):
     raise ValueError(f"Unknown calculation method: {name}")
 
 def solve_scf(mol, **scfargs):
-    HFmethod = scf.HF if not _MUST_UNRES else scf.UHF
-    mf = HFmethod(mol).set(init_guess_breaksym=True)
+    from gpu4pyscf import scf
+
+    HFmethod = scf.RHF if not _MUST_UNRES else scf.UHF
+    scfargs = {"direct_scf_tol": GPU_DIRECT_SCF_TOL, **scfargs}
+    mf = HFmethod(mol).set(init_guess_breaksym=True, **scfargs)
     init_dm = mf.get_init_guess()
     # if _MUST_UNRES:
     #     init_dm[1][:2,:2] = 0
     mf.kernel(init_dm)
     if _USE_NEWTON:
-        mf = scf.fast_newton(mf)
+        raise ValueError("GPU4PySCF does not provide the requested Newton path")
     return mf
 
 def calc_hf(mol, **scfargs):
@@ -68,13 +74,15 @@ def calc_hf(mol, **scfargs):
     return etot, grad, rdm
 
 def calc_dft(mol, xc="pbe", **scfargs):
-    from pyscf import dft
-    KSmethod = dft.KS if not _MUST_UNRES else dft.UKS
-    mf = KSmethod(mol, xc).run(**scfargs)
+    from gpu4pyscf import dft
+
+    KSmethod = dft.RKS if not _MUST_UNRES else dft.UKS
+    scfargs = {"direct_scf_tol": GPU_DIRECT_SCF_TOL, **scfargs}
+    mf = KSmethod(mol, xc).set(**scfargs).run()
     if not mf.converged:
         raise RuntimeError("SCF not converged!")
     etot = mf.e_tot
-    if _NO_FORCE or dft.libxc.xc_type(xc) in ('MGGA', 'NLC'):
+    if _NO_FORCE or mf._numint._xc_type(xc) in ('MGGA', 'NLC'):
         grad = None
     else:
         grad = mf.nuc_grad_method().kernel()
@@ -86,7 +94,7 @@ def calc_mp2(mol, **scfargs):
     mf = solve_scf(mol, **scfargs)
     if not mf.converged:
         raise RuntimeError("SCF not converged!")
-    postmf = pyscf.mp.MP2(mf).run()
+    postmf = pyscf.mp.MP2(mf.to_cpu()).run()
     etot = postmf.e_tot
     grad = postmf.nuc_grad_method().kernel() if not _NO_FORCE else None
     return etot, grad, None
@@ -96,6 +104,7 @@ def calc_ccsd(mol, **scfargs):
     mf = solve_scf(mol, **scfargs)
     if not mf.converged:
         raise RuntimeError("SCF not converged!")
+    mf = mf.to_cpu()
     mycc = mf.CCSD().run()
     etot = mycc.e_tot
     grad = mycc.nuc_grad_method().kernel() if not _NO_FORCE else None
@@ -108,6 +117,7 @@ def calc_ccsd_t(mol, **scfargs):
     mf = solve_scf(mol, **scfargs)
     if not mf.converged:
         raise RuntimeError("SCF not converged!")
+    mf = mf.to_cpu()
     mycc = mf.CCSD().run()
     et_correction = mycc.ccsd_t()
     etot = mycc.e_tot + et_correction
@@ -122,6 +132,7 @@ def calc_fci(mol, **scfargs):
     mf = solve_scf(mol, **scfargs)
     if not mf.converged:
         raise RuntimeError("SCF not converged!")
+    mf = mf.to_cpu()
     myci = pyscf.fci.FCI(mf)
     etot, fcivec = myci.kernel()
     rdm = np.einsum('...pi,...ij,...qj->...pq', 
@@ -148,6 +159,7 @@ if __name__ == "__main__":
     parser.add_argument("-SO", "--newton", action="store_true", help="allow using newton method when scf not converged")
     parser.add_argument("--scf-input", help="yaml file to specify scf arguments")
     args = parser.parse_args()
+    require_cuda_device()
     
     if args.unrestrict: _MUST_UNRES = True
     if args.no_force: _NO_FORCE = True
@@ -177,11 +189,11 @@ if __name__ == "__main__":
         else:
             dump_dir = args.dump_dir
         dump = os.path.join(dump_dir, os.path.splitext(os.path.basename(fn))[0])
-        np.save(dump+".energy.npy", [etot])
+        np.save(dump+".energy.npy", [float(etot)])
         if grad is not None:
-            force = -grad / BOHR
+            force = -as_numpy(grad) / BOHR
             np.save(dump+".force.npy", force)
         if rdm is not None:
-            np.save(dump+".dm.npy", rdm)
+            np.save(dump+".dm.npy", as_numpy(rdm))
         if args.verbose:
             print(fn, f"done, time = {time.time()-tic}")

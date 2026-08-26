@@ -1,7 +1,8 @@
 import time
 import numpy as np
-from pyscf.dft import numint, gen_grid
-from pyscf.lib import logger
+import cupy
+from gpu4pyscf.dft import numint, gen_grid
+from gpu4pyscf.lib import logger
 from deepks.utils import check_list
 
 
@@ -90,7 +91,7 @@ class DensityPenalty(Penalty):
         self.ao_value = None
 
     def init_hook(self, mf, **envs):
-        if hasattr(mf, "grid"):
+        if hasattr(mf, "grids"):
             self.grids = mf.grids
         else:
             self.grids = gen_grid.Grids(mf.mol)
@@ -102,13 +103,29 @@ class DensityPenalty(Penalty):
         if self.grids.coords is None:
             self.grids.build()
         if self.ao_value is None:
-            self.ao_value = numint.eval_ao(mf.mol, self.grids.coords, deriv=0)
+            self.ao_value = numint.eval_ao(
+                mf.mol,
+                self.grids.coords,
+                deriv=0,
+                transpose=False,
+            )
         tic = (time.process_time(), time.perf_counter())
-        rho_diff = numint.eval_rho(mf.mol, self.ao_value, dm - self.dm_t)
-        v_p = numint.eval_mat(mf.mol, self.ao_value, self.grids.weights, rho_diff, rho_diff)
+        rho_diff = numint.eval_rho(
+            mf.mol,
+            self.ao_value,
+            dm - cupy.asarray(self.dm_t),
+        )
+        v_p = cupy.einsum(
+            "pi,i,qi->pq",
+            self.ao_value,
+            self.grids.weights * rho_diff,
+            self.ao_value,
+        )
         # cycle < 0 means it is just checking, we only print here
         if cycle < 0 and mf.verbose >=4:
-            diff_norm = np.sum(np.abs(rho_diff)*self.grids.weights)
+            diff_norm = float(
+                cupy.sum(cupy.abs(rho_diff) * self.grids.weights).get()
+            )
             logger.info(mf, f"  Density Penalty: |diff| = {diff_norm}")
             logger.timer(mf, "dens_pnt", *tic)
         return self.strength * v_p
@@ -134,11 +151,11 @@ class CoulombPenalty(Penalty):
         if 0 <= cycle < self.start_cycle:
             return 0
         tic = (time.process_time(), time.perf_counter())
-        ddm = dm - self.dm_t
-        v_p = mf.get_j(dm=ddm)
+        ddm = dm - cupy.asarray(self.dm_t)
+        v_p = mf.get_j(mf.mol, dm=ddm)
         # cycle < 0 means it is just checking, we only print here
         if cycle < 0 and mf.verbose >=4:
-            diff_norm = np.sum(ddm * v_p)
+            diff_norm = float(cupy.sum(ddm * v_p).get())
             logger.info(mf, f"  Coulomb Penalty: |diff| = {diff_norm}")
             logger.timer(mf, "coul_pnt", *tic)
         return self.strength * v_p

@@ -23,11 +23,17 @@ TRN_CMD = " ".join([
     # os.path.join(QCDIR, "train/train.py") # this is the backup choice
 ])
 
+TST_CMD = " ".join([
+    "{python} -u",
+    "-m deepks.model.test"
+])
+
 
 DEFAULT_SCF_RES = {
     "time_limit": "24:00:00",
     "cpus_per_task": 8,
     "mem_limit": 8,
+    "numb_gpu": 1,
     "envs": {
         "PYSCF_MAX_MEMORY": 8000
     }
@@ -37,13 +43,14 @@ DEFAULT_SCF_SUB_RES = {
     "numb_node": 1,
     "task_per_node": 1,
     "cpus_per_task": 8,
+    "numb_gpu": 1,
     "exclusive": True
 }
 
 DEFAULT_TRN_RES = {
     "time_limit": "24:00:00",
     "cpus_per_task": 8,
-    # "numb_gpu": 1, # do not use gpu by default
+    "numb_gpu": 1,
     "mem_limit": 8
 }
 
@@ -372,21 +379,37 @@ def make_run_train(source_train="data_train", source_test="data_test", *,
 
 
 def make_test_train(data_paths, model_file="model.pth", *,
-                    output_prefix="test", group_results=True, 
-                    workdir='.', outlog="log.test", **test_args):
-    from deepks.model.test import main as test_func
-    test_args.update(
-        data_paths=data_paths,
-        model_file=model_file,
-        output_prefix=output_prefix,
-        group=group_results)
-    # make task
-    return PythonTask(
-        test_func,
-        call_kwargs=test_args,
+                    output_prefix="test", group_results=True,
+                    workdir='.', outlog="log.test", dispatcher=None,
+                    resources=None, python="python", **task_args):
+    command = TST_CMD.format(python=python)
+    command += " -d " + " ".join(check_list(data_paths))
+    command += f" -m {model_file}"
+    if output_prefix is not None:
+        command += f" -o {output_prefix}"
+    if group_results:
+        command += " -G"
+    if resources is None:
+        resources = {}
+    resources = {**DEFAULT_TRN_RES, **resources}
+    forward_files = task_args.pop("forward_files", [])
+    forward_files.extend([
+        model_file,
+        *[path.split("/*", 1)[0] for path in check_list(data_paths)],
+    ])
+    backward_files = task_args.pop("backward_files", [])
+    if output_prefix is not None:
+        backward_files.append(f"{output_prefix}.out")
+    return BatchTask(
+        command,
+        dispatcher=dispatcher,
+        resources=resources,
         outlog=outlog,
-        errlog="err",
-        workdir=workdir
+        errlog="err.test",
+        workdir=workdir,
+        forward_files=forward_files,
+        backward_files=backward_files,
+        **task_args,
     )
 
 
@@ -407,7 +430,8 @@ def make_train(source_train="data_train", source_test="data_test", *,
     post_train = make_test_train(
         data_paths=["data_train/*","data_test/*"],
         model_file=save_model, output_prefix="test", group_results=True,
-        workdir=".", outlog="log.test"
+        workdir=".", outlog="log.test", dispatcher=dispatcher,
+        resources=resources, python=python,
     )
     # concat
     seq = [run_train, post_train]

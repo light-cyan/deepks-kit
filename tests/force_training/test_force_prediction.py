@@ -743,7 +743,7 @@ def test_real_contract_reader_prediction_and_checkpoint_reload(
         checkpoint_path,
         require_force_metadata=True,
         expected_force_contract=contract,
-    )
+    ).to(case.teacher_method.device)
     loaded_result = evaluator.evaluate(loaded, sample)
     torch.testing.assert_close(
         loaded_result.prediction.energy,

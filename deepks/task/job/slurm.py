@@ -7,6 +7,12 @@ def _default_item(resources, key, value) :
     if key not in resources :
         resources[key] = value
 
+
+def _positive_gpu_count(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("Slurm GPU jobs require numb_gpu to be a positive integer")
+    return value
+
 class Slurm(Batch) :
 
     def check_status(self):
@@ -46,7 +52,7 @@ class Slurm(Batch) :
         _default_item(res, 'numb_node', 1)
         _default_item(res, 'task_per_node', 1)
         _default_item(res, 'cpus_per_task', 1)
-        _default_item(res, 'numb_gpu', 0)
+        _default_item(res, 'numb_gpu', 1)
         _default_item(res, 'time_limit', '1:0:0')
         _default_item(res, 'mem_limit', -1)
         _default_item(res, 'partition', '')
@@ -62,6 +68,7 @@ class Slurm(Batch) :
         _default_item(res, 'with_mpi', False)
         _default_item(res, 'cuda_multi_tasks', False)
         _default_item(res, 'allow_failure', False)
+        res['numb_gpu'] = _positive_gpu_count(res['numb_gpu'])
         return res
 
     def sub_script_head(self, res):
@@ -80,8 +87,7 @@ class Slurm(Batch) :
             ret += "#SBATCH --partition=%s \n" % res['partition']
         if len(res['qos']) > 0 :
             ret += "#SBATCH --qos=%s \n" % res['qos']
-        if res['numb_gpu'] > 0 :
-            ret += "#SBATCH --gres=gpu:%d\n" % res['numb_gpu']
+        ret += "#SBATCH --gres=gpu:%d\n" % res['numb_gpu']
         for ii in res['constraint_list'] :
             ret += '#SBATCH -C %s \n' % ii
         for ii in res['license_list'] :
@@ -112,11 +118,6 @@ class Slurm(Batch) :
     def sub_step_head(self, step_res=None, **kwargs):
         if step_res is None:
             return ""
-        # exclusive = step_res.get("exclusive", False)
-        # numb_node = step_res.get("numb_node", 1)
-        # task_per_node = step_res.get("task_per_node", 1)
-        # cpus_per_task = step_res.get("cpus_per_task", 1)
-        # numb_gpu = step_res.get('numb_gpu', 0)
         params = ""
         if "numb_node" in step_res:
             params += f" -N {step_res['numb_node']} "
@@ -126,8 +127,10 @@ class Slurm(Batch) :
             params += f" -c {step_res['cpus_per_task']} "
         if step_res.get("exclusive", False):
             params += " --exclusive "
-        if step_res.get('numb_gpu', 0) > 0 :
-            params += " --gres=gpu:%d\n " % step_res['numb_gpu']
+        if 'numb_gpu' in step_res:
+            params += " --gres=gpu:%d " % _positive_gpu_count(
+                step_res['numb_gpu']
+            )
         return f"srun {params} "
 
     def sub_script_cmd(self,

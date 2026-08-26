@@ -8,6 +8,7 @@ from deepks.data.force_schema import (
     ForceDataError,
     validate_force_checkpoint_metadata,
 )
+from deepks.gpu import DEFAULT_CUDA_DEVICE, require_cuda_device
 from deepks.model.model import CorrNet
 from deepks.model.reader import (
     FORCE_MODE_DEEPHF_RELAXED,
@@ -18,7 +19,7 @@ from deepks.model.train import Evaluator
 from deepks.utils import check_list, load_dirs
 
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device(DEFAULT_CUDA_DEVICE)
 
 
 @dataclass(frozen=True)
@@ -276,6 +277,7 @@ def main(
     descriptor_name=("descriptor",),
     force_mode=FORCE_MODE_NONE,
 ):
+    device = require_cuda_device(DEVICE)
     data_paths = load_dirs(data_paths)
     if isinstance(descriptor_name, (list, tuple)) and len(descriptor_name) == 1:
         descriptor_name = descriptor_name[0]
@@ -304,7 +306,7 @@ def main(
                 contract.compatibility_fingerprint if contract is not None else None
             ),
             expected_force_contract=contract,
-        ).double().to(DEVICE)
+        ).double().to(device)
         dump = os.path.join(directory, output_prefix) if output_prefix is not None else None
         if dump is not None:
             output_directory = os.path.dirname(dump)

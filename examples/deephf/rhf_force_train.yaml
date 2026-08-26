@@ -1,5 +1,5 @@
 seed: 20260820
-device: cpu
+device: cuda
 projector_basis:
   - [0, [0.8, 1.0]]
   - [1, [0.3, 1.0]]

@@ -38,6 +38,8 @@ class Shell(Batch) :
             res = {}
         else:
             res = res_
+        if res.get('numb_gpu', 0):
+            raise ValueError("GPU jobs must be submitted through Slurm")
         _default_item(res, 'task_per_node', 1)
         _default_item(res, 'module_list', [])
         _default_item(res, 'module_unload_list', [])

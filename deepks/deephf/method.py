@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from deepks.descriptor import AtomicDensityDescriptor
+from deepks.gpu import DEFAULT_CUDA_DEVICE, require_cuda_device
 from deepks.model.model import CorrNet
 
 from .capabilities import (
@@ -102,12 +103,17 @@ class DeePHF:
         reference,
         model,
         projector_basis=None,
-        device="cpu",
+        device=DEFAULT_CUDA_DEVICE,
         response_options=None,
         adjoint_options=None,
     ):
         self.reference = self._validate_reference_object(reference)
-        self.device = device or "cpu"
+        try:
+            self.device = require_cuda_device(device)
+        except Exception as error:
+            raise DeePHFCapabilityError(
+                f"the correction calculation could not use CUDA: {error}"
+            ) from error
         if isinstance(model, str):
             model = CorrNet.load(model).double()
         if isinstance(model, torch.nn.Module):
@@ -123,6 +129,7 @@ class DeePHF:
         self._descriptor = AtomicDensityDescriptor(
             self.reference.mol,
             projector_basis,
+            device=self.device,
         )
         validate_model(
             self.model,

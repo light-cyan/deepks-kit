@@ -45,7 +45,7 @@ f_corr = -sum_I,k (d e_corr / d q[I,k]) (d q[I,k] / d R)
 
 ### Self-consistent DeePKS
 
-The self-consistent DeePKS package retains neural-network energy correction, SCF integration, analytic gradient support, penalty terms, and iterative training workflows. The method-independent descriptor package is shared with DeePHF without importing either method implementation.
+The self-consistent DeePKS package runs RKS/UKS SCF and analytic gradients through GPU4PySCF. Projected-density descriptors, neural corrections, training, and saved-data evaluation run on CUDA through PyTorch, with DLPack transfers between CuPy and PyTorch at the SCF boundary.
 
 ### Model and data utilities
 
@@ -53,7 +53,7 @@ The self-consistent DeePKS package retains neural-network energy correction, SCF
 - Readers support energy-only datasets and the strict RHF relaxed-force schema.
 - Training reports separate energy and force metrics and supports validated force-aware restart checkpoints.
 - Saved-data testing evaluates compatible energy and force datasets.
-- Iteration and task utilities support local and SSH-based project workflows.
+- Iteration and task utilities stage local or SSH-backed workflows and submit every GPU calculation through Slurm.
 
 ## Command-line interface
 
@@ -81,20 +81,24 @@ uv run deepks train --help
 ### Runtime requirements
 
 - Python 3.10 or newer; Python 3.11 is the standard development and verification version.
-- A platform supported by PySCF and PyTorch.
+- Linux on an NVIDIA GPU with CUDA 12.8 compatibility and compute capability 7.0 or newer.
+- Slurm with GPU generic resources enabled.
 - Sufficient memory for dense response operators in the selected strict support tier.
 
 ### Direct dependencies
 
 | Dependency | Purpose | Current locked version |
 | --- | --- | --- |
-| NumPy | Arrays, linear algebra, descriptors, response tensors, and persisted data | 2.4.6 |
-| PySCF | Molecular integrals, RHF/UHF/RKS/UKS references, response primitives, and native gradients | 2.14.0 |
-| PyTorch | CorrNet models, automatic differentiation, training, and checkpoint state | 2.13.0+cpu |
+| NumPy | Arrays, linear algebra, descriptors, response tensors, and persisted data | 2.2.6 |
+| GPU4PySCF CUDA 12 | GPU SCF, density-functional integration, and analytic gradients | 1.8.1 |
+| PySCF | Molecular definitions and response primitives used by GPU4PySCF and strict DeePHF | 2.14.0 |
+| PyTorch CUDA 12.8 | GPU descriptors, CorrNet models, automatic differentiation, training, and checkpoint state | 2.11.0+cu128 |
+| CuPy CUDA 12 | GPU array storage and GPU4PySCF interoperability | 13.4.1 |
+| cuTENSOR CUDA 12 | Accelerated tensor contractions | 2.2.0 |
 | ruamel.yaml | YAML configuration loading | 0.19.1 |
 | Paramiko | SSH-backed task execution | 5.0.0 |
 
-The locked environment uses the PyTorch CPU wheel. PySCF reference and response calculations run on the CPU, and `device: cpu` is the verified project configuration.
+GPU execution is mandatory. Runtime entry points reject CPU devices, unavailable CUDA runtimes, and execution outside a Slurm allocation instead of falling back to the CPU. The runtime preloads the locked CUDA 12.8 runtime and NVRTC libraries before CuPy initialization so Blackwell devices compile GPU kernels against the matching toolkit.
 
 ### Development and build dependencies
 
@@ -109,6 +113,13 @@ Install the locked development environment from a repository checkout:
 ```bash
 uv sync --locked --python 3.11
 uv run deepks --help
+```
+
+Submit calculations with one visible GPU, for example:
+
+```bash
+srun --gres=gpu:1 uv run deepks scf INPUT.yaml
+srun --gres=gpu:1 uv run deepks train INPUT.yaml
 ```
 
 Build a source distribution and wheel:
@@ -252,8 +263,8 @@ The existing self-consistent and iterative examples are organized under `example
 Typical entry points are:
 
 ```bash
-uv run deepks scf INPUT.yaml
-uv run deepks test INPUT.yaml
+srun --gres=gpu:1 uv run deepks scf INPUT.yaml
+srun --gres=gpu:1 uv run deepks test INPUT.yaml
 uv run deepks stats INPUT.yaml
 uv run deepks iterate INPUT.yaml
 ```

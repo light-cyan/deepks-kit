@@ -1,12 +1,14 @@
-# this is only part of input settings. 
-# should be used together with systems.yaml and params.yaml
+# to use this file, simply add its name as another argument
+# in the command line after the main args.yaml
+# for example, `deepks iterate args.yaml slurm.yaml`
+# this overwrites the settings specified in the main file
 
-scf_machine: 
+scf_machine:
   # every system will be run as a separate command (a task)
-  sub_size: 1 
-  # 4 tasks will be gathered into one Slurm job
-  group_size: 4
-  dispatcher: 
+  sub_size: 1
+  # 2 tasks will be gathered into one Slurm job
+  group_size: 2
+  dispatcher:
     context: local
     batch: slurm
     remote_profile: null # use lazy local staging
@@ -16,15 +18,11 @@ scf_machine:
       PYSCF_MAX_MEMORY: 8000 # increase from 4G to 8G
   python: "python" # use python in path
 
-train_machine: 
-  dispatcher: 
+train_machine:
+  dispatcher:
     context: local
     batch: slurm
     remote_profile: null # use lazy local staging
   resources:
     numb_gpu: 1
   python: "python" # use python in path
-
-# other settings (these are default, can be omitted)
-cleanup: false # whether to delete slurm and err files
-strict: true # do not allow undefined machine parameters

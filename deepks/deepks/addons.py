@@ -2,12 +2,14 @@
 
 import time
 
+import cupy
 import numpy as np
 import torch
 from pyscf.lib import logger
 
 from deepks.descriptor import descriptor as torch_descriptor
 from deepks.descriptor import occupied_virtual_gradient, spin_summed_ao_density
+from deepks.gpu import cupy_from_torch, torch_from_array
 
 
 def descriptor_orbital_gradient_jacobian(
@@ -38,20 +40,25 @@ def descriptor_orbital_gradient_jacobian(
             axis=-1,
         )
     occupied = mo_occ > 0
-    occupations = torch.from_numpy(mo_occ[occupied]).to(method.device)
-    occupied_coefficients = torch.from_numpy(mo_coeff[:, occupied]).to(
-        method.device
+    occupations = torch_from_array(
+        mo_occ[occupied],
+        device=method.model_device,
     )
-    virtual_coefficients = torch.from_numpy(mo_coeff[:, ~occupied]).to(
-        method.device
+    occupied_coefficients = torch_from_array(
+        mo_coeff[:, occupied],
+        device=method.model_device,
     )
-    operators = torch.from_numpy(ao_jacobian).to(method.device)
+    virtual_coefficients = torch_from_array(
+        mo_coeff[:, ~occupied],
+        device=method.model_device,
+    )
+    operators = torch_from_array(ao_jacobian, device=method.model_device)
     return occupied_virtual_gradient(
         operators,
         virtual_coefficients,
         occupied_coefficients,
         occupations,
-    ).cpu().numpy()
+    ).detach().cpu().numpy()
 
 
 def coulomb_loss(method, fock=None, overlap=None, mo_occ=None):
@@ -67,8 +74,9 @@ def coulomb_loss(method, fock=None, overlap=None, mo_occ=None):
 
     def evaluate(potential, target_density):
         loss_sum = 0.0
-        gradient_sum = 0.0
-        target_density = target_density.reshape(fock.shape)
+        gradient_sum = cupy.zeros_like(fock[0])
+        target_density = cupy.asarray(target_density).reshape(fock.shape)
+        potential = cupy.asarray(potential)
         for target, reference_fock, occupations in zip(
             target_density,
             fock,
@@ -87,8 +95,11 @@ def coulomb_loss(method, fock=None, overlap=None, mo_occ=None):
                 occupied_coefficients * occupations[occupied]
             ) @ occupied_coefficients.T
             density_difference = density - target
-            coulomb_potential = method.get_j(dm=density_difference)
-            loss_sum += 0.5 * np.einsum(
+            coulomb_potential = method.get_j(
+                method.mol,
+                dm=density_difference,
+            )
+            loss_sum += 0.5 * cupy.einsum(
                 "ij,ji",
                 density_difference,
                 coulomb_potential,
@@ -107,7 +118,7 @@ def coulomb_loss(method, fock=None, overlap=None, mo_occ=None):
                 virtual_coefficients @ transformed @ occupied_coefficients.T
             )
             gradient_sum += derivative + derivative.T
-        return loss_sum, gradient_sum
+        return float(loss_sum.get()), gradient_sum
 
     return evaluate
 
@@ -116,13 +127,16 @@ def coulomb_loss_descriptor_gradient(method, target_density):
     """Return the Coulomb-loss gradient with respect to descriptor values."""
     loss_function = coulomb_loss(method)
     density = spin_summed_ao_density(method.make_rdm1())
-    tensor_density = torch.from_numpy(density).requires_grad_()
+    tensor_density = torch_from_array(
+        density,
+        device=method.model_device,
+    ).requires_grad_()
     values = torch_descriptor(
         tensor_density,
         method._descriptor.overlap_shells,
     ).requires_grad_()
     _, density_loss_gradient = loss_function(
-        np.zeros_like(density),
+        cupy.zeros_like(density),
         target_density,
     )
     descriptor_potential = torch.zeros_like(values).requires_grad_()
@@ -135,7 +149,7 @@ def coulomb_loss_descriptor_gradient(method, target_density):
     (result,) = torch.autograd.grad(
         ao_potential,
         descriptor_potential,
-        torch.from_numpy(density_loss_gradient),
+        torch_from_array(density_loss_gradient, device=method.model_device),
     )
     return result.detach().cpu().numpy()
 
@@ -155,24 +169,27 @@ def optimize_descriptor_potential(
         fock=method.get_fock(vhf=method.reference_effective_potential()),
     )
     density = spin_summed_ao_density(method.make_rdm1())
-    tensor_density = torch.from_numpy(density).requires_grad_()
+    tensor_density = torch_from_array(
+        density,
+        device=method.model_device,
+    ).requires_grad_()
     values = torch_descriptor(
         tensor_density,
         method._descriptor.overlap_shells,
     ).requires_grad_()
-    correction_energy = method.model(values.to(method.device))
+    correction_energy = method.model(values)
     (descriptor_potential,) = torch.autograd.grad(
         correction_energy,
         values,
     )
     descriptor_potential = descriptor_potential.requires_grad_()
     target_gradient = (
-        torch.from_numpy(target_correction_gradient)
+        torch_from_array(target_correction_gradient, device=method.model_device)
         if target_correction_gradient is not None
         else None
     )
     coordinate_jacobian = (
-        torch.from_numpy(descriptor_jacobian)
+        torch_from_array(descriptor_jacobian, device=method.model_device)
         if descriptor_jacobian is not None
         else None
     )
@@ -186,13 +203,13 @@ def optimize_descriptor_potential(
             create_graph=True,
         )
         loss, density_loss_gradient = loss_function(
-            ao_potential.detach().numpy(),
+            cupy_from_torch(ao_potential),
             target_density,
         )
         gradient = torch.autograd.grad(
             ao_potential,
             descriptor_potential,
-            torch.from_numpy(density_loss_gradient),
+            torch_from_array(density_loss_gradient, device=method.model_device),
             only_inputs=True,
         )[0]
         if target_gradient is not None and coordinate_jacobian is not None:
@@ -221,7 +238,7 @@ def optimize_descriptor_potential(
         optimizer.step(closure)
         timer = logger.timer(method, "LBFGS step", *timer)
     logger.note(method, "optimized descriptor-potential loss = %s", closure())
-    return descriptor_potential.detach().numpy()
+    return descriptor_potential.detach().cpu().numpy()
 
 
 def optimize_descriptor_potential_from_gradient(

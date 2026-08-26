@@ -144,12 +144,11 @@ def test_data_parameter_mutation_fails_at_public_reuse_boundary(method):
     )
 
 
-def test_numpy_alias_buffer_mutation_fails_at_public_reuse_boundary():
+def test_data_buffer_mutation_fails_at_public_reuse_boundary():
     method = _thermal_method()
 
     def mutate_running_variance(model):
-        shared = model.embedder.running_var.detach().numpy()
-        shared[...] = 4.0
+        model.embedder.running_var.data.fill_(4.0)
 
     _assert_untracked_value_mutation_rejected(method, mutate_running_variance)
 

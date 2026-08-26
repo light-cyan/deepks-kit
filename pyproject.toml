@@ -17,9 +17,12 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
+  "cupy-cuda12x==13.4.1",
+  "cutensor-cu12==2.2.0",
+  "gpu4pyscf-cuda12x>=1.8,<1.9",
   "numpy",
   "paramiko",
-  "pyscf",
+  "pyscf==2.14.*",
   "ruamel.yaml",
   "scipy",
   "torch",
@@ -41,12 +44,12 @@ include = ["deepks", "deepks.*"]
 write_to = "deepks/_version.py"
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu128" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

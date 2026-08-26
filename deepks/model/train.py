@@ -21,6 +21,7 @@ from deepks.data.force_schema import (
     validate_force_data_contract,
     validate_force_checkpoint_metadata,
 )
+from deepks.gpu import DEFAULT_CUDA_DEVICE, require_cuda_device
 from deepks.model.evaluate import (
     CorrectionPrediction,
     _predict_correction,
@@ -44,7 +45,7 @@ from deepks.model.reader import (
 from deepks.utils import load_basis, load_dirs, load_elem_table
 
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device(DEFAULT_CUDA_DEVICE)
 
 
 class ForceTrainingError(ValueError):
@@ -600,6 +601,7 @@ def train(model, g_reader, n_epoch=1000, test_reader=None, *,
         if n_epoch < decay_steps:
             raise ValueError("stop_lr requires at least one scheduled decay step")
 
+    device = require_cuda_device(device)
     model = model.to(device)
     model.eval()
     print("# working on device:", device)
@@ -763,12 +765,13 @@ def main(train_paths, test_paths=None,
          preprocess_args=None, train_args=None, 
          projector_basis=None, fit_elem=False,
          seed=None, device=None):
-   
+    selected_device = require_cuda_device(device)
     if seed is None: 
         seed = np.random.randint(0, 2**32)
     print(f'# using seed: {seed}')
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
     model_args = {} if model_args is None else dict(model_args)
     data_args = {} if data_args is None else dict(data_args)
@@ -778,8 +781,7 @@ def main(train_paths, test_paths=None,
         model_args["proj_basis"] = projector_basis
     if ckpt_file is not None:
         train_args["ckpt_file"] = ckpt_file
-    if device is not None:
-        train_args["device"] = device
+    train_args["device"] = selected_device
 
     force_enabled = train_args.get("force_factor", 0.) > 0
     configured_force_mode = data_args.get("force_mode", FORCE_MODE_NONE)
@@ -853,6 +855,7 @@ def main(train_paths, test_paths=None,
         if force_enabled:
             validate_model_force_contract(model, force_contract)
         
+    model = model.to(selected_device)
     preprocess(model, g_reader, **preprocess_args)
     return train(
         model,

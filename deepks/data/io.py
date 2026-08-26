@@ -5,6 +5,7 @@ import os
 import numpy as np
 from pyscf import gto
 
+from deepks.gpu import as_numpy
 from deepks.utils import get_sys_name, get_with_prefix, is_xyz, load_array
 
 
@@ -123,7 +124,9 @@ def collect_field_results(fields, metadata, results):
     }
     collected = {}
     for field in fields:
-        values = np.array([result[field.name] for result in results])
+        values = np.array(
+            [as_numpy(result[field.name]) for result in results]
+        )
         if field.shape:
             values = values.reshape(eval(field.shape, {}, local_shapes))
         collected[field.name] = values

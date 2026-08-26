@@ -10,7 +10,7 @@ echo $! > PID
 that runs the iterative learning procedure in background and record its PID in the designated file.
 Note that we use `python -u -m deepks` to turn off python's output buffer. You can also use `deepks` or `dks` directly if you have installed it properly. 
 
-Here we are using Slurm to schedule jobs. If Slurm is not available, please execute [`./run_shell.sh`](./run_shell.sh) to run on local machine. In the following section we provide a work through on how to write the arguments for deepks input in the [`args.yaml`](./args.yaml). You can also take a look at it for explanation on each specific parameters.
+GPU calculations are submitted through Slurm. The [`slurm.yaml`](./slurm.yaml) override requests one GPU for every SCF and neural-network task, and [`run_slurm.sh`](./run_slurm.sh) starts the iterative workflow with that configuration. In the following section we provide a work through on how to write the arguments for deepks input in the [`args.yaml`](./args.yaml). You can also take a look at it for explanation on each specific parameters.
 
 ## System preparation
 
@@ -54,7 +54,7 @@ How the SCF and training tasks are executed is specified in `scf_machine` and `t
 ```yaml
 dispatcher: 
   context: local
-  batch: slurm # set to "shell" to run on local machine
+  batch: slurm
   remote_profile: null # unnecessary in local context
 resources:
   time_limit: '24:00:00'
@@ -63,9 +63,7 @@ resources:
   mem_limit: 8 # gigabyte
 python: "python" # use python in path
 ```
-where we assign four CPU cores and one GPU to the training task, and set its time limit to be 24 hours and memory limit to be 8GB. The detailed settings available for `dispatcher` and `resources` can be found in the document of DP-GEN software, with a slightly different interface.
-
-In case there's no Slurm scheduler system, DeePKS-kit can also be run on a local machine with vanilla shell scripts, simply by setting `batch: shell`. Please check [`shell.yaml`](./shell.yaml) for an example. In that case, `resources` will be ignored and all available resources on the machine will be used. Support for more scheduler systems will also be implemented in the future.
+where we assign four CPU cores and one GPU to the training task, and set its time limit to 24 hours and memory limit to 8 GB. Self-consistent calculations and neural-network tasks require GPU resources and use the Slurm dispatcher; [`slurm.yaml`](./slurm.yaml) provides a complete override example.
 
 ## Testing the model
 

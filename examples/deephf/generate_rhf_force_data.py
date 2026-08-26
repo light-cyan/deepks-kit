@@ -7,9 +7,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from pyscf import gto, scf
+from pyscf import gto
 
 from deepks.deephf import DeePHF, write_rhf_force_dataset
+from deepks.deephf.workflow import build_reference
 from deepks.model.model import CorrNet
 
 
@@ -49,15 +50,16 @@ def make_reference(coordinates: np.ndarray):
         cart=False,
         verbose=0,
     )
-    reference = scf.RHF(molecule)
-    reference.conv_tol = 1.0e-13
-    reference.conv_tol_grad = 1.0e-10
-    reference.conv_tol_cpscf = 1.0e-12
-    reference.max_cycle = 100
-    reference.kernel()
-    if not reference.converged:
-        raise RuntimeError("the example RHF reference did not converge")
-    return reference
+    return build_reference(
+        molecule,
+        "rhf",
+        scf_args={
+            "conv_tol": 1.0e-13,
+            "conv_tol_grad": 1.0e-10,
+            "conv_tol_cpscf": 1.0e-12,
+            "max_cycle": 100,
+        },
+    )
 
 
 def make_teacher() -> CorrNet:

@@ -11,6 +11,10 @@ scf_machine:
   sub_size: 5 # 5 systems will be in one task, default is 1
   group_size: 2 # 2 tasks will be gathered into one group and submitted together
   ingroup_parallel: 2 # 2 tasks in one group submission can run toghther
+  resources:
+    numb_gpu: 1
+  sub_res:
+    numb_gpu: 1
 # train parameters
 train_input: true # use share_folder/train_input.yaml (check exist)
 train_machine: 

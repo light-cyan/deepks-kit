@@ -4,7 +4,8 @@ from pyscf import gto
 
 from deepks.model.model import CorrNet
 from deepks.deepks import RDeePKS, UDeePKS
-from deepks.deepks.penalty import CoulombPenalty
+from deepks.deepks.penalty import CoulombPenalty, DensityPenalty
+from deepks.gpu import as_numpy
 from deepks.utils import get_shell_sec, load_basis
 
 
@@ -459,8 +460,33 @@ def test_coulomb_penalty_scf_state_baseline():
         atol=3e-10,
     )
     np.testing.assert_allclose(
-        method.make_rdm1(),
+        as_numpy(method.make_rdm1()),
         EXPECTED_PENALIZED_DENSITY,
         rtol=0.0,
         atol=3e-9,
     )
+
+
+def test_density_penalty_runs_on_gpu_grid_and_returns_ao_potential():
+    molecule = make_molecule(MOLECULE_COORDINATES)
+    target_density = np.zeros((molecule.nao, molecule.nao))
+    penalty = DensityPenalty(target_density, strength=0.05)
+    method = RDeePKS(
+        molecule,
+        None,
+        projector_basis=PROJECTOR_BASIS,
+        penalties=[penalty],
+    )
+    configure_dft_grid(method)
+    method.conv_tol = 1e-11
+    method.max_cycle = 100
+
+    total_energy = method.kernel()
+    potential = as_numpy(penalty.fock_hook(method, dm=method.make_rdm1()))
+
+    assert method.converged
+    assert np.isfinite(total_energy)
+    assert potential.shape == (molecule.nao, molecule.nao)
+    assert np.isfinite(potential).all()
+    np.testing.assert_allclose(potential, potential.T, rtol=0.0, atol=1e-12)
+    assert np.linalg.norm(potential) > 0.0

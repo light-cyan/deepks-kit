@@ -123,8 +123,10 @@ def test_energy_only_saved_data_testing_remains_valid(tmp_path):
         ],
         dtype=np.float64,
     )
-    model = CorrNet(input_dim=3, hidden_sizes=(3,)).double().eval()
-    energy = model(torch.from_numpy(descriptor)).detach().numpy()
+    model = CorrNet(input_dim=3, hidden_sizes=(3,)).double().to("cuda").eval()
+    energy = model(
+        torch.from_numpy(descriptor).to("cuda")
+    ).detach().cpu().numpy()
     np.save(data_directory / "descriptor.npy", descriptor, allow_pickle=False)
     np.save(data_directory / "e_corr_target.npy", energy, allow_pickle=False)
     checkpoint = tmp_path / "energy-model.pth"

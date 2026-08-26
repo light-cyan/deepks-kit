@@ -9,6 +9,11 @@ import numpy as np
 from pyscf import dft, scf
 
 from deepks.data.io import build_molecule, dump_data, iter_system
+from deepks.gpu import (
+    DEFAULT_CUDA_DEVICE,
+    GPU_DIRECT_SCF_TOL,
+    require_cuda_device,
+)
 from deepks.model.model import CorrNet
 from deepks.utils import get_sys_name, load_sys_paths
 
@@ -50,7 +55,28 @@ def _canonicalize_final_orbitals(reference) -> None:
     )
 
 
-def make_deephf(reference, model, *, projector_basis=None, device="cpu", response_options=None, adjoint_options=None):
+def _configure_strict_dft_grid(reference, molecule) -> None:
+    """Build the deterministic unpruned grid on the active SCF backend."""
+    reference.xc = "LDA_X + LDA_C_VWN"
+    reference.grids.atom_grid = {
+        symbol: (20, 50) for symbol in set(molecule.elements)
+    }
+    reference.grids.prune = None
+    reference.grids.alignment = 1
+    reference.grids.cutoff = 1.0e-15
+    reference.grids.build(with_non0tab=True, sort_grids=False)
+    reference.small_rho_cutoff = 0.0
+
+
+def make_deephf(
+    reference,
+    model,
+    *,
+    projector_basis=None,
+    device=DEFAULT_CUDA_DEVICE,
+    response_options=None,
+    adjoint_options=None,
+):
     """Construct the exact public DeePHF method matching a native reference."""
     method_class = METHOD_CLASSES.get(type(reference))
     if method_class is None:
@@ -68,28 +94,31 @@ def make_deephf(reference, model, *, projector_basis=None, device="cpu", respons
 
 
 def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
-    """Build and converge one exact native reference in the accepted support tier."""
+    """Converge one GPU4PySCF reference and return its strict PySCF state."""
+    require_cuda_device()
+    from gpu4pyscf import dft as gpu_dft
+    from gpu4pyscf import scf as gpu_scf
+
     if type(family) is not str or family.lower() not in REFERENCE_FAMILIES:
         raise ValueError("reference family must be one of rhf, uhf, rks, or uks")
     family = family.lower()
     if family in {"rhf", "rks"} and molecule.spin != 0:
         raise ValueError(f"the strict {family.upper()} family requires molecular spin zero")
     if family == "rhf":
-        reference = scf.RHF(molecule)
+        reference = gpu_scf.RHF(molecule)
     elif family == "uhf":
-        reference = scf.UHF(molecule)
+        reference = gpu_scf.UHF(molecule)
     elif family == "rks":
-        reference = dft.RKS(molecule)
+        reference = gpu_dft.RKS(molecule)
     else:
-        reference = dft.UKS(molecule)
+        reference = gpu_dft.UKS(molecule)
     expected_type = {"rhf": scf.hf.RHF, "uhf": scf.uhf.UHF, "rks": dft.rks.RKS, "uks": dft.uks.UKS}[family]
-    if type(reference) is not expected_type:
-        raise TypeError(f"the requested {family.upper()} constructor did not produce its exact native reference type")
     reference.verbose = verbose
     controls = {
         "conv_tol": 1.0e-12,
         "conv_tol_grad": 1.0e-10,
         "conv_tol_cpscf": 1.0e-12,
+        "direct_scf_tol": GPU_DIRECT_SCF_TOL,
         "max_cycle": 100,
     }
     controls.update({} if scf_args is None else dict(scf_args))
@@ -101,6 +130,7 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         "diis_space",
         "level_shift",
         "direct_scf",
+        "direct_scf_tol",
         "conv_check",
     }
     unknown = sorted(set(controls) - supported_controls)
@@ -108,13 +138,7 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         raise ValueError("unsupported strict reference controls: " + ", ".join(unknown))
     reference.set(**controls)
     if family in {"rks", "uks"}:
-        reference.xc = "LDA_X + LDA_C_VWN"
-        reference.grids.atom_grid = {symbol: (20, 50) for symbol in set(molecule.elements)}
-        reference.grids.prune = None
-        reference.grids.alignment = 1
-        reference.grids.cutoff = 1.0e-15
-        reference.grids.build(with_non0tab=True, sort_grids=False)
-        reference.small_rho_cutoff = 0.0
+        _configure_strict_dft_grid(reference, molecule)
     if dm0 is not None:
         initial_density = np.asarray(dm0)
         expected_shape = (
@@ -136,9 +160,18 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         initial_density = None
     reference.kernel(dm0=initial_density)
     if not reference.converged:
-        raise RuntimeError(f"the native {family.upper()} reference did not converge")
+        raise RuntimeError(f"the GPU4PySCF {family.upper()} reference did not converge")
     _canonicalize_final_orbitals(reference)
-    return reference
+    strict_reference = reference.to_cpu()
+    if type(strict_reference) is not expected_type:
+        raise TypeError(
+            f"the GPU4PySCF {family.upper()} result did not convert to its exact "
+            "strict PySCF reference type"
+        )
+    if family in {"rks", "uks"}:
+        strict_reference.__dict__.pop("cphf_grids", None)
+        _configure_strict_dft_grid(strict_reference, molecule)
+    return strict_reference
 
 
 def evaluate_molecule(
@@ -148,7 +181,7 @@ def evaluate_molecule(
     family,
     backend="direct",
     projector_basis=None,
-    device="cpu",
+    device=DEFAULT_CUDA_DEVICE,
     scf_args=None,
     response_options=None,
     adjoint_options=None,
@@ -173,7 +206,7 @@ def _evaluate_reference(
     *,
     backend="direct",
     projector_basis=None,
-    device="cpu",
+    device=DEFAULT_CUDA_DEVICE,
     response_options=None,
     adjoint_options=None,
 ):
@@ -379,7 +412,7 @@ def main(
     basis="sto-3g",
     projector_basis=None,
     backend="direct",
-    device="cpu",
+    device=DEFAULT_CUDA_DEVICE,
     dump_dir=".",
     mol_args=None,
     scf_args=None,
