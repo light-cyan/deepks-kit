@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 from pathlib import Path
 import re
+import time
 
 import numpy as np
 from ase import units
@@ -78,6 +80,7 @@ def parse_arguments():
 
 
 def main():
+    total_started = time.perf_counter()
     args = parse_arguments()
     require_cuda_device()
     if args.steps < 0:
@@ -217,11 +220,15 @@ def main():
 
         dynamics.attach(record_energy, interval=1)
         dynamics.attach(trajectory.write, interval=args.trajectory_interval)
+        md_started = time.perf_counter()
         dynamics.run(args.steps)
+        md_wall_time = time.perf_counter() - md_started
     trajectory.close()
     energies = np.asarray(total_energies, dtype=np.float64)
     times = np.arange(energies.size, dtype=np.float64) * args.timestep_fs
     drift = energies - energies[0]
+    simulated_duration = args.steps * args.timestep_fs
+    total_wall_time = time.perf_counter() - total_started
     slope = (
         float(np.polyfit(times, drift, 1)[0])
         if energies.size >= 2 and times[-1] > 0.0
@@ -247,6 +254,26 @@ def main():
         "timestep_fs": args.timestep_fs,
         "steps": args.steps,
         "seed": args.seed,
+        "slurm": {
+            "array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
+            "array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
+            "job_id": os.environ.get("SLURM_JOB_ID"),
+        },
+        "timing": {
+            "initialization_wall_time_seconds": total_wall_time - md_wall_time,
+            "md_wall_time_seconds": md_wall_time,
+            "md_wall_seconds_per_simulated_fs": (
+                md_wall_time / simulated_duration
+                if simulated_duration > 0.0
+                else 0.0
+            ),
+            "total_wall_time_seconds": total_wall_time,
+            "total_wall_seconds_per_simulated_fs": (
+                total_wall_time / simulated_duration
+                if simulated_duration > 0.0
+                else 0.0
+            ),
+        },
         "maximum_absolute_energy_drift_eV": float(np.max(np.abs(drift))),
         "maximum_absolute_energy_drift_eV_per_atom": float(
             np.max(np.abs(drift)) / len(atoms)

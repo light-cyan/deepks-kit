@@ -7,25 +7,34 @@
 
 set -euo pipefail
 
-if [ "$#" -ne 4 ]; then
-  echo "Usage: sbatch --array=0-8 run_slurm.sh ARCHIVE MODEL BASIS OUTPUT_ROOT" >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 8 ]; then
+  echo "Usage: sbatch --array=... run_slurm.sh SAMPLE_SOURCE MODEL BASIS OUTPUT_ROOT [STEPS] [TIMESTEP_FS] [TEMPERATURE_K] [SEED]" >&2
   exit 2
 fi
 
-project_root=$(cd "$(dirname "$0")/../.." && pwd)
-archive=$(realpath "$1")
+project_root=$(realpath "${SLURM_SUBMIT_DIR:-$(pwd)}")
+sample_source=$(realpath "$1")
 model=$2
 basis=$3
 mkdir -p "$4"
 output_root=$(realpath "$4")
+steps=${5:-100}
+timestep_fs=${6:-0.02}
+temperature_k=${7:-100}
+seed=${8:-20260821}
 if [ "${model^^}" != "NONE" ]; then
   model=$(realpath "$model")
 fi
 
-work_directory=$(mktemp -d)
-trap 'rm -rf "$work_directory"' EXIT
-unzip -q "$archive" '*/samples/*/*.xyz' -d "$work_directory"
-mapfile -t samples < <(find "$work_directory" -type f -name '*.xyz' | sort)
+work_directory=""
+if [ -d "$sample_source" ]; then
+  mapfile -t samples < <(find "$sample_source" -type f -name '*.xyz' | sort)
+else
+  work_directory=$(mktemp -d)
+  trap 'rm -rf "$work_directory"' EXIT
+  unzip -q "$sample_source" '*/samples/*/*.xyz' -d "$work_directory"
+  mapfile -t samples < <(find "$work_directory" -type f -name '*.xyz' | sort)
+fi
 sample_index=${SLURM_ARRAY_TASK_ID:-0}
 if [ "$sample_index" -ge "${#samples[@]}" ]; then
   echo "Sample index $sample_index is outside the ${#samples[@]} extracted samples" >&2
@@ -41,7 +50,8 @@ uv run python scripts/run_ase_md.py \
   "$sample" \
   --model "$model" \
   --basis "$basis" \
-  --temperature-k 100 \
-  --timestep-fs 0.02 \
-  --steps 100 \
+  --temperature-k "$temperature_k" \
+  --timestep-fs "$timestep_fs" \
+  --steps "$steps" \
+  --seed "$seed" \
   --output-directory "$output_root/$sample_name"
