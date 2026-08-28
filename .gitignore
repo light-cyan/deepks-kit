@@ -59,3 +59,9 @@ venv.bak/
 /draft.md
 /TODO.md
 /diagnostics/scientific_performance/results/
+/deephf_b3lyp_assets/
+/deephf_b3lyp_md/
+/deephf_b3lyp_pilot/
+/deephf_b3lyp_validation/
+/md_results/
+/project.tar.gz

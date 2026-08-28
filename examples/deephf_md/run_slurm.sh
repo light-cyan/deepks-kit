@@ -3,7 +3,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --time=7-00:00:00
 
 set -euo pipefail
 
@@ -18,8 +18,8 @@ model=$2
 basis=$3
 mkdir -p "$4"
 output_root=$(realpath "$4")
-steps=${5:-100}
-timestep_fs=${6:-0.02}
+steps=${5:-400}
+timestep_fs=${6:-0.25}
 temperature_k=${7:-100}
 seed=${8:-20260821}
 if [ "${model^^}" != "NONE" ]; then
@@ -50,6 +50,13 @@ uv run python scripts/run_ase_md.py \
   "$sample" \
   --model "$model" \
   --basis "$basis" \
+  --reference-family rks \
+  --xc B3LYP5 \
+  --grid-mode default \
+  --grid-level 3 \
+  --small-rho-cutoff 0 \
+  --scf-conv-tol 1e-10 \
+  --scf-conv-tol-grad 1e-7 \
   --temperature-k "$temperature_k" \
   --timestep-fs "$timestep_fs" \
   --steps "$steps" \

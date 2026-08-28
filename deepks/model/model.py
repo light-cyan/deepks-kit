@@ -1008,6 +1008,32 @@ def validate_force_model_architecture(model, *, training: bool) -> None:
         raise ValueError("the force CorrNet execution graph could not be inspected")
 
 
+def corrnet_is_shell_permutation_invariant(model) -> bool:
+    """Return whether one CorrNet is invariant to eigenvalue order per shell."""
+    if type(model) is not CorrNet or type(model.embedder) not in {
+        TraceEmbedding,
+        ThermalEmbedding,
+    }:
+        return False
+    shell_sizes = tuple(model.shell_sec or ())
+    if not shell_sizes or sum(shell_sizes) != model.input_dim:
+        return False
+    if tuple(model.embedder.shell_sec) != shell_sizes:
+        return False
+    shift = model.input_shift.detach()
+    scale = model.input_scale.detach()
+    linear = model.linear.weight.detach()[0]
+    offset = 0
+    for shell_size in shell_sizes:
+        stop = offset + shell_size
+        for values in (shift, scale, linear):
+            block = values[offset:stop]
+            if not torch.equal(block, block[:1].expand_as(block)):
+                return False
+        offset = stop
+    return True
+
+
 def force_model_structure_evidence(model):
     """Return canonical cheap evidence for the supported CorrNet execution graph."""
     try:

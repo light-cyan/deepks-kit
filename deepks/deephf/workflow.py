@@ -61,17 +61,58 @@ def _canonicalize_final_orbitals(reference) -> None:
     )
 
 
-def _configure_strict_dft_grid(reference, molecule) -> None:
-    """Build the deterministic unpruned grid on the active SCF backend."""
-    reference.xc = "LDA_X + LDA_C_VWN"
-    reference.grids.atom_grid = {
-        symbol: (20, 50) for symbol in set(molecule.elements)
+def _normalize_gpu_dft_args(dft_args) -> dict:
+    """Return the serializable DFT controls used by every trajectory frame."""
+    if dft_args is None:
+        return {
+            "xc": "LDA_X + LDA_C_VWN",
+            "grid_mode": "strict",
+            "grid_level": 3,
+            "small_rho_cutoff": 0.0,
+        }
+    if not isinstance(dft_args, Mapping):
+        raise TypeError("dft_args must be a mapping")
+    controls = {
+        "xc": "LDA_X + LDA_C_VWN",
+        "grid_mode": "default",
+        "grid_level": 3,
+        "small_rho_cutoff": 0.0,
+        **dict(dft_args),
     }
-    reference.grids.prune = None
-    reference.grids.alignment = 1
+    supported = {"xc", "grid_mode", "grid_level", "small_rho_cutoff"}
+    unknown = sorted(set(controls) - supported)
+    if unknown:
+        raise ValueError("unsupported GPU DFT controls: " + ", ".join(unknown))
+    if not isinstance(controls["xc"], str) or not controls["xc"].strip():
+        raise ValueError("GPU DFT xc must be a nonempty string")
+    if controls["grid_mode"] not in {"default", "strict"}:
+        raise ValueError("GPU DFT grid_mode must be 'default' or 'strict'")
+    if type(controls["grid_level"]) is not int or controls["grid_level"] < 0:
+        raise ValueError("GPU DFT grid_level must be a nonnegative integer")
+    small_rho_cutoff = float(controls["small_rho_cutoff"])
+    if small_rho_cutoff < 0.0 or not np.isfinite(small_rho_cutoff):
+        raise ValueError("GPU DFT small_rho_cutoff must be finite and nonnegative")
+    controls["small_rho_cutoff"] = small_rho_cutoff
+    return controls
+
+
+def _configure_gpu_dft(reference, molecule, dft_args) -> dict:
+    """Configure one reproducible GPU DFT functional and integration grid."""
+    controls = _normalize_gpu_dft_args(dft_args)
+    reference.xc = controls["xc"]
+    reference.grids.level = controls["grid_level"]
     reference.grids.cutoff = 1.0e-15
-    reference.grids.build(with_non0tab=True, sort_grids=False)
-    reference.small_rho_cutoff = 0.0
+    if controls["grid_mode"] == "strict":
+        reference.grids.alignment = 1
+        reference.grids.atom_grid = {
+            symbol: (20, 50) for symbol in set(molecule.elements)
+        }
+        reference.grids.prune = None
+        reference.grids.build(with_non0tab=True, sort_grids=False)
+    else:
+        reference.grids.build(with_non0tab=True)
+    reference.small_rho_cutoff = controls["small_rho_cutoff"]
+    return controls
 
 
 def make_deephf(
@@ -104,7 +145,15 @@ def make_deephf(
     )
 
 
-def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
+def build_reference(
+    molecule,
+    family,
+    *,
+    scf_args=None,
+    dft_args=None,
+    dm0=None,
+    verbose=0,
+):
     """Converge one GPU4PySCF reference and return its strict PySCF state."""
     require_cuda_device()
     import cupy
@@ -114,6 +163,8 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
     if type(family) is not str or family.lower() not in REFERENCE_FAMILIES:
         raise ValueError("reference family must be one of rhf, uhf, rks, or uks")
     family = family.lower()
+    if family not in {"rks", "uks"} and dft_args is not None:
+        raise ValueError("dft_args require an RKS or UKS reference family")
     if family in {"rhf", "rks"} and molecule.spin != 0:
         raise ValueError(f"the strict {family.upper()} family requires molecular spin zero")
     if family == "rhf":
@@ -158,8 +209,9 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
     if unknown:
         raise ValueError("unsupported strict reference controls: " + ", ".join(unknown))
     reference.set(**controls)
+    active_dft_args = None
     if family in {"rks", "uks"}:
-        _configure_strict_dft_grid(reference, molecule)
+        active_dft_args = _configure_gpu_dft(reference, molecule, dft_args)
     if dm0 is not None:
         initial_density = cupy.asarray(dm0)
         expected_shape = (
@@ -203,6 +255,7 @@ def build_reference(molecule, family, *, scf_args=None, dm0=None, verbose=0):
         **controls,
         "newton_max_cycle": newton_max_cycle,
     }
+    reference._deepks_dft_args = active_dft_args
     return reference
 
 
@@ -215,12 +268,19 @@ def evaluate_molecule(
     projector_basis=None,
     device=DEFAULT_CUDA_DEVICE,
     scf_args=None,
+    dft_args=None,
     response_options=None,
     adjoint_options=None,
     verbose=0,
 ):
     """Evaluate energy, descriptor, gradient, and force through one public backend."""
-    reference = build_reference(molecule, family, scf_args=scf_args, verbose=verbose)
+    reference = build_reference(
+        molecule,
+        family,
+        scf_args=scf_args,
+        dft_args=dft_args,
+        verbose=verbose,
+    )
     return _evaluate_reference(
         reference,
         model,
@@ -278,6 +338,8 @@ def _reference_state_fingerprint(reference) -> str:
 
         digest = hashlib.sha256()
         update_digest(digest, gpu_reference_family(reference))
+        update_digest(digest, getattr(reference, "xc", None))
+        update_digest(digest, getattr(reference, "_deepks_dft_args", None))
         update_digest(digest, float(reference.e_tot))
         update_digest(digest, reference.mol.atom_coords(unit="Bohr"))
         update_digest(digest, as_numpy(reference.mo_energy))
@@ -303,6 +365,7 @@ class _ReferenceSequence:
         family,
         *,
         scf_args=None,
+        dft_args=None,
         root_overlap_tolerance=0.5,
         verbose=0,
     ):
@@ -310,6 +373,7 @@ class _ReferenceSequence:
             raise ValueError("reference family must be one of rhf, uhf, rks, or uks")
         self.family = family.lower()
         self.scf_args = None if scf_args is None else dict(scf_args)
+        self.dft_args = None if dft_args is None else dict(dft_args)
         self.root_overlap_tolerance = validate_root_overlap_tolerance(
             root_overlap_tolerance,
             owner="trajectory",
@@ -337,6 +401,7 @@ class _ReferenceSequence:
             molecule,
             self.family,
             scf_args=self.scf_args,
+            dft_args=self.dft_args,
             dm0=self._previous_density,
             verbose=self.verbose,
         )
@@ -461,6 +526,7 @@ def main(
     dump_dir=".",
     mol_args=None,
     scf_args=None,
+    dft_args=None,
     response_options=None,
     adjoint_options=None,
     root_overlap_tolerance=0.5,
@@ -478,6 +544,7 @@ def main(
         sequence = _ReferenceSequence(
             reference,
             scf_args=scf_args,
+            dft_args=dft_args,
             root_overlap_tolerance=root_overlap_tolerance,
             verbose=verbose,
         )

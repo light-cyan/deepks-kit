@@ -60,6 +60,19 @@ def parse_arguments():
     parser.add_argument("xyz", type=Path)
     parser.add_argument("--model", default="NONE")
     parser.add_argument("--basis", required=True)
+    parser.add_argument(
+        "--reference-family",
+        choices=("rhf", "uhf", "rks", "uks"),
+        default="rks",
+    )
+    parser.add_argument("--xc", default="B3LYP5")
+    parser.add_argument(
+        "--grid-mode",
+        choices=("default", "strict"),
+        default="default",
+    )
+    parser.add_argument("--grid-level", type=int, default=3)
+    parser.add_argument("--small-rho-cutoff", type=float, default=0.0)
     parser.add_argument("--charge", type=int)
     parser.add_argument("--multiplicity", type=int)
     parser.add_argument("--temperature-k", type=float, default=100.0)
@@ -106,6 +119,10 @@ def main():
         raise ValueError("SCF convergence tolerances must be finite and positive")
     if args.scf_level_shift < 0.0 or not np.isfinite(args.scf_level_shift):
         raise ValueError("scf-level-shift must be finite and nonnegative")
+    if args.grid_level < 0:
+        raise ValueError("grid-level must be nonnegative")
+    if args.small_rho_cutoff < 0.0 or not np.isfinite(args.small_rho_cutoff):
+        raise ValueError("small-rho-cutoff must be finite and nonnegative")
 
     encoded_charge, encoded_multiplicity = xyz_state(args.xyz)
     charge = encoded_charge if args.charge is None else args.charge
@@ -129,7 +146,9 @@ def main():
         cart=False,
         verbose=args.verbose,
     )
-    family = "rhf" if spin == 0 else "uhf"
+    family = args.reference_family
+    if family in {"rhf", "rks"} and spin != 0:
+        raise ValueError(f"{family.upper()} requires multiplicity 1")
     if str(args.model).upper() == "NONE":
         model = None
         projector_basis = None
@@ -147,6 +166,16 @@ def main():
             "diis_space": args.scf_diis_space,
             "level_shift": args.scf_level_shift,
         },
+        dft_args=(
+            {
+                "xc": args.xc,
+                "grid_mode": args.grid_mode,
+                "grid_level": args.grid_level,
+                "small_rho_cutoff": args.small_rho_cutoff,
+            }
+            if family in {"rks", "uks"}
+            else None
+        ),
         verbose=args.verbose,
     )
     method = make_deephf(
@@ -238,6 +267,14 @@ def main():
         "schema": {"id": "deepks.deephf.ase-nve", "version": 1},
         "input_xyz": str(args.xyz.resolve()),
         "reference_family": family.upper(),
+        "dft": (
+            {
+                "xc": reference.xc,
+                **reference._deepks_dft_args,
+            }
+            if family in {"rks", "uks"}
+            else None
+        ),
         "charge": charge,
         "multiplicity": multiplicity,
         "basis": args.basis,

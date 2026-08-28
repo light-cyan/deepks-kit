@@ -25,8 +25,9 @@ def validate_differentiability(
     gap_rtol: float = 1.0e-7,
     zero_atol: float = 1.0e-9,
     sensitivity_atol: float = 1.0e-8,
+    symmetric_function: bool = False,
 ) -> DescriptorDiagnostics:
-    """Validate nondegenerate blocks and fixed-rank structural zero spaces."""
+    """Validate simple spectra and sensitivity-symmetric degenerate spaces."""
     values = np.asarray(values, dtype=float)
     if values.ndim != 2 or values.shape[1] != sum(shell_sizes):
         raise ValueError("values must have shape (descriptor_atom, sum(shell_sizes))")
@@ -72,7 +73,9 @@ def validate_differentiability(
                 structural_zero_blocks.append(
                     (atom_index, shell_index, offset, offset + structural_nullity)
                 )
-            for gap_index, gap in enumerate(np.diff(block)):
+            gaps = np.diff(block)
+            small_gaps = []
+            for gap_index, gap in enumerate(gaps):
                 scale = max(
                     abs(block[gap_index]),
                     abs(block[gap_index + 1]),
@@ -80,13 +83,33 @@ def validate_differentiability(
                 )
                 threshold = gap_atol + gap_rtol * scale
                 minimum_scaled_gap = min(minimum_scaled_gap, gap / threshold)
-                inside_structural_zero_block = gap_index < structural_nullity - 1
-                if gap <= threshold and not inside_structural_zero_block:
-                    raise DescriptorDifferentiabilityError(
-                        f"descriptor atom {atom_index}, shell {shell_index}: "
-                        f"eigenvalue gap {gap:.3e} at block positions "
-                        f"{gap_index}:{gap_index + 2} does not exceed {threshold:.3e}"
-                    )
+                small_gaps.append(gap <= threshold)
+            gap_index = 0
+            while gap_index < len(gaps):
+                if not small_gaps[gap_index]:
+                    gap_index += 1
+                    continue
+                cluster_start = gap_index
+                while gap_index + 1 < len(gaps) and small_gaps[gap_index + 1]:
+                    gap_index += 1
+                cluster_stop = gap_index + 2
+                inside_structural_zero_block = cluster_stop <= structural_nullity
+                if not inside_structural_zero_block and not symmetric_function:
+                    if block_sensitivity is None:
+                        raise DescriptorDifferentiabilityError(
+                            f"descriptor atom {atom_index}, shell {shell_index}: "
+                            f"eigenvalue gap {gaps[cluster_start]:.3e} at block positions "
+                            f"{cluster_start}:{cluster_stop} has no sensitivity symmetry evidence"
+                        )
+                    spread = np.ptp(block_sensitivity[cluster_start:cluster_stop])
+                    if spread > sensitivity_atol:
+                        raise DescriptorDifferentiabilityError(
+                            f"descriptor atom {atom_index}, shell {shell_index}: "
+                            f"degenerate block sensitivity spread {spread:.3e} "
+                            f"exceeds {sensitivity_atol:.3e} at block positions "
+                            f"{cluster_start}:{cluster_stop}"
+                        )
+                gap_index += 1
         offset += shell_size
     return DescriptorDiagnostics(
         minimum_scaled_gap=float(minimum_scaled_gap),

@@ -121,6 +121,7 @@ def test_rhf_gpu_analytic_gradient_matches_total_energy_finite_difference():
         model,
         projector_basis=PROJECTOR_BASIS,
     )
+    assert next(method.model.parameters()).device.type == "cuda"
     analytic = method.gradient()[1, 2]
     numerical = _finite_difference(_h2, "rhf", model, 1.4)
 
@@ -181,6 +182,36 @@ def test_dft_gpu_correction_gradient_matches_correction_energy_finite_difference
 
     np.testing.assert_allclose(analytic, numerical, rtol=0.0, atol=3.0e-6)
     assert method.operation_counts["gpu_direct_response_solves"] == 1
+
+
+def test_b3lyp_gpu_analytic_gradient_matches_total_energy_finite_difference():
+    require_cuda_device()
+    model = _model()
+    dft_args = {
+        "xc": "B3LYP5",
+        "grid_mode": "default",
+        "grid_level": 3,
+        "small_rho_cutoff": 0.0,
+    }
+
+    def evaluate(distance, *, gradient=False):
+        method = make_deephf(
+            build_reference(
+                _h2(distance),
+                "rks",
+                scf_args={"conv_tol_grad": 1.0e-7},
+                dft_args=dft_args,
+            ),
+            model,
+            projector_basis=PROJECTOR_BASIS,
+        )
+        return method.gradient()[1, 2] if gradient else method.kernel()
+
+    analytic = evaluate(1.4, gradient=True)
+    step = 1.0e-4
+    numerical = (evaluate(1.4 + step) - evaluate(1.4 - step)) / (2.0 * step)
+
+    np.testing.assert_allclose(analytic, numerical, rtol=0.0, atol=5.0e-6)
 
 
 def test_uhf_gradient_scanner_reuses_density_and_tracks_both_spin_roots():

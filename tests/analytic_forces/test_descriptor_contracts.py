@@ -54,22 +54,44 @@ def test_structural_zero_block_with_unequal_sensitivity_is_rejected():
         pytest.param(np.array([[0.5, 0.50000005]]), id="near-crossing"),
     ],
 )
-def test_splitting_and_near_crossing_blocks_are_rejected_with_context(
+def test_sensitivity_symmetric_splitting_and_near_crossing_blocks_are_accepted(
     values,
 ):
+    diagnostics = validate_differentiability(
+        values=values,
+        shell_sizes=(2,),
+        n_occupied=2,
+        sensitivity=np.array([[0.2, 0.2]]),
+    )
+
+    assert diagnostics.minimum_scaled_gap <= 1.0
+
+
+def test_sensitivity_asymmetric_degenerate_block_is_rejected_with_context():
     with pytest.raises(DescriptorDifferentiabilityError) as error:
         validate_differentiability(
-            values=values,
+            values=np.array([[0.5, 0.5]]),
             shell_sizes=(2,),
             n_occupied=2,
-            sensitivity=np.array([[0.2, 0.2]]),
+            sensitivity=np.array([[0.2, 0.3]]),
         )
 
     message = str(error.value)
     assert "descriptor atom 0, shell 0" in message
-    assert "eigenvalue gap" in message
+    assert "degenerate block sensitivity spread" in message
     assert "block positions 0:2" in message
-    assert "does not exceed" in message
+
+
+def test_proven_symmetric_spectral_function_accepts_near_degeneracy():
+    diagnostics = validate_differentiability(
+        values=np.array([[0.5, 0.5000000001]]),
+        shell_sizes=(2,),
+        n_occupied=2,
+        sensitivity=np.array([[0.2, 0.3]]),
+        symmetric_function=True,
+    )
+
+    assert diagnostics.minimum_scaled_gap < 1.0
 
 
 def test_occupied_virtual_gradient_matches_the_explicit_ao_formula():

@@ -1,33 +1,32 @@
-# GPU DeePHF molecular dynamics
+# Published DeePHF B3LYP molecular dynamics
 
-The DeePHF ASE calculator evaluates the GPU4PySCF reference, correction network, complete direct density response, and analytic nuclear gradient within one Slurm GPU allocation. The calculator rejects periodic systems, atomic-number changes, SCF failures, occupation changes, and discontinuous occupied subspaces.
+The workflow runs NVE trajectories with the published B3LYP(GRAM and Transition1x) correction network, GPU4PySCF B3LYP5/def2-TZVP references, the complete GPU coupled-perturbed density response, and analytic DeePHF nuclear forces. `B3LYP5` is the explicit LibXC spelling of the B3LYP definition used by the publication's PySCF 2.2.1 environment. Every electronic calculation must run inside a Slurm GPU allocation.
 
-Run one trajectory from an XYZ file whose comment line contains `charge` and `multiplicity`:
-
-```bash
-sbatch --gres=gpu:1 --wrap="uv run python scripts/run_ase_md.py sample.xyz --model model.pth --basis ccpvdz --output-directory md-output"
-```
-
-Run the nine independent samples from the supplied archive as a Slurm array:
+Prepare the audited checkpoint and nine neutral singlet GRAM test configurations from the Zenodo archive:
 
 ```bash
-sbatch --array=0-8 examples/deephf_md/run_slurm.sh random_cluster_samples_20260821.zip model.pth ccpvdz md-output
+uv run python scripts/prepare_zenodo_deephf.py project.tar.gz deephf_b3lyp_assets
 ```
 
-The first argument may also be an extracted sample directory. Optional trailing arguments set the step count, timestep in femtoseconds, temperature in kelvin, and random-velocity seed:
+Validate the converted model against the archived descriptors and correction labels, reproduce one archived B3LYP baseline and descriptor, and compare one analytic gradient component with a central finite difference:
 
 ```bash
-sbatch --array=0-2 examples/deephf_md/run_slurm.sh random_cluster_samples_20260821/samples/small NONE sto-3g md-output 100 0.1 100 20260821
+mkdir -p deephf_b3lyp_validation
+sbatch --gres=gpu:1 --output=deephf_b3lyp_validation/slurm-%j.out --wrap="uv run python scripts/validate_published_deephf.py deephf_b3lyp_assets --output deephf_b3lyp_validation/validation.json"
 ```
 
-Use `NONE` as the model argument for a native-reference validation trajectory. Every output directory contains `trajectory.traj`, `energy.csv`, and `summary.json`. The summary reports maximum and linear total-energy drift, MD and end-to-end wall time per simulated femtosecond, Slurm job identifiers, and the accepted electronic-root lineage.
-
-Analyze nine completed trajectories using a `1 meV/atom` total-energy stability band and generate energy-conservation and timing plots:
+Run the nine systems one at a time on a single available GPU. The command below reproduces the current protocol: 400 steps, a 0.25 fs timestep, 100 fs total duration, and a 100 K Maxwell-Boltzmann target temperature. The finite-system frame-0 temperature is a deterministic sample from that distribution and is reported separately.
 
 ```bash
-uv run python scripts/analyze_energy_stability.py md-output
+sbatch --array=0-8%1 examples/deephf_md/run_slurm.sh deephf_b3lyp_assets/systems deephf_b3lyp_assets/b3lyp_gram_t1x.pth def2-tzvp deephf_b3lyp_md 400 0.25 100 20260821
 ```
 
-The ASE adapter uses the existing `CorrNet` correction model and its analytic descriptor derivative; it does not require an ASE-specific network. A checkpoint is reusable when its projector basis, descriptor width, element configuration, reference family, and training target match the simulated system. The supplied archive contains geometries and single-point metadata but no correction-model checkpoint or force labels, so it cannot by itself provide a new transferable correction model.
+Each trajectory contains `trajectory.traj`, `energy.csv`, and `summary.json`. The summary records total-energy drift, wall time per simulated femtosecond, the B3LYP grid controls, Slurm identifiers, and the accepted electronic-root lineage.
 
-The MD entry point first runs GPU DIIS SCF and uses the GPU4PySCF Newton solver when DIIS does not converge. The default MD thresholds are recorded in `summary.json`; adjust the `--scf-*` options for harder electronic states.
+Analyze the nine completed trajectories and generate the total-energy conservation and timing plots:
+
+```bash
+uv run python scripts/analyze_energy_stability.py deephf_b3lyp_md
+```
+
+The energy plot contains only the total-energy deviation from the initial NVE value. The reported stable duration ends at the first frame whose absolute total-energy drift exceeds 1 meV per atom.

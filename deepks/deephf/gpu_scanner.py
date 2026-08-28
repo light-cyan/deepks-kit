@@ -91,6 +91,9 @@ class GPUDeePHFGradientScanner:
         self.response_options = deepcopy(method.response_options)
         self.adjoint_options = deepcopy(method.adjoint_options)
         self.scf_args = {} if scf_args is None else dict(scf_args)
+        self.dft_args = deepcopy(
+            getattr(method.reference, "_deepks_dft_args", None)
+        )
         self.backend = backend
         self.backend_options = dict(backend_options or {})
         self.root_overlap_tolerance = validate_root_overlap_tolerance(
@@ -157,6 +160,7 @@ class GPUDeePHFGradientScanner:
                 molecule,
                 self.family,
                 scf_args=self.scf_args,
+                dft_args=deepcopy(self.dft_args),
                 dm0=self._anchor_density,
                 verbose=getattr(self._anchor_reference, "verbose", 0),
             ),

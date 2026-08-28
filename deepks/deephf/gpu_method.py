@@ -20,7 +20,10 @@ from deepks.gpu import (
     require_cuda_device,
     torch_from_array,
 )
-from deepks.model.model import CorrNet
+from deepks.model.model import (
+    CorrNet,
+    corrnet_is_shell_permutation_invariant,
+)
 
 from .capabilities import (
     DeePHFCapabilityError,
@@ -253,6 +256,9 @@ class GPUDeePHF:
                 self._descriptor.shell_sizes,
                 self._descriptor_rank_bound(),
                 sensitivity.detach().cpu().numpy(),
+                symmetric_function=corrnet_is_shell_permutation_invariant(
+                    self.model
+                ),
             )
         self._descriptor_values = descriptor_values
         self._sensitivity = sensitivity.detach()
