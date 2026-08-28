@@ -79,6 +79,16 @@ def parse_arguments():
     parser.add_argument("--timestep-fs", type=float, default=0.1)
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--seed", type=int, default=20260821)
+    parser.add_argument(
+        "--force-mode",
+        choices=("analytic", "central_finite_difference"),
+        default="analytic",
+    )
+    parser.add_argument(
+        "--finite-difference-step-bohr",
+        type=float,
+        default=1.0e-4,
+    )
     parser.add_argument("--root-overlap-tolerance", type=float, default=0.5)
     parser.add_argument("--scf-max-cycle", type=int, default=40)
     parser.add_argument("--scf-newton-max-cycle", type=int, default=50)
@@ -123,6 +133,13 @@ def main():
         raise ValueError("grid-level must be nonnegative")
     if args.small_rho_cutoff < 0.0 or not np.isfinite(args.small_rho_cutoff):
         raise ValueError("small-rho-cutoff must be finite and nonnegative")
+    if (
+        args.finite_difference_step_bohr <= 0.0
+        or not np.isfinite(args.finite_difference_step_bohr)
+    ):
+        raise ValueError(
+            "finite-difference-step-bohr must be finite and positive"
+        )
 
     encoded_charge, encoded_multiplicity = xyz_state(args.xyz)
     charge = encoded_charge if args.charge is None else args.charge
@@ -185,6 +202,8 @@ def main():
     )
     atoms.calc = DeePHFCalculator(
         method,
+        force_mode=args.force_mode,
+        finite_difference_step_bohr=args.finite_difference_step_bohr,
         root_overlap_tolerance=args.root_overlap_tolerance,
     )
 
@@ -287,6 +306,19 @@ def main():
             "newton_max_cycle": args.scf_newton_max_cycle,
         },
         "model": None if model is None else str(Path(args.model).resolve()),
+        "force": {
+            "mode": args.force_mode,
+            "finite_difference_step_bohr": (
+                args.finite_difference_step_bohr
+                if args.force_mode == "central_finite_difference"
+                else None
+            ),
+            "energy_evaluations_per_frame": (
+                1 + 6 * len(atoms)
+                if args.force_mode == "central_finite_difference"
+                else 1
+            ),
+        },
         "temperature_K": args.temperature_k,
         "timestep_fs": args.timestep_fs,
         "steps": args.steps,

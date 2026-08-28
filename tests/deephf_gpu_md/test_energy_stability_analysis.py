@@ -69,6 +69,7 @@ def test_common_protocol_rejects_mixed_xc():
 def _report_result():
     return {
         "system": "gram_01",
+        "configuration": "gram_01_rxn000026_p000026_0",
         "formula": "C2H4",
         "atoms": 6,
         "charge": 0,
@@ -80,6 +81,9 @@ def _report_result():
         "grid_level": 3,
         "small_rho_cutoff": 0.0,
         "model": "/runtime/b3lyp_gram_t1x.pth",
+        "model_name": "b3lyp_gram_t1x.pth",
+        "force_mode": "analytic",
+        "finite_difference_step_bohr": None,
         "target_temperature_K": 100.0,
         "initial_temperature_K": 66.7,
         "timestep_fs": 0.25,
@@ -106,7 +110,7 @@ def test_report_marks_full_run_stability_and_links_plots(tmp_path):
     report = output.read_text(encoding="utf-8")
     assert (
         "| gram_01 | C2H4 | 6 | 0 | 1 | GPU4PySCF RKS | B3LYP5 | "
-        "def2-tzvp | default/level-3/rho-0 | b3lyp_gram_t1x.pth | "
+        "def2-tzvp | default/level-3/rho-0 | b3lyp_gram_t1x.pth | analytic | "
         "100.0 | 66.7 | 0.250 | 400 | 1023_0 |"
     ) in report
     assert "| gram_01 | C2H4 | 6 | 100.00 | >=100.00 | 0.012345 |" in report

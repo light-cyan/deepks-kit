@@ -18,7 +18,7 @@ from ase.io.trajectory import Trajectory
 
 
 ENERGY_STABILITY_MEV_PER_ATOM = 1.0
-SYSTEM_NAME = re.compile(r"^(large|medium|small)_(\d+)")
+SYSTEM_NAME = re.compile(r"^(?:(?:large|medium|small)|gram)_\d+")
 PROTOCOL_FIELDS = (
     "reference_family",
     "xc",
@@ -26,7 +26,9 @@ PROTOCOL_FIELDS = (
     "grid_level",
     "small_rho_cutoff",
     "basis",
-    "model",
+    "model_name",
+    "force_mode",
+    "finite_difference_step_bohr",
     "target_temperature_K",
     "timestep_fs",
     "steps",
@@ -156,8 +158,10 @@ def analyze_system(directory: Path) -> tuple[dict, dict[str, np.ndarray]]:
         else 0.0
     )
     timing = summary["timing"]
+    force = summary.get("force", {"mode": "analytic"})
     result = {
         "system": system_label(directory),
+        "configuration": directory.name,
         "formula": formula,
         "atoms": atoms,
         "charge": summary["charge"],
@@ -171,6 +175,13 @@ def analyze_system(directory: Path) -> tuple[dict, dict[str, np.ndarray]]:
         ),
         "basis": summary["basis"],
         "model": summary["model"],
+        "model_name": (
+            None if summary["model"] is None else Path(summary["model"]).name
+        ),
+        "force_mode": force["mode"],
+        "finite_difference_step_bohr": force.get(
+            "finite_difference_step_bohr"
+        ),
         "target_temperature_K": summary["temperature_K"],
         "initial_temperature_K": float(energy["temperature_K"][0]),
         "timestep_fs": summary["timestep_fs"],
@@ -275,30 +286,43 @@ def plot_timing(results: list[dict], output: Path) -> None:
 def write_report(results: list[dict], output: Path) -> None:
     validate_common_protocol(results)
     protocol = results[0]
-    model_name = Path(protocol["model"]).name
+    model_name = protocol["model_name"]
+    force_description = (
+        "analytic DeePHF forces"
+        if protocol["force_mode"] == "analytic"
+        else "central finite differences of the complete DeePHF energy"
+    )
     lines = [
         "# DeePHF NVE total-energy stability",
         "",
-        f"All trajectories use analytic DeePHF forces with a GPU4PySCF {protocol['reference_family']} {protocol['xc']}/{protocol['basis']} reference and the {model_name} correction network.",
+        f"All trajectories use {force_description} with a GPU4PySCF {protocol['reference_family']} {protocol['xc']}/{protocol['basis']} reference and the {model_name} correction network.",
         "",
         "A trajectory is classified as stable through the last sampled frame before its absolute total-energy drift first exceeds 1 meV/atom. This criterion uses total energy only; potential and kinetic energies are recorded as components but are not separate stability criteria.",
         "",
         "## Simulation tasks and methods",
         "",
-        "| System | Formula | Atoms | Charge | Multiplicity | Reference | XC | Basis | Grid | Correction model | Target T (K) | Frame-0 T (K) | Step (fs) | Steps | Slurm job |",
-        "|---|---:|---:|---:|---:|---|---|---|---|---|---:|---:|---:|---:|---|",
+        "| System | Formula | Atoms | Charge | Multiplicity | Reference | XC | Basis | Grid | Correction model | Force method | Target T (K) | Frame-0 T (K) | Step (fs) | Steps | Slurm job |",
+        "|---|---:|---:|---:|---:|---|---|---|---|---|---|---:|---:|---:|---:|---|",
     ]
     for result in results:
-        model = Path(result["model"]).name
+        model = result["model_name"]
         grid = (
             f"{result['grid_mode']}/level-{result['grid_level']}"
             f"/rho-{result['small_rho_cutoff']:g}"
+        )
+        force_method = (
+            "analytic"
+            if result["force_mode"] == "analytic"
+            else (
+                "central FD "
+                f"({result['finite_difference_step_bohr']:.1e} Bohr)"
+            )
         )
         lines.append(
             f"| {result['system']} | {result['formula']} | {result['atoms']} | "
             f"{result['charge']} | {result['multiplicity']} | "
             f"GPU4PySCF {result['reference_family']} | {result['xc']} | "
-            f"{result['basis']} | {grid} | {model} | "
+            f"{result['basis']} | {grid} | {model} | {force_method} | "
             f"{result['target_temperature_K']:.1f} | "
             f"{result['initial_temperature_K']:.1f} | "
             f"{result['timestep_fs']:.3f} | "

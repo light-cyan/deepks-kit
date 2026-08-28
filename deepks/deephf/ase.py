@@ -1,4 +1,4 @@
-"""ASE calculator for GPU-native DeePHF energy and analytic forces."""
+"""ASE calculator for GPU-native DeePHF energy and force evaluations."""
 
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ class DeePHFCalculator(Calculator):
         method,
         *,
         backend="direct",
+        force_mode="analytic",
+        finite_difference_step_bohr=1.0e-4,
         root_overlap_tolerance=0.5,
         **kwargs,
     ):
@@ -34,10 +36,24 @@ class DeePHFCalculator(Calculator):
         self.atomic_numbers = np.asarray(
             self.template_molecule.atom_charges(), dtype=np.int64
         )
-        self.scanner = method.nuc_grad_method(
-            backend=backend,
-            retain_details=False,
-        ).as_scanner(root_overlap_tolerance=root_overlap_tolerance)
+        if force_mode == "analytic":
+            self.scanner = method.nuc_grad_method(
+                backend=backend,
+                retain_details=False,
+            ).as_scanner(root_overlap_tolerance=root_overlap_tolerance)
+        elif force_mode == "central_finite_difference":
+            from .gpu_scanner import GPUDeePHFFiniteDifferenceScanner
+
+            self.scanner = GPUDeePHFFiniteDifferenceScanner.from_method(
+                method,
+                finite_difference_step_bohr=finite_difference_step_bohr,
+                root_overlap_tolerance=root_overlap_tolerance,
+            )
+        else:
+            raise ValueError(
+                "force_mode must be analytic or central_finite_difference"
+            )
+        self.force_mode = force_mode
 
     def calculate(
         self,

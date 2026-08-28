@@ -7,8 +7,8 @@
 
 set -euo pipefail
 
-if [ "$#" -lt 4 ] || [ "$#" -gt 8 ]; then
-  echo "Usage: sbatch --array=... run_slurm.sh SAMPLE_SOURCE MODEL BASIS OUTPUT_ROOT [STEPS] [TIMESTEP_FS] [TEMPERATURE_K] [SEED]" >&2
+if [ "$#" -lt 4 ] || [ "$#" -gt 10 ]; then
+  echo "Usage: sbatch --array=... run_slurm.sh SAMPLE_SOURCE MODEL BASIS OUTPUT_ROOT [STEPS] [TIMESTEP_FS] [TEMPERATURE_K] [SEED] [FORCE_MODE] [FINITE_DIFFERENCE_STEP_BOHR]" >&2
   exit 2
 fi
 
@@ -22,6 +22,8 @@ steps=${5:-400}
 timestep_fs=${6:-0.25}
 temperature_k=${7:-100}
 seed=${8:-20260821}
+force_mode=${9:-analytic}
+finite_difference_step_bohr=${10:-1e-4}
 if [ "${model^^}" != "NONE" ]; then
   model=$(realpath "$model")
 fi
@@ -61,4 +63,6 @@ uv run python scripts/run_ase_md.py \
   --timestep-fs "$timestep_fs" \
   --steps "$steps" \
   --seed "$seed" \
+  --force-mode "$force_mode" \
+  --finite-difference-step-bohr "$finite_difference_step_bohr" \
   --output-directory "$output_root/$sample_name"

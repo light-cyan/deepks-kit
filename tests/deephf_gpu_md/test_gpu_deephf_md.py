@@ -214,6 +214,27 @@ def test_b3lyp_gpu_analytic_gradient_matches_total_energy_finite_difference():
     np.testing.assert_allclose(analytic, numerical, rtol=0.0, atol=5.0e-6)
 
 
+def test_gpu_finite_difference_scanner_matches_analytic_gradient():
+    from deepks.deephf.gpu_scanner import GPUDeePHFFiniteDifferenceScanner
+
+    require_cuda_device()
+    model = _model()
+    reference = build_reference(_h2(1.4), "rhf")
+    method = make_deephf(reference, model)
+    analytic = method.gradient()
+    scanner = GPUDeePHFFiniteDifferenceScanner.from_method(
+        method,
+        finite_difference_step_bohr=1.0e-4,
+    )
+
+    energy, numerical = scanner(_h2(1.4))
+
+    assert energy == pytest.approx(method.e_tot, abs=1.0e-12)
+    np.testing.assert_allclose(numerical, analytic, rtol=0.0, atol=2.0e-5)
+    assert scanner.records[0]["energy_evaluations"] == 13
+    assert scanner.records[0]["force_mode"] == "central_finite_difference"
+
+
 def test_uhf_gradient_scanner_reuses_density_and_tracks_both_spin_roots():
     require_cuda_device()
     method = make_deephf(

@@ -30,6 +30,7 @@ from .gpu_method import (
     GPUUKSDeePHF,
 )
 from .gpu_scanner import (
+    GPUDeePHFFiniteDifferenceScanner,
     GPUDeePHFGradientScanner,
     GPUDeePHFScannerError,
     GPUUHFDeePHFGradientScanner,
@@ -108,6 +109,7 @@ __all__ = [
     "DeePHFCalculator",
     "DeePHFCapabilityError",
     "GPUDeePHF",
+    "GPUDeePHFFiniteDifferenceScanner",
     "GPUDeePHFGradients",
     "GPUDeePHFGradientScanner",
     "GPUDeePHFScannerError",

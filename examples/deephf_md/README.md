@@ -23,6 +23,12 @@ sbatch --array=0-8%1 examples/deephf_md/run_slurm.sh deephf_b3lyp_assets/systems
 
 Each trajectory contains `trajectory.traj`, `energy.csv`, and `summary.json`. The summary records total-energy drift, wall time per simulated femtosecond, the B3LYP grid controls, Slurm identifiers, and the accepted electronic-root lineage.
 
+Use the original perturbative DeePHF numerical-force construction as a control by selecting `central_finite_difference`. This evaluates the complete `e_base + e_corr` energy at positive and negative Cartesian displacements of `1e-4` Bohr. A frame for an `N`-atom system requires `1 + 6N` complete DeePHF energy evaluations.
+
+```bash
+sbatch --array=0-8%1 examples/deephf_md/run_slurm.sh deephf_b3lyp_assets/systems deephf_b3lyp_assets/b3lyp_gram_t1x.pth def2-tzvp deephf_b3lyp_md_numerical 400 0.25 100 20260821 central_finite_difference 1e-4
+```
+
 Analyze the nine completed trajectories and generate the total-energy conservation and timing plots:
 
 ```bash
@@ -30,3 +36,9 @@ uv run python scripts/analyze_energy_stability.py deephf_b3lyp_md
 ```
 
 The energy plot contains only the total-energy deviation from the initial NVE value. The reported stable duration ends at the first frame whose absolute total-energy drift exceeds 1 meV per atom.
+
+Compare completed analytic and numerical-force campaigns on their common time grid:
+
+```bash
+uv run python scripts/compare_force_methods.py deephf_b3lyp_md deephf_b3lyp_md_numerical deephf_force_comparison
+```

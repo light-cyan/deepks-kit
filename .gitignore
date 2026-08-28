@@ -60,8 +60,11 @@ venv.bak/
 /TODO.md
 /diagnostics/scientific_performance/results/
 /deephf_b3lyp_assets/
+/deephf_b3lyp_fd_benchmark/
+/deephf_b3lyp_fd_md_10fs/
 /deephf_b3lyp_md/
 /deephf_b3lyp_pilot/
 /deephf_b3lyp_validation/
+/deephf_force_comparison/
 /md_results/
 /project.tar.gz
