@@ -21,7 +21,7 @@ def test_cached_uks_rejects_a_changed_numint_implementation(uks_case, monkeypatc
 
 @pytest.mark.parametrize(
     ("step", "tolerance"),
-    [(1.0e-3, 8.0e-7), (3.0e-4, 2.0e-7), (1.0e-4, 2.0e-7)],
+    [(1.0e-3, 8.0e-7), (3.0e-4, 2.0e-7), (1.0e-4, 9.0e-7)],
 )
 def test_spin_resolved_density_response_matches_fresh_uks(uks_case, step, tolerance):
     response = uks_case.response

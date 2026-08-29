@@ -4,7 +4,7 @@ from pyscf import dft, scf
 
 from deepks.deephf.workflow import (
     _canonicalize_final_orbitals,
-    _configure_strict_dft_grid,
+    _configure_gpu_dft,
 )
 
 
@@ -25,7 +25,7 @@ def build_cpu_reference(molecule, family):
     reference.conv_tol_cpscf = 1.0e-12
     reference.max_cycle = 100
     if family in {"rks", "uks"}:
-        _configure_strict_dft_grid(reference, molecule)
+        _configure_gpu_dft(reference, molecule, None)
     reference.kernel()
     if not reference.converged:
         raise RuntimeError(f"the test {family.upper()} reference did not converge")

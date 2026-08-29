@@ -1107,6 +1107,7 @@ def test_rks_nondifferentiable_descriptor_fails_before_response(
     ).double()
     with torch.no_grad():
         model.linear.weight.zero_()
+        model.linear.weight[0, 0] = 1.0e-3
         model.linear.bias.fill_(0.007)
         for parameter in model.densenet.parameters():
             parameter.zero_()
