@@ -15,11 +15,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from scripts.analyze_energy_stability import (
-    ENERGY_STABILITY_MEV_PER_ATOM,
-    analyze_system,
-    validate_common_protocol,
-)
+if __package__:
+    from .analyze_energy_stability import (
+        ENERGY_STABILITY_MEV_PER_ATOM,
+        analyze_system,
+        validate_common_protocol,
+    )
+else:
+    from analyze_energy_stability import (
+        ENERGY_STABILITY_MEV_PER_ATOM,
+        analyze_system,
+        validate_common_protocol,
+    )
 
 
 PAIR_PROTOCOL_FIELDS = (
