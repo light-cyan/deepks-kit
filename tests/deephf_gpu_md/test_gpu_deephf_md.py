@@ -165,10 +165,8 @@ def test_dft_gpu_correction_gradient_matches_correction_energy_finite_difference
         model,
         projector_basis=PROJECTOR_BASIS,
     )
-    analytic = (
-        method.gradient()[1, 2]
-        - reference.nuc_grad_method().kernel()[1, 2]
-    )
+    native_driver = method._native_gradient_driver()
+    analytic = method.gradient()[1, 2] - native_driver.kernel()[1, 2]
     step = 1.0e-4
     density = reference.make_rdm1().copy()
     numerical = (
@@ -182,6 +180,33 @@ def test_dft_gpu_correction_gradient_matches_correction_energy_finite_difference
 
     np.testing.assert_allclose(analytic, numerical, rtol=0.0, atol=3.0e-6)
     assert method.operation_counts["gpu_direct_response_solves"] == 1
+
+
+@pytest.mark.parametrize(
+    ("family", "molecule"),
+    (("rks", _h2(1.4)), ("uks", _oh(1.8))),
+)
+def test_dft_gpu_total_gradient_includes_native_grid_response(family, molecule):
+    require_cuda_device()
+    reference = build_reference(
+        molecule,
+        family,
+        scf_args={"conv_tol_grad": 1.0e-7},
+    )
+    method = make_deephf(
+        reference,
+        None,
+        projector_basis=PROJECTOR_BASIS,
+    )
+    native_driver = method._native_gradient_driver()
+    expected = native_driver.kernel()
+
+    actual = method.gradient()
+
+    assert native_driver.grid_response is True
+    assert native_driver.grids.alignment == 128
+    assert reference.grids.alignment == 1
+    np.testing.assert_allclose(actual, expected, rtol=0.0, atol=1.0e-11)
 
 
 def test_b3lyp_gpu_analytic_gradient_matches_total_energy_finite_difference():

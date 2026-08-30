@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from copy import copy
 from numbers import Real
 
 import numpy as np
@@ -41,6 +42,7 @@ GPU_REFERENCE_TYPES = {
     "gpu4pyscf.dft.uks.UKS": "uks",
 }
 RESTRICTED_FAMILIES = frozenset(("rhf", "rks"))
+DFT_FAMILIES = frozenset(("rks", "uks"))
 SUPPORTED_RESPONSE_OPTIONS = frozenset(
     (
         "cphf_tolerance",
@@ -460,9 +462,8 @@ class GPUDeePHF:
         if self._gradient is None or self._gradient_options != option_key:
             import cupy
 
-            native = cupy.asarray(
-                self.reference.nuc_grad_method().kernel(), dtype=cupy.float64
-            )
+            native_driver = self._native_gradient_driver()
+            native = cupy.asarray(native_driver.kernel(), dtype=cupy.float64)
             if bool(torch.count_nonzero(self._sensitivity).item()):
                 explicit, objective = self._workspace.correction_derivatives_tensor(
                     self._sensitivity
@@ -485,6 +486,19 @@ class GPUDeePHF:
         selected = validate_atom_indices(self.mol, atom_indices)
         values = self._gradient if selected is None else self._gradient[list(selected)]
         return np.array(as_numpy(values), dtype=np.float64, copy=True, order="C")
+
+    def _native_gradient_driver(self):
+        """Build the complete native reference gradient on the active backend."""
+        driver = self.reference.nuc_grad_method()
+        if self.reference_family not in DFT_FAMILIES:
+            return driver
+        driver.grid_response = True
+        grids = self.reference.grids
+        alignment = int(grids.alignment)
+        if alignment <= 1 or alignment % 128:
+            driver.grids = copy(grids)
+            driver.grids.alignment = 128
+        return driver
 
     def nuc_grad_method(
         self,
