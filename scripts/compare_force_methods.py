@@ -345,7 +345,7 @@ def write_report(rows: list[dict], output: Path, analytic_root: Path) -> None:
         "九个任务来自已发表 DeePHF 数据中的 GRAM 构型，均为电荷 0、多重度 1 的闭壳层体系。势能采用 `GPU4PySCF RKS B3LYP5/def2-tzvp + b3lyp_gram_t1x.pth DeePHF 神经网络修正`，即神经网络确实参与每一帧总势能及其力的计算。分子动力学使用 ASE Velocity-Verlet NVE 积分器，通过 Slurm 申请 GPU。",
         "",
         f"解析梯度实验直接计算完整 DeePHF 总能量对核坐标的解析导数，其中 GPU4PySCF RKS 梯度包含 DFT 数值积分网格响应，共 {analytic_steps} 步、{analytic_duration:.0f} fs。数值梯度对照对同一完整 DeePHF 总能量作中心有限差分，位移为 {step:.1e} Bohr，共 {numerical_steps} 步、{numerical_duration:.0f} fs；每一帧需要 `1 + 6N` 次总能量计算，即本组体系为 37–85 次。两种方法的初始结构、初始动量、SCF 条件、温度和时间步长完全一致。",
-        "本次解析梯度任务中 gram_01、gram_04、gram_07 使用本机 RTX 5090，其余六个体系使用 node2 RTX PRO 6000；数值梯度数据复用此前 node1 RTX 5090 的 10 fs 任务。运行时间比是本批 Slurm 作业的实际吞吐对比，包含 GPU 型号差异，不作为同一硬件上的隔离变量微基准。",
+        "本次解析梯度任务中 gram_03、gram_07、gram_08 使用本机 RTX 5090，其余六个体系使用 node2 RTX PRO 6000；数值梯度数据复用此前 node1 RTX 5090 的 10 fs 任务。运行时间比是本批 Slurm 作业的实际吞吐对比，包含 GPU 型号差异，不作为同一硬件上的隔离变量微基准。",
         "",
         "| 任务 | 原始构型 | 分子式 | 原子数 | 电荷 | 多重度 | 参考方法 | 泛函/基组 | 积分网格 | 修正网络 | 目标/第 0 帧温度（K） | 步长（fs） | 解析任务 | 数值任务 |",
         "|---|---|---:|---:|---:|---:|---|---|---|---|---:|---:|---|---|",
