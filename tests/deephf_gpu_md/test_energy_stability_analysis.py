@@ -125,6 +125,7 @@ def test_report_marks_full_run_stability_and_links_plots(tmp_path):
     ) in report
     assert "| gram_01 | 100.00 | ≥100.00 | -100.123456 | -100.123475 | 0.012345 |" in report
     assert "![总能量稳定性](total_energy_stability.png)" in report
+    assert "解析 DFT 原生梯度包含数值积分网格响应" in report
     assert "![每模拟飞秒的墙钟时间](wall_time_per_fs.png)" in report
 
 

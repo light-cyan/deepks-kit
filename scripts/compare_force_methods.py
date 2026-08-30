@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import os
 from pathlib import Path
 
 import matplotlib
@@ -305,7 +306,7 @@ def plot_timing_comparison(rows: list[dict], output: Path):
     plt.close(figure)
 
 
-def write_report(rows: list[dict], output: Path) -> None:
+def write_report(rows: list[dict], output: Path, analytic_root: Path) -> None:
     step = rows[0]["finite_difference_step_bohr"]
     analytic_steps = rows[0]["analytic_steps"]
     numerical_steps = rows[0]["numerical_steps"]
@@ -322,6 +323,18 @@ def write_report(rows: list[dict], output: Path) -> None:
         row["numerical_common_max_drift_meV_per_atom"] for row in rows
     )
     ratios = [row["numerical_over_analytic_wall_time_ratio"] for row in rows]
+    analytic_energy_plot = Path(
+        os.path.relpath(
+            analytic_root / "total_energy_stability.png",
+            start=output.parent,
+        )
+    ).as_posix()
+    analytic_timing_plot = Path(
+        os.path.relpath(
+            analytic_root / "wall_time_per_fs.png",
+            start=output.parent,
+        )
+    ).as_posix()
     lines = [
         "# DeePHF GPU 分子动力学与力方法对照报告",
         "",
@@ -331,7 +344,8 @@ def write_report(rows: list[dict], output: Path) -> None:
         "",
         "九个任务来自已发表 DeePHF 数据中的 GRAM 构型，均为电荷 0、多重度 1 的闭壳层体系。势能采用 `GPU4PySCF RKS B3LYP5/def2-tzvp + b3lyp_gram_t1x.pth DeePHF 神经网络修正`，即神经网络确实参与每一帧总势能及其力的计算。分子动力学使用 ASE Velocity-Verlet NVE 积分器，通过 Slurm 申请 GPU。",
         "",
-        f"解析梯度实验直接计算完整 DeePHF 总能量对核坐标的解析导数，共 {analytic_steps} 步、{analytic_duration:.0f} fs。数值梯度对照对同一完整 DeePHF 总能量作中心有限差分，位移为 {step:.1e} Bohr，共 {numerical_steps} 步、{numerical_duration:.0f} fs；每一帧需要 `1 + 6N` 次总能量计算，即本组体系为 37–85 次。两种方法的初始结构、初始动量、SCF 条件、温度和时间步长完全一致。",
+        f"解析梯度实验直接计算完整 DeePHF 总能量对核坐标的解析导数，其中 GPU4PySCF RKS 梯度包含 DFT 数值积分网格响应，共 {analytic_steps} 步、{analytic_duration:.0f} fs。数值梯度对照对同一完整 DeePHF 总能量作中心有限差分，位移为 {step:.1e} Bohr，共 {numerical_steps} 步、{numerical_duration:.0f} fs；每一帧需要 `1 + 6N` 次总能量计算，即本组体系为 37–85 次。两种方法的初始结构、初始动量、SCF 条件、温度和时间步长完全一致。",
+        "本次解析梯度任务中 gram_01、gram_04、gram_07 使用本机 RTX 5090，其余六个体系使用 node2 RTX PRO 6000；数值梯度数据复用此前 node1 RTX 5090 的 10 fs 任务。运行时间比是本批 Slurm 作业的实际吞吐对比，包含 GPU 型号差异，不作为同一硬件上的隔离变量微基准。",
         "",
         "| 任务 | 原始构型 | 分子式 | 原子数 | 电荷 | 多重度 | 参考方法 | 泛函/基组 | 积分网格 | 修正网络 | 目标/第 0 帧温度（K） | 步长（fs） | 解析任务 | 数值任务 |",
         "|---|---|---:|---:|---:|---:|---|---|---|---|---:|---:|---|---|",
@@ -377,9 +391,9 @@ def write_report(rows: list[dict], output: Path) -> None:
             "",
             f"九个解析梯度轨迹均稳定到 {analytic_duration:.0f} fs 终点，最大绝对漂移范围为 {minimum_analytic:.6f}–{maximum_analytic:.6f} meV/原子，最差值也只有稳定阈值的 {100.0 * maximum_analytic / ENERGY_STABILITY_MEV_PER_ATOM:.2f}%。",
             "",
-            f"![解析梯度 {analytic_duration:.0f} fs 总能量漂移](../deephf_b3lyp_md/total_energy_stability.png)",
+            f"![解析梯度 {analytic_duration:.0f} fs 总能量漂移]({analytic_energy_plot})",
             "",
-            f"![解析梯度 {analytic_duration:.0f} fs 每模拟飞秒耗时](../deephf_b3lyp_md/wall_time_per_fs.png)",
+            f"![解析梯度 {analytic_duration:.0f} fs 每模拟飞秒耗时]({analytic_timing_plot})",
             "",
             "## 3. 解析梯度与数值梯度对照",
             "",
@@ -401,7 +415,7 @@ def write_report(rows: list[dict], output: Path) -> None:
     lines.extend(
         [
             "",
-            f"两种力方法在共同的 {common_duration:.0f} fs 区间内均未越过稳定阈值；解析梯度的最大全局漂移为 {max(row['analytic_common_max_drift_meV_per_atom'] for row in rows):.6f} meV/原子，数值梯度为 {maximum_numerical:.6f} meV/原子。数值梯度平均慢 {np.mean(ratios):.2f} 倍，逐体系范围为 {min(ratios):.2f}–{max(ratios):.2f} 倍。当前数据支持“解析梯度至少稳定 {analytic_duration:.0f} fs、数值梯度至少稳定 {numerical_duration:.0f} fs”，不据此推断数值梯度在 {analytic_duration:.0f} fs 的表现。",
+            f"两种力方法在共同的 {common_duration:.0f} fs 区间内均未越过稳定阈值；解析梯度的最大全局漂移为 {max(row['analytic_common_max_drift_meV_per_atom'] for row in rows):.6f} meV/原子，数值梯度为 {maximum_numerical:.6f} meV/原子。数值梯度的实测墙钟时间平均为解析梯度的 {np.mean(ratios):.2f} 倍，逐体系范围为 {min(ratios):.2f}–{max(ratios):.2f} 倍。当前数据支持“解析梯度至少稳定 {analytic_duration:.0f} fs、数值梯度至少稳定 {numerical_duration:.0f} fs”。本次没有重跑数值梯度，{common_duration:.0f} fs 对照直接复用既有 {numerical_duration:.0f} fs 轨迹的相同前缀；不对解析梯度在 {analytic_duration:.0f} fs 之后的稳定性作外推。",
             "",
             "![解析梯度与数值梯度总能量漂移对照](force_method_energy_comparison.png)",
             "",
@@ -440,7 +454,11 @@ def main() -> None:
         rows,
         args.output_root / "force_method_timing_comparison.png",
     )
-    write_report(rows, args.output_root / "force_method_comparison.md")
+    write_report(
+        rows,
+        args.output_root / "force_method_comparison.md",
+        args.analytic_root,
+    )
     print(json.dumps(rows, sort_keys=True))
 
 

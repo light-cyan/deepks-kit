@@ -107,7 +107,8 @@ def test_force_method_report_is_chinese_and_uses_requested_section_order(tmp_pat
     rows, _series_values = compare_campaigns(analytic, numerical)
     output = tmp_path / "comparison.md"
 
-    write_report(rows, output)
+    analytic_root = tmp_path / "analytic"
+    write_report(rows, output, analytic_root)
 
     report = output.read_text(encoding="utf-8")
     task_section = report.index("## 1. 九个模拟任务的属性与计算方法")
@@ -115,3 +116,7 @@ def test_force_method_report_is_chinese_and_uses_requested_section_order(tmp_pat
     comparison_section = report.index("## 3. 解析梯度与数值梯度对照")
     assert task_section < analytic_section < comparison_section
     assert "神经网络确实参与每一帧总势能及其力的计算" in report
+    assert "DFT 数值积分网格响应" in report
+    assert "analytic/total_energy_stability.png" in report
+    assert "不作为同一硬件上的隔离变量微基准" in report
+    assert "本次没有重跑数值梯度" in report

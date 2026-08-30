@@ -302,10 +302,16 @@ def write_report(results: list[dict], output: Path) -> None:
         if protocol["force_mode"] == "analytic"
         else "完整 DeePHF 总能量的中心有限差分力"
     )
+    grid_response_description = (
+        "解析 DFT 原生梯度包含数值积分网格响应。"
+        if protocol["force_mode"] == "analytic"
+        and protocol["reference_family"] in {"RKS", "UKS"}
+        else ""
+    )
     lines = [
         "# DeePHF NVE 总能量稳定性报告",
         "",
-        f"全部轨迹使用{force_description}；电子结构参考为 GPU4PySCF {protocol['reference_family']}，泛函与基组为 {protocol['xc']}/{protocol['basis']}，并使用已发表的 {model_name} DeePHF 修正网络。总势能为参考方法能量与神经网络修正能量之和。",
+        f"全部轨迹使用{force_description}；电子结构参考为 GPU4PySCF {protocol['reference_family']}，泛函与基组为 {protocol['xc']}/{protocol['basis']}，并使用已发表的 {model_name} DeePHF 修正网络。总势能为参考方法能量与神经网络修正能量之和。{grid_response_description}",
         "",
         "稳定性只根据总能量判断：总能量绝对漂移首次超过 1 meV/原子之前的最后一帧记为稳定时长。势能和动能虽被记录，但不单独作为稳定性判据。",
         "",
@@ -367,10 +373,27 @@ def write_report(results: list[dict], output: Path) -> None:
     maximum = max(result["maximum_absolute_drift_meV_per_atom"] for result in results)
     minimum = min(result["maximum_absolute_drift_meV_per_atom"] for result in results)
     duration = min(result["stable_duration_at_1meV_per_atom_fs"] for result in results)
+    if all(result["stable_through_full_run"] for result in results):
+        stability_summary = (
+            "九个体系在全部已模拟区间内均未越过 1 meV/原子阈值，因此"
+            f"观测到的稳定时长均至少为 {duration:.2f} fs；各体系最大绝对漂移"
+            f"范围为 {minimum:.6f}–{maximum:.6f} meV/原子。"
+        )
+    else:
+        failed = ", ".join(
+            result["system"]
+            for result in results
+            if not result["stable_through_full_run"]
+        )
+        stability_summary = (
+            f"{failed} 在模拟区间内越过 1 meV/原子阈值；九个体系中最短的"
+            f"观测稳定时长为 {duration:.2f} fs，各体系最大绝对漂移范围为 "
+            f"{minimum:.6f}–{maximum:.6f} meV/原子。"
+        )
     lines.extend(
         [
             "",
-            f"九个体系在全部已模拟区间内均未越过 1 meV/原子阈值，因此观测到的稳定时长均至少为 {duration:.2f} fs；各体系最大绝对漂移范围为 {minimum:.6f}–{maximum:.6f} meV/原子。",
+            stability_summary,
             "",
             "![总能量稳定性](total_energy_stability.png)",
             "",
