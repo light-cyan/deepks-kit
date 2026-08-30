@@ -1,6 +1,7 @@
 import numpy as np
 
 from scripts.analyze_energy_stability import (
+    drift_axis_limit,
     plot_energy,
     plot_timing,
     stable_duration,
@@ -29,6 +30,12 @@ def test_stable_duration_is_zero_when_initial_frame_is_outside_band():
     drift = np.asarray([1.1, 0.0])
 
     assert stable_duration(times, drift) == 0.0
+
+
+def test_drift_axis_limit_tracks_observed_curve_instead_of_stability_band():
+    drift = np.asarray([0.0, 0.02, -0.01])
+
+    assert np.isclose(drift_axis_limit(drift), 0.023)
 
 
 def _energy_series():
@@ -92,10 +99,13 @@ def _report_result():
         "simulated_duration_fs": 100.0,
         "stable_duration_at_1meV_per_atom_fs": 100.0,
         "stable_through_full_run": True,
+        "initial_total_energy_eV": -100.123456,
+        "final_total_energy_eV": -100.123475,
         "maximum_absolute_drift_meV_per_atom": 0.012345,
         "rms_drift_meV_per_atom": 0.006789,
         "final_drift_meV_per_atom": -0.003210,
         "linear_drift_meV_per_atom_per_fs": 1.2e-5,
+        "md_wall_time_seconds": 25000.0,
         "md_wall_seconds_per_simulated_fs": 250.0,
         "total_wall_seconds_per_simulated_fs": 260.0,
     }
@@ -110,12 +120,12 @@ def test_report_marks_full_run_stability_and_links_plots(tmp_path):
     report = output.read_text(encoding="utf-8")
     assert (
         "| gram_01 | C2H4 | 6 | 0 | 1 | GPU4PySCF RKS | B3LYP5 | "
-        "def2-tzvp | default/level-3/rho-0 | b3lyp_gram_t1x.pth | analytic | "
+        "def2-tzvp | default/level-3/rho-0 | b3lyp_gram_t1x.pth | 解析梯度 | "
         "100.0 | 66.7 | 0.250 | 400 | 1023_0 |"
     ) in report
-    assert "| gram_01 | C2H4 | 6 | 100.00 | >=100.00 | 0.012345 |" in report
-    assert "![Total-energy stability](total_energy_stability.png)" in report
-    assert "![Wall time per simulated femtosecond](wall_time_per_fs.png)" in report
+    assert "| gram_01 | 100.00 | ≥100.00 | -100.123456 | -100.123475 | 0.012345 |" in report
+    assert "![总能量稳定性](total_energy_stability.png)" in report
+    assert "![每模拟飞秒的墙钟时间](wall_time_per_fs.png)" in report
 
 
 def test_energy_and_timing_plots_are_written_for_nine_systems(tmp_path):

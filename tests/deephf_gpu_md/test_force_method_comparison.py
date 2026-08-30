@@ -5,12 +5,14 @@ from scripts.compare_force_methods import (
     plot_energy_comparison,
     plot_timing_comparison,
     validate_campaign_pair,
+    write_report,
 )
 
 
 def _result(force_mode, *, wall_seconds, initial_temperature=66.7):
     return {
         "system": "gram_01",
+        "configuration": "gram_01_rxn000026_p000026_0",
         "formula": "C2H4",
         "atoms": 6,
         "charge": 0,
@@ -30,8 +32,16 @@ def _result(force_mode, *, wall_seconds, initial_temperature=66.7):
         "initial_temperature_K": initial_temperature,
         "timestep_fs": 0.25,
         "steps": 2,
+        "slurm_job_id": "1234",
         "simulated_duration_fs": 0.5,
         "stable_duration_at_1meV_per_atom_fs": 0.5,
+        "initial_total_energy_eV": -100.0,
+        "final_total_energy_eV": -99.9999,
+        "maximum_absolute_drift_meV_per_atom": 0.4,
+        "rms_drift_meV_per_atom": 0.2,
+        "final_drift_meV_per_atom": 0.1,
+        "linear_drift_meV_per_atom_per_fs": 0.01,
+        "md_wall_time_seconds": wall_seconds * 0.5,
         "md_wall_seconds_per_simulated_fs": wall_seconds,
     }
 
@@ -90,3 +100,18 @@ def test_force_method_comparison_plots_are_written(tmp_path):
 
     assert energy.stat().st_size > 0
     assert timing.stat().st_size > 0
+
+
+def test_force_method_report_is_chinese_and_uses_requested_section_order(tmp_path):
+    analytic, numerical = _campaigns()
+    rows, _series_values = compare_campaigns(analytic, numerical)
+    output = tmp_path / "comparison.md"
+
+    write_report(rows, output)
+
+    report = output.read_text(encoding="utf-8")
+    task_section = report.index("## 1. 九个模拟任务的属性与计算方法")
+    analytic_section = report.index("## 2. 解析梯度")
+    comparison_section = report.index("## 3. 解析梯度与数值梯度对照")
+    assert task_section < analytic_section < comparison_section
+    assert "神经网络确实参与每一帧总势能及其力的计算" in report

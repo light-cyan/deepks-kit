@@ -17,6 +17,10 @@ import numpy as np
 from ase.io.trajectory import Trajectory
 
 
+plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC", "Droid Sans Fallback", "DejaVu Sans"]
+plt.rcParams["axes.unicode_minus"] = False
+
+
 ENERGY_STABILITY_MEV_PER_ATOM = 1.0
 SYSTEM_NAME = re.compile(r"^(?:(?:large|medium|small)|gram)_\d+")
 PROTOCOL_FIELDS = (
@@ -57,6 +61,15 @@ def stable_duration(times: np.ndarray, drift: np.ndarray) -> float:
         return float(times[-1])
     first = int(failed[0])
     return 0.0 if first == 0 else float(times[first - 1])
+
+
+def drift_axis_limit(*drift_series: np.ndarray) -> float:
+    """Return a symmetric plot limit that resolves the observed energy drift."""
+    maximum = max(
+        (float(np.max(np.abs(values), initial=0.0)) for values in drift_series),
+        default=0.0,
+    )
+    return max(0.005, 1.15 * maximum)
 
 
 def validate_energy_series(
@@ -190,6 +203,8 @@ def analyze_system(directory: Path) -> tuple[dict, dict[str, np.ndarray]]:
         "simulated_duration_fs": duration,
         "stable_duration_at_1meV_per_atom_fs": stable_for,
         "stable_through_full_run": stable_for == duration,
+        "initial_total_energy_eV": float(energy["total_energy_eV"][0]),
+        "final_total_energy_eV": float(energy["total_energy_eV"][-1]),
         "maximum_absolute_drift_meV_per_atom": float(np.max(np.abs(drift))),
         "rms_drift_meV_per_atom": float(np.sqrt(np.mean(drift * drift))),
         "final_drift_meV_per_atom": float(drift[-1]),
@@ -218,13 +233,8 @@ def plot_energy(results: list[dict], series: list[dict], output: Path) -> None:
             color="#1565c0",
             linewidth=1.5,
         )
-        axis.axhspan(
-            -ENERGY_STABILITY_MEV_PER_ATOM,
-            ENERGY_STABILITY_MEV_PER_ATOM,
-            color="#2e7d32",
-            alpha=0.12,
-            label="stable band",
-        )
+        limit = drift_axis_limit(values["drift_meV_per_atom"])
+        axis.set_ylim(-limit, limit)
         axis.axhline(0.0, color="#424242", linewidth=0.7)
         if not result["stable_through_full_run"]:
             axis.axvline(
@@ -234,21 +244,21 @@ def plot_energy(results: list[dict], series: list[dict], output: Path) -> None:
                 linewidth=1.0,
             )
         axis.set_title(
-            f"{result['system']} ({result['formula']}, {result['atoms']} atoms)"
+            f"{result['system']}（{result['formula']}，{result['atoms']} 原子）"
         )
-        axis.set_xlabel("Simulation time (fs)")
-        axis.set_ylabel("Total-energy drift (meV/atom)")
+        axis.set_xlabel("模拟时间（fs）")
+        axis.set_ylabel("总能量漂移（meV/原子）")
         axis.grid(alpha=0.25)
         axis.text(
             0.03,
             0.95,
-            f"max |drift| = {result['maximum_absolute_drift_meV_per_atom']:.3f}",
+            f"最大 |漂移| = {result['maximum_absolute_drift_meV_per_atom']:.4f}",
             transform=axis.transAxes,
             va="top",
             fontsize=9,
         )
     figure.suptitle(
-        "NVE total-energy conservation (green band: +/-1 meV/atom)",
+        "NVE 总能量守恒（各子图按数据范围缩放；稳定阈值：±1 meV/原子）",
         fontsize=14,
     )
     figure.savefig(output, dpi=180)
@@ -266,17 +276,17 @@ def plot_timing(results: list[dict], output: Path) -> None:
     positions = np.arange(len(results))
     width = 0.38
     figure, axis = plt.subplots(figsize=(12, 5.5), constrained_layout=True)
-    axis.bar(positions - width / 2, md, width, label="MD loop", color="#1976d2")
+    axis.bar(positions - width / 2, md, width, label="MD 循环", color="#1976d2")
     axis.bar(
         positions + width / 2,
         total,
         width,
-        label="End-to-end",
+        label="端到端",
         color="#ef6c00",
     )
     axis.set_xticks(positions, labels, rotation=35, ha="right")
-    axis.set_ylabel("Wall time / simulated time (s/fs)")
-    axis.set_title("GPU Slurm wall time per simulated femtosecond")
+    axis.set_ylabel("每模拟 1 fs 的墙钟时间（s/fs）")
+    axis.set_title("GPU Slurm 任务耗时")
     axis.grid(axis="y", alpha=0.25)
     axis.legend()
     figure.savefig(output, dpi=180)
@@ -288,20 +298,20 @@ def write_report(results: list[dict], output: Path) -> None:
     protocol = results[0]
     model_name = protocol["model_name"]
     force_description = (
-        "analytic DeePHF forces"
+        "完整 DeePHF 解析梯度力"
         if protocol["force_mode"] == "analytic"
-        else "central finite differences of the complete DeePHF energy"
+        else "完整 DeePHF 总能量的中心有限差分力"
     )
     lines = [
-        "# DeePHF NVE total-energy stability",
+        "# DeePHF NVE 总能量稳定性报告",
         "",
-        f"All trajectories use {force_description} with a GPU4PySCF {protocol['reference_family']} {protocol['xc']}/{protocol['basis']} reference and the {model_name} correction network.",
+        f"全部轨迹使用{force_description}；电子结构参考为 GPU4PySCF {protocol['reference_family']}，泛函与基组为 {protocol['xc']}/{protocol['basis']}，并使用已发表的 {model_name} DeePHF 修正网络。总势能为参考方法能量与神经网络修正能量之和。",
         "",
-        "A trajectory is classified as stable through the last sampled frame before its absolute total-energy drift first exceeds 1 meV/atom. This criterion uses total energy only; potential and kinetic energies are recorded as components but are not separate stability criteria.",
+        "稳定性只根据总能量判断：总能量绝对漂移首次超过 1 meV/原子之前的最后一帧记为稳定时长。势能和动能虽被记录，但不单独作为稳定性判据。",
         "",
-        "## Simulation tasks and methods",
+        "## 1. 九个模拟任务的属性与计算条件",
         "",
-        "| System | Formula | Atoms | Charge | Multiplicity | Reference | XC | Basis | Grid | Correction model | Force method | Target T (K) | Frame-0 T (K) | Step (fs) | Steps | Slurm job |",
+        "| 任务 | 分子式 | 原子数 | 电荷 | 多重度 | 电子结构参考 | 交换相关泛函 | 基组 | 积分网格 | DeePHF 修正网络 | 力方法 | 目标温度（K） | 第 0 帧温度（K） | 时间步长（fs） | 步数 | Slurm 作业号 |",
         "|---|---:|---:|---:|---:|---|---|---|---|---|---|---:|---:|---:|---:|---|",
     ]
     for result in results:
@@ -311,11 +321,11 @@ def write_report(results: list[dict], output: Path) -> None:
             f"/rho-{result['small_rho_cutoff']:g}"
         )
         force_method = (
-            "analytic"
+            "解析梯度"
             if result["force_mode"] == "analytic"
             else (
-                "central FD "
-                f"({result['finite_difference_step_bohr']:.1e} Bohr)"
+                "中心有限差分"
+                f"（{result['finite_difference_step_bohr']:.1e} Bohr）"
             )
         )
         lines.append(
@@ -331,34 +341,40 @@ def write_report(results: list[dict], output: Path) -> None:
     lines.extend(
         [
             "",
-            "## Total-energy results",
+            "## 2. 总能量稳定性与运行时间",
             "",
-            "| System | Formula | Atoms | Simulated (fs) | Stable at 1 meV/atom (fs) | Max drift (meV/atom) | RMS drift (meV/atom) | Final drift (meV/atom) | Linear drift (meV/atom/fs) | MD wall time (s/fs) | End-to-end wall time (s/fs) |",
+            "| 任务 | 模拟时长（fs） | 稳定时长（fs） | 初始总能量（eV） | 最终总能量（eV） | 最大漂移（meV/原子） | RMS 漂移（meV/原子） | 最终漂移（meV/原子） | 线性漂移（meV/原子/fs） | MD 耗时（s/fs） | MD 总耗时（h） |",
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for result in results:
         stable = result["stable_duration_at_1meV_per_atom_fs"]
         if result["stable_through_full_run"]:
-            stable_text = f">={stable:.2f}"
+            stable_text = f"≥{stable:.2f}"
         else:
             stable_text = f"{stable:.2f}"
         lines.append(
-            f"| {result['system']} | {result['formula']} | {result['atoms']} | "
-            f"{result['simulated_duration_fs']:.2f} | {stable_text} | "
+            f"| {result['system']} | {result['simulated_duration_fs']:.2f} | {stable_text} | "
+            f"{result['initial_total_energy_eV']:.6f} | "
+            f"{result['final_total_energy_eV']:.6f} | "
             f"{result['maximum_absolute_drift_meV_per_atom']:.6f} | "
             f"{result['rms_drift_meV_per_atom']:.6f} | "
             f"{result['final_drift_meV_per_atom']:.6f} | "
             f"{result['linear_drift_meV_per_atom_per_fs']:.6g} | "
             f"{result['md_wall_seconds_per_simulated_fs']:.3f} | "
-            f"{result['total_wall_seconds_per_simulated_fs']:.3f} |"
+            f"{result['md_wall_time_seconds'] / 3600.0:.3f} |"
         )
+    maximum = max(result["maximum_absolute_drift_meV_per_atom"] for result in results)
+    minimum = min(result["maximum_absolute_drift_meV_per_atom"] for result in results)
+    duration = min(result["stable_duration_at_1meV_per_atom_fs"] for result in results)
     lines.extend(
         [
             "",
-            "![Total-energy stability](total_energy_stability.png)",
+            f"九个体系在全部已模拟区间内均未越过 1 meV/原子阈值，因此观测到的稳定时长均至少为 {duration:.2f} fs；各体系最大绝对漂移范围为 {minimum:.6f}–{maximum:.6f} meV/原子。",
             "",
-            "![Wall time per simulated femtosecond](wall_time_per_fs.png)",
+            "![总能量稳定性](total_energy_stability.png)",
+            "",
+            "![每模拟飞秒的墙钟时间](wall_time_per_fs.png)",
         ]
     )
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")

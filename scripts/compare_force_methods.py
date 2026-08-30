@@ -19,12 +19,14 @@ if __package__:
     from .analyze_energy_stability import (
         ENERGY_STABILITY_MEV_PER_ATOM,
         analyze_system,
+        drift_axis_limit,
         validate_common_protocol,
     )
 else:
     from analyze_energy_stability import (
         ENERGY_STABILITY_MEV_PER_ATOM,
         analyze_system,
+        drift_axis_limit,
         validate_common_protocol,
     )
 
@@ -134,8 +136,25 @@ def compare_campaigns(
         rows.append(
             {
                 "system": name,
+                "configuration": analytic_result["configuration"],
                 "formula": analytic_result["formula"],
                 "atoms": analytic_result["atoms"],
+                "charge": analytic_result["charge"],
+                "multiplicity": analytic_result["multiplicity"],
+                "reference_family": analytic_result["reference_family"],
+                "xc": analytic_result["xc"],
+                "basis": analytic_result["basis"],
+                "grid_mode": analytic_result["grid_mode"],
+                "grid_level": analytic_result["grid_level"],
+                "small_rho_cutoff": analytic_result["small_rho_cutoff"],
+                "model_name": analytic_result["model_name"],
+                "target_temperature_K": analytic_result["target_temperature_K"],
+                "initial_temperature_K": analytic_result["initial_temperature_K"],
+                "timestep_fs": analytic_result["timestep_fs"],
+                "analytic_steps": analytic_result["steps"],
+                "numerical_steps": numerical_result["steps"],
+                "analytic_slurm_job_id": analytic_result["slurm_job_id"],
+                "numerical_slurm_job_id": numerical_result["slurm_job_id"],
                 "common_duration_fs": float(times[-1]),
                 "analytic_duration_fs": analytic_result["simulated_duration_fs"],
                 "numerical_duration_fs": numerical_result[
@@ -159,6 +178,33 @@ def compare_campaigns(
                 "numerical_common_rms_drift_meV_per_atom": float(
                     np.sqrt(np.mean(numerical_drift * numerical_drift))
                 ),
+                "analytic_initial_total_energy_eV": analytic_result[
+                    "initial_total_energy_eV"
+                ],
+                "analytic_final_total_energy_eV": analytic_result[
+                    "final_total_energy_eV"
+                ],
+                "analytic_full_max_drift_meV_per_atom": analytic_result[
+                    "maximum_absolute_drift_meV_per_atom"
+                ],
+                "analytic_full_rms_drift_meV_per_atom": analytic_result[
+                    "rms_drift_meV_per_atom"
+                ],
+                "analytic_full_final_drift_meV_per_atom": analytic_result[
+                    "final_drift_meV_per_atom"
+                ],
+                "analytic_full_linear_drift_meV_per_atom_per_fs": analytic_result[
+                    "linear_drift_meV_per_atom_per_fs"
+                ],
+                "analytic_md_wall_time_seconds": analytic_result[
+                    "md_wall_time_seconds"
+                ],
+                "numerical_initial_total_energy_eV": numerical_result[
+                    "initial_total_energy_eV"
+                ],
+                "numerical_final_total_energy_eV": numerical_result[
+                    "final_total_energy_eV"
+                ],
                 "analytic_md_wall_seconds_per_fs": analytic_seconds,
                 "numerical_md_wall_seconds_per_fs": numerical_seconds,
                 "numerical_over_analytic_wall_time_ratio": (
@@ -194,32 +240,31 @@ def plot_energy_comparison(rows: list[dict], series: list[dict], output: Path):
         axis.plot(
             values["time_fs"],
             values["analytic_drift_meV_per_atom"],
-            label="analytic",
+            label="解析梯度",
             color="#1565c0",
             linewidth=1.4,
         )
         axis.plot(
             values["time_fs"],
             values["numerical_drift_meV_per_atom"],
-            label="central FD",
+            label="中心有限差分",
             color="#ef6c00",
             linewidth=1.2,
         )
-        axis.axhspan(
-            -ENERGY_STABILITY_MEV_PER_ATOM,
-            ENERGY_STABILITY_MEV_PER_ATOM,
-            color="#2e7d32",
-            alpha=0.10,
+        limit = drift_axis_limit(
+            values["analytic_drift_meV_per_atom"],
+            values["numerical_drift_meV_per_atom"],
         )
+        axis.set_ylim(-limit, limit)
         axis.axhline(0.0, color="#424242", linewidth=0.7)
         axis.set_title(f"{row['system']} ({row['formula']})")
-        axis.set_xlabel("Simulation time (fs)")
-        axis.set_ylabel("Total-energy drift (meV/atom)")
+        axis.set_xlabel("模拟时间（fs）")
+        axis.set_ylabel("总能量漂移（meV/原子）")
         axis.grid(alpha=0.25)
         axis.legend()
     for axis in axes.flat[len(rows) :]:
         axis.set_visible(False)
-    figure.suptitle("Analytic versus numerical DeePHF force stability")
+    figure.suptitle("DeePHF 解析梯度与数值梯度的总能量漂移（各子图按数据范围缩放）")
     figure.savefig(output, dpi=180)
     plt.close(figure)
 
@@ -239,19 +284,19 @@ def plot_timing_comparison(rows: list[dict], output: Path):
         positions - width / 2,
         analytic,
         width,
-        label="analytic",
+        label="解析梯度",
         color="#1565c0",
     )
     axis.bar(
         positions + width / 2,
         numerical,
         width,
-        label="central FD",
+        label="中心有限差分",
         color="#ef6c00",
     )
     axis.set_xticks(positions, labels, rotation=35, ha="right")
-    axis.set_ylabel("MD wall time / simulated time (s/fs)")
-    axis.set_title("DeePHF force-method wall time")
+    axis.set_ylabel("每模拟 1 fs 的 MD 墙钟时间（s/fs）")
+    axis.set_title("DeePHF 力方法运行时间对比")
     if numerical.max() / analytic.min() > 20.0:
         axis.set_yscale("log")
     axis.grid(axis="y", alpha=0.25)
@@ -262,32 +307,105 @@ def plot_timing_comparison(rows: list[dict], output: Path):
 
 def write_report(rows: list[dict], output: Path) -> None:
     step = rows[0]["finite_difference_step_bohr"]
+    analytic_steps = rows[0]["analytic_steps"]
+    numerical_steps = rows[0]["numerical_steps"]
+    analytic_duration = rows[0]["analytic_duration_fs"]
+    numerical_duration = rows[0]["numerical_duration_fs"]
+    common_duration = rows[0]["common_duration_fs"]
+    maximum_analytic = max(
+        row["analytic_full_max_drift_meV_per_atom"] for row in rows
+    )
+    minimum_analytic = min(
+        row["analytic_full_max_drift_meV_per_atom"] for row in rows
+    )
+    maximum_numerical = max(
+        row["numerical_common_max_drift_meV_per_atom"] for row in rows
+    )
+    ratios = [row["numerical_over_analytic_wall_time_ratio"] for row in rows]
     lines = [
-        "# DeePHF force-method comparison",
+        "# DeePHF GPU 分子动力学与力方法对照报告",
         "",
-        "The analytic method evaluates the complete DeePHF nuclear derivative. The numerical control evaluates the same complete DeePHF total energy at every positive and negative Cartesian displacement and applies a central difference.",
+        "本报告只研究 NVE 轨迹的总能量稳定性。稳定判据为总能量绝对漂移不超过 1 meV/原子；观测区间内未越过阈值时，只报告稳定时长至少达到模拟终点，不对更长时间作外推。",
         "",
-        f"The numerical displacement is {step:.1e} Bohr. Both methods use identical structures, initial momenta, electronic reference, correction network, SCF controls, temperature, and integration timestep.",
+        "## 1. 九个模拟任务的属性与计算方法",
         "",
-        "| System | Formula | Atoms | Common duration (fs) | Analytic max drift (meV/atom) | Numerical max drift (meV/atom) | Analytic time (s/fs) | Numerical time (s/fs) | Numerical / analytic |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "九个任务来自已发表 DeePHF 数据中的 GRAM 构型，均为电荷 0、多重度 1 的闭壳层体系。势能采用 `GPU4PySCF RKS B3LYP5/def2-tzvp + b3lyp_gram_t1x.pth DeePHF 神经网络修正`，即神经网络确实参与每一帧总势能及其力的计算。分子动力学使用 ASE Velocity-Verlet NVE 积分器，通过 Slurm 申请 GPU。",
+        "",
+        f"解析梯度实验直接计算完整 DeePHF 总能量对核坐标的解析导数，共 {analytic_steps} 步、{analytic_duration:.0f} fs。数值梯度对照对同一完整 DeePHF 总能量作中心有限差分，位移为 {step:.1e} Bohr，共 {numerical_steps} 步、{numerical_duration:.0f} fs；每一帧需要 `1 + 6N` 次总能量计算，即本组体系为 37–85 次。两种方法的初始结构、初始动量、SCF 条件、温度和时间步长完全一致。",
+        "",
+        "| 任务 | 原始构型 | 分子式 | 原子数 | 电荷 | 多重度 | 参考方法 | 泛函/基组 | 积分网格 | 修正网络 | 目标/第 0 帧温度（K） | 步长（fs） | 解析任务 | 数值任务 |",
+        "|---|---|---:|---:|---:|---:|---|---|---|---|---:|---:|---|---|",
     ]
     for row in rows:
+        grid = (
+            f"{row['grid_mode']}/level-{row['grid_level']}"
+            f"/rho-{row['small_rho_cutoff']:g}"
+        )
         lines.append(
-            f"| {row['system']} | {row['formula']} | {row['atoms']} | "
-            f"{row['common_duration_fs']:.2f} | "
-            f"{row['analytic_common_max_drift_meV_per_atom']:.6f} | "
-            f"{row['numerical_common_max_drift_meV_per_atom']:.6f} | "
-            f"{row['analytic_md_wall_seconds_per_fs']:.3f} | "
-            f"{row['numerical_md_wall_seconds_per_fs']:.3f} | "
-            f"{row['numerical_over_analytic_wall_time_ratio']:.2f}x |"
+            f"| {row['system']} | {row['configuration']} | {row['formula']} | "
+            f"{row['atoms']} | {row['charge']} | {row['multiplicity']} | "
+            f"GPU4PySCF {row['reference_family']} | {row['xc']}/{row['basis']} | "
+            f"{grid} | {row['model_name']} | {row['target_temperature_K']:.1f}/"
+            f"{row['initial_temperature_K']:.1f} | {row['timestep_fs']:.3f} | "
+            f"{row['analytic_steps']} 步/{row['analytic_duration_fs']:.0f} fs，作业 {row['analytic_slurm_job_id']} | "
+            f"{row['numerical_steps']} 步/{row['numerical_duration_fs']:.0f} fs，作业 {row['numerical_slurm_job_id']} |"
         )
     lines.extend(
         [
             "",
-            "![Total-energy comparison](force_method_energy_comparison.png)",
+            f"## 2. 解析梯度 {analytic_duration:.0f} fs 实验结果",
             "",
-            "![Wall-time comparison](force_method_timing_comparison.png)",
+            "| 任务 | 模拟时长（fs） | 稳定时长（fs） | 初始总能量（eV） | 最终总能量（eV） | 最大漂移（meV/原子） | RMS 漂移（meV/原子） | 最终漂移（meV/原子） | 线性漂移（meV/原子/fs） | MD 耗时（s/fs） | MD 总耗时（h） |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            f"| {row['system']} | {row['analytic_duration_fs']:.2f} | "
+            f"≥{row['analytic_stable_duration_fs']:.2f} | "
+            f"{row['analytic_initial_total_energy_eV']:.6f} | "
+            f"{row['analytic_final_total_energy_eV']:.6f} | "
+            f"{row['analytic_full_max_drift_meV_per_atom']:.6f} | "
+            f"{row['analytic_full_rms_drift_meV_per_atom']:.6f} | "
+            f"{row['analytic_full_final_drift_meV_per_atom']:.6f} | "
+            f"{row['analytic_full_linear_drift_meV_per_atom_per_fs']:.6g} | "
+            f"{row['analytic_md_wall_seconds_per_fs']:.3f} | "
+            f"{row['analytic_md_wall_time_seconds'] / 3600.0:.3f} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"九个解析梯度轨迹均稳定到 {analytic_duration:.0f} fs 终点，最大绝对漂移范围为 {minimum_analytic:.6f}–{maximum_analytic:.6f} meV/原子，最差值也只有稳定阈值的 {100.0 * maximum_analytic / ENERGY_STABILITY_MEV_PER_ATOM:.2f}%。",
+            "",
+            f"![解析梯度 {analytic_duration:.0f} fs 总能量漂移](../deephf_b3lyp_md/total_energy_stability.png)",
+            "",
+            f"![解析梯度 {analytic_duration:.0f} fs 每模拟飞秒耗时](../deephf_b3lyp_md/wall_time_per_fs.png)",
+            "",
+            "## 3. 解析梯度与数值梯度对照",
+            "",
+            f"为保证公平，只比较两组共同拥有的前 {common_duration:.0f} fs 数据。表中的解析梯度漂移也重新限制在前 {common_duration:.0f} fs，而运行时间采用各自完整任务的 MD 阶段平均值。",
+            "",
+            "| 任务 | 共同区间（fs） | 解析最大漂移（meV/原子） | 数值最大漂移（meV/原子） | 解析耗时（s/fs） | 数值耗时（s/fs） | 数值/解析耗时比 |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in rows:
+        lines.append(
+            f"| {row['system']} | {row['common_duration_fs']:.2f} | "
+            f"{row['analytic_common_max_drift_meV_per_atom']:.6f} | "
+            f"{row['numerical_common_max_drift_meV_per_atom']:.6f} | "
+            f"{row['analytic_md_wall_seconds_per_fs']:.3f} | "
+            f"{row['numerical_md_wall_seconds_per_fs']:.3f} | "
+            f"{row['numerical_over_analytic_wall_time_ratio']:.2f} 倍 |"
+        )
+    lines.extend(
+        [
+            "",
+            f"两种力方法在共同的 {common_duration:.0f} fs 区间内均未越过稳定阈值；解析梯度的最大全局漂移为 {max(row['analytic_common_max_drift_meV_per_atom'] for row in rows):.6f} meV/原子，数值梯度为 {maximum_numerical:.6f} meV/原子。数值梯度平均慢 {np.mean(ratios):.2f} 倍，逐体系范围为 {min(ratios):.2f}–{max(ratios):.2f} 倍。当前数据支持“解析梯度至少稳定 {analytic_duration:.0f} fs、数值梯度至少稳定 {numerical_duration:.0f} fs”，不据此推断数值梯度在 {analytic_duration:.0f} fs 的表现。",
+            "",
+            "![解析梯度与数值梯度总能量漂移对照](force_method_energy_comparison.png)",
+            "",
+            "![解析梯度与数值梯度运行时间对照](force_method_timing_comparison.png)",
         ]
     )
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
